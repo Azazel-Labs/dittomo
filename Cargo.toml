@@ -1,0 +1,24 @@
+[package]
+name = "mummer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Retarget animation from any skeleton onto any other: the more alike the two, the closer the copy"
+readme = "README.md"
+license = "MIT-0"
+repository = "https://github.com/Azazel-Labs/mummer"
+include = ["/src/**", "/README.md", "/LICENSE"]
+keywords = ["animation", "retargeting", "skeleton", "gltf", "gamedev"]
+categories = ["graphics", "game-development"]
+
+[dependencies]
+glam = "0.34"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+needless_range_loop = "allow"
+semicolon_if_nothing_returned = "warn"
+redundant_closure_for_method_calls = "warn"
+explicit_iter_loop = "warn"
