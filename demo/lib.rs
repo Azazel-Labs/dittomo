@@ -106,9 +106,9 @@ pub extern "C" fn map() -> u32 {
 }
 
 /// Plays the source's clip `clip` on the target with the fixes in `fixes` (1 travel, 2 feet, 4 push-out, 8 hands on
-/// the body, which needs both models' skins; the built-in sample has none), leaving
-/// each frame's time and every bone's place in the world, for both. The number of frames, or 0 with the error as the
-/// text.
+/// the body, which needs both models' skins; the built-in sample has none; 16 hands together where the source's
+/// meet; 32 hands on the head where the source's are), leaving each frame's time and every bone's place in the world,
+/// for both. The number of frames, or 0 with the error as the text.
 #[unsafe(no_mangle)]
 pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
     with(|s| {
@@ -132,6 +132,8 @@ pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
             feet: fixes & 2 != 0,
             push_out: fixes & 4 != 0,
             touch: fixes & 8 != 0,
+            hands: fixes & 16 != 0,
+            head: fixes & 32 != 0,
         };
         let shown = if fixes.travel {
             contact::travel(&source.skeleton, from)

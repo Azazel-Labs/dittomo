@@ -108,7 +108,8 @@ impl Mapping {
     }
 
     /// The clip played by the target, then fixed up: travel given to a clip walked in place, feet kept still while
-    /// planted, arms kept out of the body. [`Fixes::ALL`] makes every fix; [`Fixes::NONE`] is [`Mapping::apply`].
+    /// planted, arms kept out of the body and head, hands brought together where the source's meet and kept on the
+    /// head where the source's are on theirs. [`Fixes::ALL`] makes every fix; [`Fixes::NONE`] is [`Mapping::apply`].
     ///
     /// # Errors
     /// If the clip doesn't pose the source, or the mapping was made for skeletons of other sizes.
@@ -146,11 +147,37 @@ impl Mapping {
         if fixes.feet {
             contact::plant(self, [(source, &s), (target, &t)], clip, &mut out);
         }
-        if fixes.push_out {
-            contact::push_out(target, &t, &mut out);
+        // Each body (its arms, spine and head), found once for every fix that needs it.
+        let both = fixes.touch || fixes.hands || fixes.head;
+        let mut t_body = (fixes.push_out || both).then(|| contact::body(target, &t)).flatten();
+        let mut s_body = both.then(|| contact::body(source, &s)).flatten();
+        // With skins, each head is as big as its skin shows, not as its bones suggest.
+        for (body, shape, skin) in [(&mut s_body, &s, skins[0]), (&mut t_body, &t, skins[1])] {
+            if let Some(b) = body {
+                b.fit_head(shape, skin);
+            }
         }
-        if fixes.touch {
-            contact::touch(self, [(source, &s, skins[0]), (target, &t, skins[1])], clip, &mut out);
+        if let (true, Some(tb)) = (fixes.push_out, &t_body) {
+            contact::push_out(target, tb, &mut out);
+        }
+        if let (Some(sb), Some(tb)) = (&s_body, &t_body) {
+            let (rigs, bodies) = ([(source, &s), (target, &t)], [sb, tb]);
+            if fixes.hands {
+                contact::hands(self, rigs, bodies, clip, &mut out);
+            }
+            if fixes.head {
+                contact::on_head(self, rigs, bodies, clip, &mut out);
+            }
+            // Last, as it sees the skin: the hands the others placed are brought to the gap the source's have.
+            if fixes.touch {
+                contact::touch(
+                    self,
+                    [(source, &s, skins[0]), (target, &t, skins[1])],
+                    bodies,
+                    clip,
+                    &mut out,
+                );
+            }
         }
         Ok(out)
     }

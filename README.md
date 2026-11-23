@@ -105,7 +105,7 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 | travel | 0.00109 | 0.0094 | 3.0° |
 | planted feet | 0.00322 | 0.0020 | 3.9° |
 | push-out | 0.00402 | 0.0094 | 3.0° |
-| all (`apply_with`) | 0.00007 | 0.0011 | 4.1° |
+| all (`apply_with`) | 0.00007 | 0.0011 | 4.2° |
 
 Together they cut foot slide 57 times and the height error 8.5 times. The degree they cost is the legs bending to keep
 feet down where the target's stride and leg proportions differ from the source's. Push-out finds nothing to do here,
@@ -117,7 +117,7 @@ over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0294 | 0.0654 | 8.0% |
+| all but touch (`apply_with`) | 0.0293 | 0.0653 | 8.1% |
 | all (`apply_touching`) | 0.0108 | 0.0213 | 1.4% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
@@ -220,8 +220,21 @@ tails are left out, and fingers hanging low aren't taken for feet.
 - **Planted feet.** Where the source's foot is planted, the target's is held where it lands, at the height the source's
   foot is over the floor, scaled to the target. Two-bone IK (`contact::reach`) bends the knee and swings the hip to put
   it there, keeping the foot's turn, easing in and out over about a tenth of a second.
-- **Push-out.** Spheres along the spine stand for the body; elbows, hands and forearms inside them are turned out, the
-  upper arm first, then the forearm.
+- **Push-out.** Spheres along the spine and one round the head stand for the body; elbows, hands and forearms inside
+  them are turned out, the upper arm first, then the forearm. Short arms raised overhead go round the head, not
+  through it.
+- **Hands together.** Where the source's wrists meet (a clap overhead in jumping jacks, a clasp, hands pressed in
+  prayer), the target's are brought together at a point both its arms reach, outside the body and the head, keeping
+  the hands' turn and the gap between them the source has, scaled. Arms too short to meet where the source's did meet
+  lower, arms too long meet without crossing; the meeting point is searched for round each sphere in the way, and kept
+  near the last frame's so the hands don't jump. They let go smoothly as the source's hands part.
+- **Hands on head.** Where the source's hand is on its head (covering the ears, clasped on top, a palm to the forehead),
+  the target's goes to the same place on its own head: the way from the middle of the head to the wrist is taken in
+  the head's frame and scaled from one head to the other, so a cartoon's big head gets hands spread wider and the hands
+  follow as the head turns. The head's size comes from its skin with `apply_touching`, else from the bone at its top,
+  where there is one. A hand that can't get there (short arms on a big head) goes as near as it can over the head's
+  surface, not into it, and the elbow swings round the line from shoulder to hand till the arm is no deeper in the head
+  than the source's.
 - **Touch** (`Mapping::apply_touching`, given each rig's `Surface`; `load::Model` reads it as `skin` from the skinned
   mesh). Each skin is thinned to points about 1/80 of the height apart, each bound to the bone that moves it most.
   Every frame, the gap from each hand to the skin of the rest of the body (arms left out) is measured on the source

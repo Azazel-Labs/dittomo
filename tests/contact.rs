@@ -501,3 +501,286 @@ fn a_hand_resting_on_a_thin_body_rests_on_a_thick_one() {
     let empty = dittomo::Surface::default();
     assert_eq!(play(&rest_on_hip, [&empty, &empty], touch), plain);
 }
+
+/// The same rig with its upper arms, forearms and hands `by` times as long.
+fn long_arms(sk: &Skeleton, by: f32) -> Skeleton {
+    let mut bones = sk.bones().to_vec();
+    for b in &mut bones {
+        if b.name.contains("ForeArm") || b.name.contains("Hand") {
+            b.rest.translation *= by;
+        }
+    }
+    Skeleton::new(bones).unwrap()
+}
+
+/// Jumping jacks, a second each: the arms swing up out to the sides and clap overhead, then swing forward and clap in
+/// front of the chest. The wrists meet 3 cm apart.
+fn claps(sk: &Skeleton) -> Clip {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let frames = 120;
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let smooth = |x: f32, a: f32, b: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let poses = (0..frames)
+        .map(|f| {
+            let t = f as f32 / frames as f32 * 2.0;
+            let u = (PI * t.fract()).sin().powi(2);
+            let mut pose = rest.clone();
+            for arm in contact::arms(sk) {
+                let (a, b, c) = (
+                    world[arm.upper].position(),
+                    world[arm.lower].position(),
+                    world[arm.end].position(),
+                );
+                let len = 0.95 * (a.distance(b) + b.distance(c));
+                let x = a.x.signum();
+                let (swing, clap) = if t < 1.0 {
+                    let th = 0.95 * PI * u;
+                    (
+                        a + len * Vec3::new(x * th.sin(), -th.cos(), 0.05),
+                        Vec3::new(x * 1.5, 190.0, 4.0),
+                    )
+                } else {
+                    let th = FRAC_PI_2 * u;
+                    (
+                        a + len * Vec3::new(x * 0.1, -th.cos(), th.sin()),
+                        Vec3::new(x * 1.5, 135.0, 30.0),
+                    )
+                };
+                contact::reach(sk, &mut pose, &arm, swing.lerp(clap, smooth(u, 0.7, 1.0)));
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 60.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn hands_clap_together_on_arms_short_and_long_and_stay_out_of_the_head() {
+    let source = common::mixamo();
+    let clip = claps(&source);
+    let arms = contact::arms(&source);
+    let wrists = |sk: &Skeleton, pose: &[Transform]| {
+        let w = sk.world(pose);
+        [w[arms[0].end].position(), w[arms[1].end].position()]
+    };
+    let gap = |sk: &Skeleton, pose: &[Transform]| {
+        let [a, b] = wrists(sk, pose);
+        a.distance(b)
+    };
+    // The head: from the base of the skull at 160 cm to its top at 182.
+    let head = Vec3::new(0.0, 171.0, 2.0);
+    let push = Fixes {
+        push_out: true,
+        ..Fixes::NONE
+    };
+    let both = Fixes { hands: true, ..push };
+    let clapping: Vec<usize> = (0..clip.poses.len())
+        .filter(|&f| gap(&source, &clip.poses[f]) < 5.0)
+        .collect();
+    assert!(clapping.len() > 6, "{} frames clapping", clapping.len());
+    for (name, by) in [("short", 0.6), ("long", 1.5), ("same", 1.0)] {
+        let target = long_arms(&source, by);
+        let map = Mapping::new(&source, &target);
+        let plain = map.apply_with(&source, &target, &clip, push).unwrap();
+        let fixed = map.apply_with(&source, &target, &clip, both).unwrap();
+        let (mut worst, mut was, mut clear) = (0.0f32, 0.0f32, f32::MAX);
+        for &f in &clapping {
+            worst = worst.max(gap(&target, &fixed.poses[f]));
+            was = was.max(gap(&target, &plain.poses[f]));
+            for p in wrists(&target, &fixed.poses[f]) {
+                clear = clear.min(p.distance(head));
+            }
+        }
+        eprintln!(
+            "{name} arms: wrists apart while clapping, at most {was:.1} cm -> {worst:.1} cm; {clear:.1} cm from the head's middle"
+        );
+        assert!(worst < 6.0, "{name} arms: wrists {worst} cm apart while clapping");
+        assert!(
+            clear > 9.0,
+            "{name} arms: a wrist {clear} cm from the middle of the head"
+        );
+        // Hands well apart are left as they were, and every hand keeps its turn.
+        for f in 0..clip.poses.len() {
+            let (p, q) = (target.world(&plain.poses[f]), target.world(&fixed.poses[f]));
+            for arm in &arms {
+                assert!(p[arm.end].rotation.angle_between(q[arm.end].rotation) < 1e-3);
+                if gap(&source, &clip.poses[f]) > 40.0 {
+                    assert!(p[arm.end].position().distance(q[arm.end].position()) < 1e-3);
+                }
+            }
+        }
+    }
+}
+
+/// The same rig with its head `by` times as tall, as a cartoon's, and its arms `arms` times as long.
+fn big_head(sk: &Skeleton, by: f32, arms: f32) -> Skeleton {
+    let mut bones = long_arms(sk, arms).bones().to_vec();
+    for b in &mut bones {
+        if b.name.ends_with("HeadTop_End") {
+            b.rest.translation *= by;
+        }
+    }
+    Skeleton::new(bones).unwrap()
+}
+
+/// The middle of the head and its radius at rest, as dittomo sees it on a rig with a bone at the top of the head: the
+/// head bone up to there, a little under half of that across.
+fn head_ball(sk: &Skeleton) -> (usize, Vec3, f32) {
+    let find = |n: &str| sk.bones().iter().position(|b| b.name.ends_with(n)).unwrap();
+    let (head, top) = (find(":Head"), find("HeadTop_End"));
+    let world = sk.world(&sk.rest());
+    let (a, b) = (world[head].position(), world[top].position());
+    let r = 0.45 * a.distance(b);
+    let centre = b - (b - world[find("Neck")].position()).normalize() * r;
+    (head, world[head].matrix.inverse().transform_point3(centre), r)
+}
+
+/// Hands to the ears, held there while the head turns from side to side; then up onto the top of the head, held there
+/// while it nods. A second each.
+fn covers_ears(sk: &Skeleton) -> Clip {
+    let frames = 120;
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let (head, centre, r) = head_ball(sk);
+    let smooth = |x: f32, a: f32, b: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let poses = (0..frames)
+        .map(|f| {
+            let t = f as f32 / 60.0;
+            let mut pose = rest.clone();
+            let turn = if t < 1.0 {
+                dittomo::Quat::from_rotation_y(0.5 * (std::f32::consts::TAU * t).sin() * smooth(t, 0.3, 0.4))
+            } else {
+                dittomo::Quat::from_rotation_x(0.35 * (std::f32::consts::TAU * t).sin() * smooth(t, 1.3, 1.4))
+            };
+            pose[head].rotation = turn * pose[head].rotation;
+            let placed = sk.world(&pose)[head].matrix;
+            for arm in contact::arms(sk) {
+                let x = world[arm.end].position().x.signum();
+                let ear = Vec3::new(x * 1.15, -0.3, -0.1) * r;
+                let top = Vec3::new(x * 0.6, 1.15, 0.0) * r;
+                let on = ear.lerp(top, smooth(t, 1.0, 1.25));
+                let goal = placed.transform_point3(centre + on);
+                let from = world[arm.end].position();
+                contact::reach(sk, &mut pose, &arm, from.lerp(goal, smooth(t, 0.0, 0.25)));
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 60.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn hands_stay_on_heads_big_and_small_covering_the_ears_and_on_top() {
+    let source = common::mixamo();
+    let clip = covers_ears(&source);
+    // Where a wrist is on its head: in the head's own frame, over the head's radius.
+    let on_head = |sk: &Skeleton, pose: &[Transform], end: usize| {
+        let (head, centre, r) = head_ball(sk);
+        let w = sk.world(pose);
+        let rest = sk.world(&sk.rest())[head].rotation;
+        let turn = w[head].rotation * rest.inverse();
+        turn.inverse() * (w[end].position() - w[head].matrix.transform_point3(centre)) / r
+    };
+    let arms = contact::arms(&source);
+    let held: Vec<usize> = (0..clip.poses.len())
+        .filter(|&f| {
+            arms.iter()
+                .all(|a| on_head(&source, &clip.poses[f], a.end).length() < 1.4)
+        })
+        .collect();
+    assert!(held.len() > 60, "{} frames on the head", held.len());
+    let push = Fixes {
+        push_out: true,
+        hands: true,
+        ..Fixes::NONE
+    };
+    let fixed = Fixes { head: true, ..push };
+    for (name, head, by) in [
+        ("big head", 1.6, 1.0),
+        ("big head, short arms", 1.6, 0.75),
+        ("small head", 0.7, 1.0),
+        ("long arms", 1.0, 1.5),
+        ("same", 1.0, 1.0),
+    ] {
+        let target = big_head(&source, head, by);
+        let map = Mapping::new(&source, &target);
+        let t_arms = contact::arms(&target);
+        // How far off its place on the head a wrist gets, and how far off the head's surface (in or out), at most.
+        let worst = |played: &Clip| {
+            let (mut off, mut lift) = (0.0f32, 0.0f32);
+            for &f in &held {
+                for (a, ta) in arms.iter().zip(&t_arms) {
+                    let want = on_head(&source, &clip.poses[f], a.end);
+                    let got = on_head(&target, &played.poses[f], ta.end);
+                    off = off.max(got.distance(want));
+                    lift = lift.max((got.length() - want.length()).abs());
+                }
+            }
+            (off, lift)
+        };
+        let plain = map.apply_with(&source, &target, &clip, push).unwrap();
+        let played = map.apply_with(&source, &target, &clip, fixed).unwrap();
+        let ((was, was_lift), (now, lift)) = (worst(&plain), worst(&played));
+        eprintln!(
+            "{name}: wrist off its place on the head by at most {was:.2} -> {now:.2} head radii, off its height over the head {was_lift:.2} -> {lift:.2}"
+        );
+        // Where the arms reach, the wrists are where the source's are; where they don't, as near as they get, on the
+        // head, neither in it nor off it.
+        assert!(
+            lift < 0.05,
+            "{name}: a wrist {lift} head radii off its height over the head"
+        );
+        if by >= 1.0 {
+            assert!(now < 0.05, "{name}: a wrist {now} head radii off its place on the head");
+        } else {
+            assert!(
+                now < 0.6 * was,
+                "{name}: a wrist {now} head radii off its place on the head, {was} unfixed"
+            );
+        }
+        // Hands keep their turn, and forearms stay out of the head.
+        let (head, centre, r) = head_ball(&target);
+        let mut clear = f32::MAX;
+        for f in 0..clip.poses.len() {
+            let (p, q) = (target.world(&plain.poses[f]), target.world(&played.poses[f]));
+            let c = q[head].matrix.transform_point3(centre);
+            for arm in &t_arms {
+                assert!(p[arm.end].rotation.angle_between(q[arm.end].rotation) < 1e-3);
+                let (b, e) = (q[arm.lower].position(), q[arm.end].position());
+                for k in 0..=8 {
+                    clear = clear.min(b.lerp(e, k as f32 / 8.0).distance(c) / r);
+                }
+            }
+        }
+        let (sh, sc, sr) = head_ball(&source);
+        let mut s_clear = f32::MAX;
+        for pose in &clip.poses {
+            let q = source.world(pose);
+            let c = q[sh].matrix.transform_point3(sc);
+            for arm in &arms {
+                let (b, e) = (q[arm.lower].position(), q[arm.end].position());
+                for k in 0..=8 {
+                    s_clear = s_clear.min(b.lerp(e, k as f32 / 8.0).distance(c) / sr);
+                }
+            }
+        }
+        eprintln!("{name}: forearms at least {clear:.2} head radii from its middle (source {s_clear:.2})");
+        assert!(
+            clear > s_clear - 0.05,
+            "{name}: a forearm {clear} head radii from the middle of the head, the source's {s_clear}"
+        );
+    }
+}
