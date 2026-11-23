@@ -1,0 +1,64 @@
+/* Shared by the social preview and the README hero. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #171C3A 0%, #0B0E1F 70%);
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  color: #F6F3EC;
+}
+/* A faint grid, the floor the frames stand on. */
+body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at 70% 50%, black 10%, transparent 75%);
+}
+.glow { position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.32; }
+.glow.coral { width: 520px; height: 520px; left: -160px; bottom: -260px; background: #FF5A5F; }
+.glow.teal { width: 560px; height: 560px; right: -120px; top: -280px; background: #2BB8D9; }
+h1 { font-weight: 700; line-height: 1.02; letter-spacing: -0.02em; }
+.grad {
+  background: linear-gradient(90deg, #FF7A59, #FF4F64 35%, #41E8C3 70%, #2AA3E6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+p.sub { color: #A9AECB; line-height: 1.35; font-weight: 400; }
+.chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.chips span {
+  font-size: 17px;
+  padding: 7px 15px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #D9DBEA;
+}
+.frame {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.frame img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 62%; display: block; }
+.frame figcaption {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(11, 14, 31, 0.72);
+}
+.frame.src figcaption { color: #FF7F6A; }
+.frame.dst figcaption { color: #4FE0CF; }
+.frame.src { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(255, 106, 94, 0.55); }
+.frame.dst { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(54, 201, 214, 0.55); }

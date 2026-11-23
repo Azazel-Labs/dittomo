@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- The GitHub social preview, 1280×640. Rendered by build.sh; frames/ comes from the video example with its bare flag. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="brand.css">
+<style>
+  body { width: 1280px; height: 640px; }
+  .left { position: absolute; left: 84px; top: 0; bottom: 0; width: 560px; display: flex; flex-direction: column; justify-content: center; }
+  .left img.logo { width: 400px; margin: 0 0 40px -6px; }
+  h1 { font-size: 68px; }
+  p.sub { font-size: 25px; margin-top: 22px; max-width: 520px; }
+  .right { position: absolute; right: 72px; top: 0; bottom: 0; display: flex; align-items: center; gap: 18px; }
+  .frame { width: 252px; height: 410px; }
+  .arrow { width: 54px; }
+  .chips { margin-top: 30px; }
+</style>
+</head>
+<body>
+  <div class="glow coral"></div><div class="glow teal"></div>
+  <div class="left">
+    <img class="logo" src="../dittomo-logo-light.svg">
+    <h1>One motion.<br><span class="grad">Any body.</span></h1>
+    <p class="sub">Animation retargeting between any two skeletons, in pure Rust.</p>
+    <div class="chips"><span>gaze kept</span><span>hands stay on hips</span><span>feet stay planted</span></div>
+  </div>
+  <div class="right">
+    <figure class="frame src"><img src="frames/source.png"><figcaption>source</figcaption></figure>
+    <svg class="arrow" viewBox="0 0 54 24"><use href="#arrow"/></svg>
+    <figure class="frame dst"><img src="frames/rpm.png"><figcaption>dittomo</figcaption></figure>
+  </div>
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="ag" x1="0" x2="1"><stop offset="0" stop-color="#FF6A5E"/><stop offset="1" stop-color="#36C9D6"/></linearGradient>
+      <symbol id="arrow" viewBox="0 0 54 24"><path d="M3 12 H46 M36 3 L48 12 L36 21" fill="none" stroke="url(#ag)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+</body>
+</html>

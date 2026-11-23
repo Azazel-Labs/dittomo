@@ -32,14 +32,29 @@ pub(crate) struct Shape {
     pub reach: Vec<f32>,
     /// How far along the body its farthest descendant is, over the height.
     pub beyond: Vec<f32>,
+    /// Whether two or more limbs of more than one bone hang from it, as from hips, a chest and a hand.
+    pub forks: Vec<bool>,
     pub names: Vec<Name>,
 }
 
 impl Shape {
     pub(crate) fn of(skeleton: &Skeleton) -> Self {
+        Self::build(skeleton, true)
+    }
+
+    /// Just the rest pose, the children, the height, the floor and the middle: all playing needs.
+    pub(crate) fn light(skeleton: &Skeleton) -> Self {
+        Self::build(skeleton, false)
+    }
+
+    fn build(skeleton: &Skeleton, whole: bool) -> Self {
         let rest = skeleton.world(&skeleton.rest());
         let children = skeleton.children();
-        let names: Vec<Name> = skeleton.bones().iter().map(|b| names::parse(&b.name)).collect();
+        let names: Vec<Name> = if whole {
+            skeleton.bones().iter().map(|b| names::parse(&b.name)).collect()
+        } else {
+            Vec::new()
+        };
         let pos: Vec<Vec3> = rest.iter().map(Placed::position).collect();
         let n = pos.len();
         if n == 0 {
@@ -56,6 +71,7 @@ impl Shape {
                 length: Vec::new(),
                 reach: Vec::new(),
                 beyond: Vec::new(),
+                forks: Vec::new(),
                 names,
             };
         }
@@ -96,15 +112,61 @@ impl Shape {
             }
             d
         };
+        // How far each bone is from the bone farthest from it. In a tree that bone is always an end of the longest path,
+        // so it's the farther of the two ends: three walks per tree rather than one from every bone.
+        let mut far = vec![f32::NAN; n];
+        for start in 0..n {
+            if !far[start].is_nan() {
+                continue;
+            }
+            let farthest = |d: &[f32]| {
+                (0..n)
+                    .filter(|&i| d[i].is_finite())
+                    .max_by(|&i, &j| d[i].total_cmp(&d[j]).then(j.cmp(&i)))
+                    .unwrap_or(start)
+            };
+            let from_a = along(farthest(&along(start)));
+            let from_b = along(farthest(&from_a));
+            for i in 0..n {
+                if from_a[i].is_finite() {
+                    far[i] = from_a[i].max(from_b[i]);
+                }
+            }
+        }
         let mut middle = 0;
         let mut best = f32::INFINITY;
-        for i in 0..n {
-            let far = along(i).into_iter().filter(|d| d.is_finite()).fold(0.0, f32::max);
+        for (i, &far) in far.iter().enumerate() {
             if far < best - 1e-6 * height {
                 best = far;
                 middle = i;
             }
         }
+        if !whole {
+            return Self {
+                rest,
+                children,
+                frame: Quat::IDENTITY,
+                height,
+                floor,
+                middle,
+                at: Vec::new(),
+                dir: Vec::new(),
+                inward: Vec::new(),
+                length: Vec::new(),
+                reach: Vec::new(),
+                beyond: Vec::new(),
+                forks: Vec::new(),
+                names,
+            };
+        }
+        let mut under = vec![1usize; n];
+        for i in (0..n).rev() {
+            if let Some(p) = skeleton.bones()[i].parent {
+                under[p] += under[i];
+            }
+        }
+        let pairs = mirrored(&pos, &children, &under, height);
+        let height = stature(&pairs, height, floor);
         let from_middle = along(middle);
         let reach: Vec<f32> = from_middle
             .iter()
@@ -117,13 +179,7 @@ impl Shape {
             }
         }
 
-        let frame = body_frame(&pos, &names, &children, height, floor);
-        let mut under = vec![1usize; n];
-        for i in (0..n).rev() {
-            if let Some(p) = skeleton.bones()[i].parent {
-                under[p] += under[i];
-            }
-        }
+        let frame = body_frame(&pos, &names, &children, &pairs, height, floor);
         let hub = {
             let roots = (0..n).filter(|&i| skeleton.bones()[i].parent.is_none());
             let mut at = roots.max_by_key(|&i| (under[i], std::cmp::Reverse(i))).unwrap_or(0);
@@ -159,6 +215,10 @@ impl Shape {
             .zip(&inward)
             .map(|(d, w): (Vec3, &Vec3)| if d == Vec3::ZERO { *w } else { d })
             .collect();
+        let forks = children
+            .iter()
+            .map(|kids| kids.iter().filter(|&&c| under[c] >= 2).count() >= 2)
+            .collect();
         let length = (0..n)
             .map(|i| {
                 skeleton.bones()[i]
@@ -179,17 +239,140 @@ impl Shape {
             length,
             reach,
             beyond,
+            forks,
             names,
         }
     }
 }
 
 /// The body's left, up and forward, as a rotation from them to the world's x, y and z. Up is the world's up (glTF's
-/// y). Left is across the plane the bones are most nearly mirrored in, towards the bones named left; failing names,
-/// towards where the feet point being forward; failing that, facing the world's +z, as glTF characters do.
-fn body_frame(pos: &[Vec3], names: &[Name], children: &[Vec<usize>], height: f32, floor: f32) -> Quat {
+/// y). Left is across the body: the way between limbs that mirror each other (two legs from the hips, two arms from the
+/// chest) or, failing those, across the plane the bones are most nearly mirrored in. It's towards the bones named
+/// left; failing names, towards where the feet point being forward; failing that, facing the world's +z, as glTF
+/// characters do.
+fn body_frame(
+    pos: &[Vec3],
+    names: &[Name],
+    children: &[Vec<usize>],
+    pairs: &[Mirrored],
+    height: f32,
+    floor: f32,
+) -> Quat {
     let n = pos.len() as f32;
     let centre = pos.iter().copied().sum::<Vec3>() / n;
+    let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+    let across = mirrored_limbs(pairs).unwrap_or_else(|| mirror_plane(pos, centre, height));
+    let mut left_named = 0.0f32;
+    for (p, name) in pos.iter().zip(names) {
+        match name.side {
+            Side::Left => left_named += (*p - centre).dot(across),
+            Side::Right => left_named -= (*p - centre).dot(across),
+            Side::Middle => {}
+        }
+    }
+    let left = if left_named.abs() > 1e-6 * height {
+        across * left_named.signum()
+    } else {
+        // Feet point forward: low bones' steps to their children.
+        let ahead = across.cross(Vec3::Y);
+        let mut toes = 0.0f32;
+        for (i, p) in pos.iter().enumerate() {
+            if p.y - floor < 0.15 * height {
+                for &c in &children[i] {
+                    toes += flat(pos[c] - *p).dot(ahead);
+                }
+            }
+        }
+        let facing = if toes.abs() > 0.02 * height {
+            ahead * toes.signum()
+        } else if ahead.z.abs() > 1e-3 {
+            ahead * ahead.z.signum()
+        } else {
+            ahead * ahead.x.signum()
+        };
+        // left × up = forward.
+        Vec3::Y.cross(facing)
+    };
+    let forward = left.cross(Vec3::Y);
+    Quat::from_mat3(&Mat3::from_cols(left, Vec3::Y, forward)).normalize()
+}
+
+/// Two children of one bone that mirror each other: each with as much below it, at one height, on either side of their
+/// parent. Fingers, side by side in front of the hand, don't count.
+struct Mirrored {
+    parent: usize,
+    /// The way from one to the other, flat.
+    apart: Vec3,
+    /// The bones below the two.
+    weight: usize,
+    /// How high the two are.
+    y: f32,
+}
+
+fn mirrored(pos: &[Vec3], children: &[Vec<usize>], under: &[usize], height: f32) -> Vec<Mirrored> {
+    let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+    let mut out = Vec::new();
+    for (p, kids) in children.iter().enumerate() {
+        for (k, &i) in kids.iter().enumerate() {
+            for &j in &kids[k + 1..] {
+                if (pos[i].y - pos[j].y).abs() > 0.05 * height {
+                    continue;
+                }
+                let (di, dj) = (flat(pos[i] - pos[p]), flat(pos[j] - pos[p]));
+                let apart = di - dj;
+                if apart.length() < 0.02 * height || (di + dj).length() > 0.8 * apart.length() {
+                    continue;
+                }
+                // As much below each; or, placed as nearly exact mirror images, limbs one of which stops short (an arm
+                // with a hand and one without).
+                let (a, b) = (under[i].min(under[j]), under[i].max(under[j]));
+                let exact = a >= 2 && (di + dj).length() < 0.1 * apart.length();
+                if 4 * a < 3 * b && !exact {
+                    continue;
+                }
+                out.push(Mirrored {
+                    parent: p,
+                    apart: apart.normalize(),
+                    weight: under[i] + under[j],
+                    y: (pos[i].y + pos[j].y) / 2.0,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The way across the body from limbs that mirror each other, their ways apart averaged as axes (a pair says nothing
+/// of which side is which), each weighed by the bones below.
+fn mirrored_limbs(pairs: &[Mirrored]) -> Option<Vec3> {
+    let (mut xx, mut xz, mut zz) = (0.0f32, 0.0f32, 0.0f32);
+    for m in pairs {
+        let (v, w) = (m.apart, m.weight as f32);
+        xx += w * v.x * v.x;
+        xz += w * v.x * v.z;
+        zz += w * v.z * v.z;
+    }
+    if pairs.is_empty() {
+        return None;
+    }
+    let angle = 0.5 * (2.0 * xz).atan2(xx - zz);
+    Some(Vec3::new(angle.cos(), 0.0, angle.sin()))
+}
+
+/// The body's height, for a skeleton that may stop short of the top of the head (many end at the head's base, with no
+/// bone at its top). The shoulders are about five sixths of the way up, so the body is at least 1.22 times as tall as
+/// they are high: the two biggest mirrored pairs are the arms and the legs, and the higher are the arms.
+fn stature(pairs: &[Mirrored], height: f32, floor: f32) -> f32 {
+    let mut big: Vec<&Mirrored> = pairs.iter().collect();
+    big.sort_by_key(|m| std::cmp::Reverse(m.weight));
+    match big.as_slice() {
+        [a, b, ..] if a.parent != b.parent => height.max(1.22 * (a.y.max(b.y) - floor)),
+        _ => height,
+    }
+}
+
+/// The way across the plane the bones are most nearly mirrored in.
+fn mirror_plane(pos: &[Vec3], centre: Vec3, height: f32) -> Vec3 {
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
     let mirror_error = |a: Vec3| -> f32 {
         pos.iter()
@@ -228,38 +411,5 @@ fn body_frame(pos: &[Vec3], names: &[Name], children: &[Vec<usize>], height: f32
     if sum.length() > 1e-9 {
         across = sum.normalize();
     }
-
-    let mut left_named = 0.0f32;
-    for (p, name) in pos.iter().zip(names) {
-        match name.side {
-            Side::Left => left_named += (*p - centre).dot(across),
-            Side::Right => left_named -= (*p - centre).dot(across),
-            Side::Middle => {}
-        }
-    }
-    let left = if left_named.abs() > 1e-6 * height {
-        across * left_named.signum()
-    } else {
-        // Feet point forward: low bones' steps to their children.
-        let ahead = across.cross(Vec3::Y);
-        let mut toes = 0.0f32;
-        for (i, p) in pos.iter().enumerate() {
-            if p.y - floor < 0.15 * height {
-                for &c in &children[i] {
-                    toes += flat(pos[c] - *p).dot(ahead);
-                }
-            }
-        }
-        let facing = if toes.abs() > 0.02 * height {
-            ahead * toes.signum()
-        } else if ahead.z.abs() > 1e-3 {
-            ahead * ahead.z.signum()
-        } else {
-            ahead * ahead.x.signum()
-        };
-        // left × up = forward.
-        Vec3::Y.cross(facing)
-    };
-    let forward = left.cross(Vec3::Y);
-    Quat::from_mat3(&Mat3::from_cols(left, Vec3::Y, forward)).normalize()
+    across
 }

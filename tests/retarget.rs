@@ -411,6 +411,25 @@ fn a_character_facing_another_way_in_centimetres_plays_the_same() {
 }
 
 #[test]
+fn knows_which_way_a_body_faces() {
+    for (facing, naming) in [
+        (0.0, Naming::Mixamo),
+        (90.0, Naming::Unreal),
+        (180.0, Naming::Blank),
+        (-135.0, Naming::Blank),
+    ] {
+        let rig = humanoid(Style {
+            facing,
+            naming,
+            ..Style::default()
+        });
+        let want = Quat::from_rotation_y(f32::to_radians(facing)) * Vec3::Z;
+        let got = rig.skeleton.forward();
+        assert!(got.angle_between(want) < 1e-3, "facing {facing}°: {got}");
+    }
+}
+
+#[test]
 fn the_hips_travel_as_far_as_their_height_allows() {
     let from = humanoid(Style::default());
     let to = humanoid(Style {
@@ -620,4 +639,300 @@ fn a_sweep_of_rigs_all_match_and_play() {
         failures.len(),
         &failures[..failures.len().min(5)]
     );
+}
+
+/// Joints as (name, parent, world position).
+type Joints = Vec<(String, Option<String>, [f32; 3])>;
+
+/// A skeleton from joints named with their parents and world positions, every bone unturned.
+fn placed(joints: &Joints) -> Skeleton {
+    let at = |n: &str| joints.iter().position(|j| j.0 == n).expect("parent listed");
+    Skeleton::new(
+        joints
+            .iter()
+            .map(|(name, parent, p)| {
+                let from = parent.as_deref().map_or(Vec3::ZERO, |q| Vec3::from(joints[at(q)].2));
+                Bone {
+                    name: name.clone(),
+                    parent: parent.as_deref().map(at),
+                    rest: Transform::new(Vec3::from(*p) - from, Quat::IDENTITY),
+                }
+            })
+            .collect(),
+    )
+    .expect("parents first")
+}
+
+fn joint(name: impl Into<String>, parent: Option<&str>, at: [f32; 3]) -> (String, Option<String>, [f32; 3]) {
+    (name.into(), parent.map(str::to_owned), at)
+}
+
+/// Mixamo's layout, T-pose, to the top of the head, with three fingers on each hand straight from the hand.
+fn mixamo_like() -> Skeleton {
+    let mut j: Joints = vec![
+        joint("Hips", None, [0.0, 1.0, 0.0]),
+        joint("Spine", Some("Hips"), [0.0, 1.1, 0.0]),
+        joint("Spine1", Some("Spine"), [0.0, 1.22, 0.0]),
+        joint("Spine2", Some("Spine1"), [0.0, 1.35, 0.0]),
+        joint("Neck", Some("Spine2"), [0.0, 1.5, 0.0]),
+        joint("Head", Some("Neck"), [0.0, 1.6, 0.02]),
+        joint("HeadTop_End", Some("Head"), [0.0, 1.82, 0.02]),
+    ];
+    for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+        let n = |s: &str| format!("{side}{s}");
+        j.push(joint(n("Shoulder"), Some("Spine2"), [0.06 * x, 1.45, 0.0]));
+        j.push(joint(n("Arm"), Some(&n("Shoulder")), [0.18 * x, 1.45, 0.0]));
+        j.push(joint(n("ForeArm"), Some(&n("Arm")), [0.46 * x, 1.45, 0.0]));
+        j.push(joint(n("Hand"), Some(&n("ForeArm")), [0.72 * x, 1.45, 0.0]));
+        for (f, z) in [("Thumb", 0.04f32), ("Index", 0.025), ("Middle", 0.005)] {
+            let mut parent = n("Hand");
+            for k in 1..=3 {
+                let k_ = k as f32;
+                let at = if f == "Thumb" {
+                    [(0.74 + 0.025 * k_) * x, 1.43, z + 0.02 * k_]
+                } else {
+                    [(0.81 + 0.03 * k_) * x, 1.45, z]
+                };
+                let me = n(&format!("Hand{f}{k}"));
+                j.push(joint(me.clone(), Some(&parent), at));
+                parent = me;
+            }
+        }
+        j.push(joint(n("UpLeg"), Some("Hips"), [0.09 * x, 0.95, 0.0]));
+        j.push(joint(n("Leg"), Some(&n("UpLeg")), [0.09 * x, 0.52, 0.0]));
+        j.push(joint(n("Foot"), Some(&n("Leg")), [0.09 * x, 0.08, -0.02]));
+        j.push(joint(n("ToeBase"), Some(&n("Foot")), [0.09 * x, 0.0, 0.08]));
+        j.push(joint(n("Toe_End"), Some(&n("ToeBase")), [0.09 * x, 0.0, 0.18]));
+    }
+    placed(&j)
+}
+
+fn assert_plays(from: &Skeleton, to: &Skeleton, map: &Mapping, pairs: &[(&str, &str)]) {
+    for &(src, dst) in pairs {
+        let b = to.index_of(dst).expect("target bone");
+        assert_eq!(
+            map.source_of(b).map(|a| from.bones()[a].name.as_str()),
+            Some(src),
+            "{dst}"
+        );
+    }
+}
+
+#[test]
+fn a_palm_bone_holding_two_fingers_still_gets_both() {
+    let from = mixamo_like();
+    let mut j: Joints = vec![
+        joint("hips", None, [0.0, 0.95, 0.0]),
+        joint("spine", Some("hips"), [0.0, 1.1, 0.0]),
+        joint("chest", Some("spine"), [0.0, 1.3, 0.0]),
+        joint("neck", Some("chest"), [0.0, 1.45, 0.0]),
+        joint("head", Some("neck"), [0.0, 1.55, 0.0]),
+        joint("head_end", Some("head"), [0.0, 1.75, 0.0]),
+    ];
+    for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
+        let n = |s: &str| format!("{s}.{side}");
+        j.push(joint(n("shoulder"), Some("chest"), [0.05 * x, 1.4, 0.0]));
+        j.push(joint(n("upper_arm"), Some(&n("shoulder")), [0.17 * x, 1.4, 0.0]));
+        j.push(joint(n("forearm"), Some(&n("upper_arm")), [0.44 * x, 1.4, 0.0]));
+        j.push(joint(n("hand"), Some(&n("forearm")), [0.69 * x, 1.4, 0.0]));
+        // Index and thumb share a palm bone; the middle finger has its own.
+        j.push(joint(n("palm.01"), Some(&n("hand")), [0.72 * x, 1.4, 0.02]));
+        j.push(joint(n("palm.02"), Some(&n("hand")), [0.72 * x, 1.4, 0.0]));
+        for k in 1..=3 {
+            let k_ = k as f32;
+            let prev = |f: &str, root: &str| if k == 1 { n(root) } else { n(&format!("{f}.0{}", k - 1)) };
+            let index = [(0.78 + 0.03 * k_) * x, 1.4, 0.025];
+            let thumb = [(0.71 + 0.025 * k_) * x, 1.38, 0.04 + 0.02 * k_];
+            let middle = [(0.78 + 0.03 * k_) * x, 1.4, 0.005];
+            j.push(joint(
+                n(&format!("f_index.0{k}")),
+                Some(&prev("f_index", "palm.01")),
+                index,
+            ));
+            j.push(joint(n(&format!("thumb.0{k}")), Some(&prev("thumb", "palm.01")), thumb));
+            j.push(joint(
+                n(&format!("f_middle.0{k}")),
+                Some(&prev("f_middle", "palm.02")),
+                middle,
+            ));
+        }
+        j.push(joint(n("thigh"), Some("hips"), [0.09 * x, 0.9, 0.0]));
+        j.push(joint(n("shin"), Some(&n("thigh")), [0.09 * x, 0.5, 0.0]));
+        j.push(joint(n("foot"), Some(&n("shin")), [0.09 * x, 0.08, 0.0]));
+        j.push(joint(n("toe"), Some(&n("foot")), [0.09 * x, 0.0, 0.1]));
+    }
+    let to = placed(&j);
+    let map = Mapping::new(&from, &to);
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[
+            ("LeftHandIndex1", "f_index.01.L"),
+            ("LeftHandIndex3", "f_index.03.L"),
+            ("LeftHandThumb1", "thumb.01.L"),
+            ("LeftHandMiddle1", "f_middle.01.L"),
+            ("RightHandIndex1", "f_index.01.R"),
+            ("RightHandThumb2", "thumb.02.R"),
+        ],
+    );
+}
+
+#[test]
+fn a_rig_stopping_at_the_base_of_the_head_in_an_a_pose_with_numbered_limbs() {
+    // Laid out as COLLADA exports often are: no bone at the top of the head, limbs numbered along the chain, the arms
+    // hanging down.
+    let from = mixamo_like();
+    let mut j: Joints = vec![
+        joint("torso_joint_1", None, [0.0, 0.68, 0.0]),
+        joint("torso_joint_2", Some("torso_joint_1"), [0.0, 0.84, 0.0]),
+        joint("torso_joint_3", Some("torso_joint_2"), [0.0, 1.07, 0.0]),
+        joint("neck_joint_1", Some("torso_joint_3"), [0.0, 1.13, 0.0]),
+        joint("neck_joint_2", Some("neck_joint_1"), [0.0, 1.19, 0.0]),
+    ];
+    for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
+        let n = |s: &str, k: u32| format!("{s}_joint_{side}_{k}");
+        j.push(joint(n("arm", 1), Some("torso_joint_3"), [0.09 * x, 1.07, 0.0]));
+        j.push(joint(n("arm", 2), Some(&n("arm", 1)), [0.31 * x, 0.96, 0.0]));
+        j.push(joint(n("arm", 3), Some(&n("arm", 2)), [0.45 * x, 0.88, 0.05]));
+        j.push(joint(n("leg", 1), Some("torso_joint_1"), [0.07 * x, 0.61, 0.0]));
+        j.push(joint(n("leg", 2), Some(&n("leg", 1)), [0.08 * x, 0.35, 0.05]));
+        j.push(joint(n("leg", 3), Some(&n("leg", 2)), [0.08 * x, 0.08, 0.0]));
+        j.push(joint(n("leg", 5), Some(&n("leg", 3)), [0.08 * x, 0.02, 0.04]));
+    }
+    let to = placed(&j);
+    let map = Mapping::new(&from, &to);
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[
+            ("Hips", "torso_joint_1"),
+            ("Spine2", "torso_joint_3"),
+            ("Neck", "neck_joint_1"),
+            ("Head", "neck_joint_2"),
+            ("LeftArm", "arm_joint_L_1"),
+            ("LeftForeArm", "arm_joint_L_2"),
+            ("LeftHand", "arm_joint_L_3"),
+            ("RightForeArm", "arm_joint_R_2"),
+            ("LeftUpLeg", "leg_joint_L_1"),
+            ("LeftLeg", "leg_joint_L_2"),
+            ("LeftFoot", "leg_joint_L_3"),
+            ("RightToeBase", "leg_joint_R_5"),
+        ],
+    );
+}
+
+#[test]
+fn a_nameless_rig_stopping_at_the_base_of_the_head_with_one_hand_missing() {
+    // No names to go by, no bone at the top of the head, and a right arm that stops at the forearm: the height comes
+    // from the shoulders, and the arms are still a pair.
+    let from = mixamo_like();
+    let mut j: Joints = vec![
+        joint("node0", None, [0.0, 0.0, 0.0]),
+        joint("node1", Some("node0"), [0.0, 0.95, 0.0]),
+        joint("node2", Some("node1"), [0.0, 1.12, 0.0]),
+        joint("node3", Some("node2"), [0.0, 1.32, 0.0]),
+        joint("node4", Some("node3"), [0.0, 1.5, 0.0]),
+        joint("node5", Some("node4"), [0.0, 1.6, 0.02]),
+    ];
+    let mut k = 6;
+    let mut next = |j: &mut Joints, parent: &str, at: [f32; 3]| {
+        let me = format!("node{k}");
+        j.push(joint(me.clone(), Some(parent), at));
+        k += 1;
+        me
+    };
+    for x in [1.0f32, -1.0] {
+        let shoulder = next(&mut j, "node3", [0.06 * x, 1.45, 0.0]);
+        let arm = next(&mut j, &shoulder, [0.18 * x, 1.45, 0.0]);
+        let forearm = next(&mut j, &arm, [0.46 * x, 1.45, 0.0]);
+        if x > 0.0 {
+            let hand = next(&mut j, &forearm, [0.72 * x, 1.45, 0.0]);
+            for z in [0.04f32, 0.02, 0.0] {
+                let f1 = next(&mut j, &hand, [0.82 * x, 1.45, z]);
+                next(&mut j, &f1, [0.9 * x, 1.45, z]);
+            }
+        }
+        let thigh = next(&mut j, "node1", [0.09 * x, 0.9, 0.0]);
+        let shin = next(&mut j, &thigh, [0.09 * x, 0.5, 0.0]);
+        let foot = next(&mut j, &shin, [0.09 * x, 0.08, -0.02]);
+        next(&mut j, &foot, [0.09 * x, 0.0, 0.08]);
+    }
+    let to = placed(&j);
+    let map = Mapping::new(&from, &to);
+    // node7..: the left shoulder, arm, forearm, hand; the right shoulder, arm and forearm follow the left leg.
+    let name_of = |at: [f32; 3]| {
+        j.iter()
+            .find(|q| q.2 == at)
+            .map(|q| q.0.clone())
+            .expect("a joint there")
+    };
+    let (l_arm, r_arm, r_forearm) = (
+        name_of([0.18, 1.45, 0.0]),
+        name_of([-0.18, 1.45, 0.0]),
+        name_of([-0.46, 1.45, 0.0]),
+    );
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[
+            ("Hips", "node1"),
+            ("Neck", "node4"),
+            ("Head", "node5"),
+            ("LeftArm", &l_arm),
+            ("RightArm", &r_arm),
+            ("RightForeArm", &r_forearm),
+        ],
+    );
+}
+
+#[test]
+fn a_chest_bends_the_same_whether_its_collarbones_sit_above_it_or_beside_it() {
+    // Mixamo's collarbones start just above the top spine bone; a cartoon's start out at its sides, level with it.
+    // The chest is aimed by all its children together, so one rig's collarbones don't tip the other's chest.
+    let from = mixamo_like();
+    let to = {
+        let mut j: Joints = vec![
+            joint("Hips", None, [0.0, 1.0, 0.0]),
+            joint("Spine", Some("Hips"), [0.0, 1.1, 0.0]),
+            joint("Spine1", Some("Spine"), [0.0, 1.22, 0.0]),
+            joint("Spine2", Some("Spine1"), [0.0, 1.35, 0.0]),
+            joint("Neck", Some("Spine2"), [0.0, 1.55, 0.0]),
+            joint("Head", Some("Neck"), [0.0, 1.65, 0.0]),
+            joint("HeadTop_End", Some("Head"), [0.0, 1.85, 0.0]),
+        ];
+        for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+            let n = |s: &str| format!("{side}{s}");
+            j.push(joint(n("Shoulder"), Some("Spine2"), [0.2 * x, 1.37, 0.0]));
+            j.push(joint(n("Arm"), Some(&n("Shoulder")), [0.26 * x, 1.4, 0.0]));
+            j.push(joint(n("ForeArm"), Some(&n("Arm")), [0.52 * x, 1.4, 0.0]));
+            j.push(joint(n("Hand"), Some(&n("ForeArm")), [0.76 * x, 1.4, 0.0]));
+            j.push(joint(n("UpLeg"), Some("Hips"), [0.1 * x, 0.95, 0.0]));
+            j.push(joint(n("Leg"), Some(&n("UpLeg")), [0.1 * x, 0.52, 0.0]));
+            j.push(joint(n("Foot"), Some(&n("Leg")), [0.1 * x, 0.08, -0.02]));
+            j.push(joint(n("ToeBase"), Some(&n("Foot")), [0.1 * x, 0.0, 0.08]));
+        }
+        placed(&j)
+    };
+    let map = Mapping::new(&from, &to);
+    let (chest, neck) = (from.index_of("Spine2").unwrap(), from.index_of("Neck").unwrap());
+    let (t_chest, t_neck) = (to.index_of("Spine2").unwrap(), to.index_of("Neck").unwrap());
+    assert_eq!(map.source_of(t_chest), Some(chest));
+    let mut clip = Clip::default();
+    for (k, degrees) in [0.0f32, 30.0, -20.0].into_iter().enumerate() {
+        let mut pose = from.rest();
+        pose[chest].rotation = Quat::from_rotation_x(degrees.to_radians());
+        clip.times.push(k as f32);
+        clip.poses.push(pose);
+    }
+    let out = map.apply(&from, &to, &clip).unwrap();
+    for (pose, played) in clip.poses.iter().zip(&out.poses) {
+        let (ws, wt) = (from.world(pose), to.world(played));
+        let ds = (ws[neck].position() - ws[chest].position()).normalize();
+        let dt = (wt[t_neck].position() - wt[t_chest].position()).normalize();
+        let off = ds.dot(dt).clamp(-1.0, 1.0).acos().to_degrees();
+        assert!(off < 3.0, "the neck leans {off:.1}° away from the source's");
+    }
 }

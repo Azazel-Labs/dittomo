@@ -9,8 +9,10 @@
 use glam::Quat;
 
 use crate::assign::assign;
+use crate::contact::{self, Fixes};
 use crate::names;
 use crate::shape::Shape;
+use crate::surface::Surface;
 use crate::{Clip, Error, Skeleton, transfer};
 
 /// A target bone's source bone, and how alike the two were found, from 0 to 1 and over for a likeness better than the
@@ -100,7 +102,60 @@ impl Mapping {
             return Err(Error::NotTheirMapping);
         }
         clip.check(source.len())?;
-        Ok(transfer::play(self, source, target, clip))
+        transfer::play(self, source, target, clip)
+    }
+
+    /// The clip played by the target, then fixed up: travel given to a clip walked in place, feet kept still while
+    /// planted, arms kept out of the body. [`Fixes::ALL`] makes every fix; [`Fixes::NONE`] is [`Mapping::apply`].
+    ///
+    /// # Errors
+    /// If the clip doesn't pose the source, or the mapping was made for skeletons of other sizes.
+    pub fn apply_with(&self, source: &Skeleton, target: &Skeleton, clip: &Clip, fixes: Fixes) -> Result<Clip, Error> {
+        self.apply_touching(source, target, [&Surface::default(), &Surface::default()], clip, fixes)
+    }
+
+    /// [`Mapping::apply_with`], knowing each rig's skin (source's first): a hand as near its skin as to touch it keeps
+    /// the same gap to the target's, scaled by height, so it rests on a hip or a coat rather than floating off it or
+    /// sinking in. An empty [`Surface`] leaves that fix out.
+    ///
+    /// # Errors
+    /// If the clip doesn't pose the source, or the mapping was made for skeletons of other sizes.
+    pub fn apply_touching(
+        &self,
+        source: &Skeleton,
+        target: &Skeleton,
+        skins: [&Surface; 2],
+        clip: &Clip,
+        fixes: Fixes,
+    ) -> Result<Clip, Error> {
+        if source.len() != self.sources || target.len() != self.pairs.len() {
+            return Err(Error::NotTheirMapping);
+        }
+        clip.check(source.len())?;
+        let (s, t) = (Shape::light(source), Shape::light(target));
+        let travelled = if fixes.travel {
+            contact::travelled(source, &s, clip)
+        } else {
+            None
+        };
+        let clip = travelled.as_ref().unwrap_or(clip);
+        let mut player = transfer::Player::of_shapes(self, source, target, &s, &t);
+        let mut out = transfer::play_on(&mut player, target, clip)?;
+        if fixes.feet {
+            contact::plant(self, [(source, &s), (target, &t)], clip, &mut out);
+        }
+        if fixes.push_out {
+            contact::push_out(target, &t, &mut out);
+        }
+        if fixes.touch {
+            contact::touch(self, [(source, &s, skins[0]), (target, &t, skins[1])], clip, &mut out);
+        }
+        Ok(out)
+    }
+
+    /// How many bones the source has.
+    pub(crate) fn sources(&self) -> usize {
+        self.sources
     }
 
     fn weigh(&self, t: &Shape) -> f32 {
@@ -157,6 +212,9 @@ pub(crate) fn likeness(s: &Shape, a: usize, t: &Shape, b: usize) -> f32 {
     let near = 0.08 + 0.35 * s.reach[a].min(t.reach[b]);
     v += 0.8 * bell(s.at[a].distance(t.at[b]), near);
     v += 0.4 * bell(s.reach[a] - t.reach[b], 0.1);
+    if s.forks[a] && t.forks[b] {
+        v += 0.3;
+    }
     v -= 1.2;
     v
 }
@@ -297,6 +355,115 @@ fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
             }
         }
     }
+    fill(&ka, &kb, &like, &mut out);
     out.sort_unstable_by_key(|p| p.1);
     out
+}
+
+/// Pairs bones the match left out where the family allows: a bone plays one whose nearest paired ancestors play each
+/// other, and whose paired bones below play bones below it. The match keeps disjoint limbs disjoint, so it can't put
+/// two source limbs into one target limb (a hand's five fingers into a palm bone holding index and thumb); this pass
+/// can, best likeness first. Then it pairs, though less alike than not, bones held in place by pairs both above and
+/// below them: the match leaves out a bone whose likeness is low, as an odd rig's chest or upper arm, even where the
+/// pairs around it leave it nothing else to play.
+fn fill(ka: &[Vec<usize>], kb: &[Vec<usize>], like: &[f32], out: &mut Vec<(usize, usize, f32)>) {
+    let (na, nb) = (ka.len(), kb.len());
+    let parents = |k: &[Vec<usize>]| {
+        let mut p = vec![usize::MAX; k.len()];
+        for (x, cs) in k.iter().enumerate() {
+            for &c in cs {
+                p[c] = x;
+            }
+        }
+        p
+    };
+    let (pa, pb) = (parents(ka), parents(kb));
+    let mut to = vec![None; na];
+    let mut from = vec![None; nb];
+    to[0] = Some(0);
+    from[0] = Some(0);
+    for &(a, b, _) in out.iter() {
+        to[a + 1] = Some(b + 1);
+        from[b + 1] = Some(a + 1);
+    }
+    // Held in place, a bone may play one less alike than not, but not one on the other side or named for another.
+    let floor = -1.0;
+    let mut todo = Vec::new();
+    for a in (1..na).filter(|&a| to[a].is_none()) {
+        todo.extend(
+            (1..nb)
+                .filter(|&b| from[b].is_none() && like[a * nb + b] > floor)
+                .map(|b| (a, b)),
+        );
+    }
+    if todo.is_empty() {
+        return;
+    }
+    todo.sort_by(|x, y| like[y.0 * nb + y.1].total_cmp(&like[x.0 * nb + x.1]));
+    // The nearest paired bone above, the stand-in root at the latest.
+    let anchor = |p: &[usize], paired: &dyn Fn(usize) -> bool, mut x: usize| loop {
+        x = p[x];
+        if paired(x) {
+            return x;
+        }
+    };
+    let below = |p: &[usize], mut x: usize, top: usize| loop {
+        if x == top {
+            return true;
+        }
+        if x == 0 {
+            return false;
+        }
+        x = p[x];
+    };
+    // Whether every paired bone under `top` has its partner under `other`.
+    fn under_all(k: &[Vec<usize>], top: usize, partner: &[Option<usize>], ok: &dyn Fn(usize) -> bool) -> bool {
+        let mut stack = k[top].clone();
+        while let Some(x) = stack.pop() {
+            if partner[x].is_some_and(|y| !ok(y)) {
+                return false;
+            }
+            stack.extend_from_slice(&k[x]);
+        }
+        true
+    }
+    // Whether any bone under `top` is paired.
+    fn holds(k: &[Vec<usize>], top: usize, partner: &[Option<usize>]) -> bool {
+        let mut stack = k[top].clone();
+        while let Some(x) = stack.pop() {
+            if partner[x].is_some() {
+                return true;
+            }
+            stack.extend_from_slice(&k[x]);
+        }
+        false
+    }
+    // First the bones more alike than not; then, less alike, bones held in place by pairs above and below both.
+    for sandwiched in [false, true] {
+        loop {
+            let mut added = false;
+            for &(a, b) in &todo {
+                let l = like[a * nb + b];
+                if to[a].is_some() || from[b].is_some() || (l <= 0.0 && !sandwiched) {
+                    continue;
+                }
+                let up_a = anchor(&pa, &|x| to[x].is_some(), a);
+                let up_b = anchor(&pb, &|x| from[x].is_some(), b);
+                if to[up_a] != Some(up_b)
+                    || !under_all(ka, a, &to, &|y| below(&pb, y, b))
+                    || !under_all(kb, b, &from, &|x| below(&pa, x, a))
+                    || (l <= 0.0 && !(holds(ka, a, &to) && holds(kb, b, &from)))
+                {
+                    continue;
+                }
+                to[a] = Some(b);
+                from[b] = Some(a);
+                out.push((a - 1, b - 1, l.max(0.0)));
+                added = true;
+            }
+            if !added {
+                break;
+            }
+        }
+    }
 }

@@ -14,16 +14,30 @@
 //! of the turn, so a three-bone spine bends a five-bone one smoothly. The hips' travel is scaled by how high they stand.
 //!
 //! A skeleton mapped onto itself plays its clip unchanged.
+//!
+//! [`Mapping::apply_with`] fixes the result up ([`contact`]): a clip walked in place gets the travel its feet imply,
+//! feet stay still while planted (two-bone IK, so legs of other lengths don't skate) and elbows and hands are pushed
+//! out of the body. [`Mapping::apply_touching`] also keeps hands as far from the target's skin as the source's are from
+//! theirs ([`Surface`]), so a hand on a hip stays on the hip of a wider body.
+//!
+//! With the `load` feature, [`load::Model`] reads skeletons and clips from glTF, GLB and FBX (and USD with `usd`).
 #![forbid(unsafe_code)]
 
 mod assign;
+pub mod contact;
+#[cfg(feature = "load")]
+pub mod load;
 mod mapping;
 mod names;
 mod shape;
+pub mod surface;
 mod transfer;
 
+pub use contact::Fixes;
 pub use glam::{Mat4, Quat, Vec3};
 pub use mapping::{Mapping, Pair};
+pub use surface::Surface;
+pub use transfer::Player;
 
 /// A bone's place relative to its parent: translation, rotation and scale, applied scale first.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -144,6 +158,16 @@ impl Skeleton {
     #[must_use]
     pub fn index_of(&self, name: &str) -> Option<usize> {
         self.bones.iter().position(|b| b.name == name)
+    }
+
+    /// The way the body faces at rest, level, in the world. It's worked out as the mapping works it out (from mirrored
+    /// limbs, bones' names and the feet), so a rig built facing away from glTF's +z says so.
+    #[must_use]
+    pub fn forward(&self) -> Vec3 {
+        if self.bones.is_empty() {
+            return Vec3::Z;
+        }
+        shape::Shape::of(self).frame * Vec3::Z
     }
 
     /// The rest pose, one transform per bone.

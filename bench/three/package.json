@@ -1,0 +1,9 @@
+{
+  "name": "mummer-bench-three",
+  "private": true,
+  "type": "module",
+  "description": "Plays the retarget benchmark's clip through three.js SkeletonUtils, to compare with mummer",
+  "dependencies": {
+    "three": "0.187.0"
+  }
+}

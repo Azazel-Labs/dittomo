@@ -1,0 +1,281 @@
+# Hand labels: for each rig, the bone playing each joint of the body. Left and right are the character's own.
+# hips: the bone the thighs hang from. spine: the lowest bone above it. chest: the spine bone the arms hang from.
+# A joint the rig lacks, or has nowhere a tree match could find it (robot-expressive's feet hang from its root,
+# for IK), is left out; a pair is scored on the joints both rigs label.
+
+[brainstem.glb]
+hips = node3
+chest = node12
+head = node20
+l_upperarm = node13
+l_forearm = node14
+r_upperarm = node18
+r_forearm = node19
+l_thigh = node4
+l_shin = node5
+l_foot = node6
+l_toe = node7
+r_thigh = node8
+r_shin = node9
+r_foot = node10
+r_toe = node11
+
+[cesium-man.glb]
+hips = Skeleton_torso_joint_1
+spine = Skeleton_torso_joint_2
+chest = torso_joint_3
+neck = Skeleton_neck_joint_1
+head = Skeleton_neck_joint_2
+l_thigh = leg_joint_L_1
+l_shin = leg_joint_L_2
+l_foot = leg_joint_L_3
+l_toe = leg_joint_L_5
+r_thigh = leg_joint_R_1
+r_shin = leg_joint_R_2
+r_foot = leg_joint_R_3
+r_toe = leg_joint_R_5
+l_upperarm = Skeleton_arm_joint_L__4_
+l_forearm = Skeleton_arm_joint_L__3_
+l_hand = Skeleton_arm_joint_L__2_
+r_upperarm = Skeleton_arm_joint_R
+r_forearm = Skeleton_arm_joint_R__2_
+r_hand = Skeleton_arm_joint_R__3_
+
+[hvgirl.glb]
+hips = mixamorig:Hips
+spine = mixamorig:Spine
+chest = mixamorig:Spine2
+neck = mixamorig:Neck
+head = mixamorig:Head
+l_clavicle = mixamorig:LeftShoulder
+l_upperarm = mixamorig:LeftArm
+l_forearm = mixamorig:LeftForeArm
+l_hand = mixamorig:LeftHand
+l_index = mixamorig:LeftHandIndex1
+r_clavicle = mixamorig:RightShoulder
+r_upperarm = mixamorig:RightArm
+r_forearm = mixamorig:RightForeArm
+r_hand = mixamorig:RightHand
+r_index = mixamorig:RightHandIndex1
+l_thigh = mixamorig:LeftUpLeg
+l_shin = mixamorig:LeftLeg
+l_foot = mixamorig:LeftFoot
+l_toe = mixamorig:LeftToeBase
+r_thigh = mixamorig:RightUpLeg
+r_shin = mixamorig:RightLeg
+r_foot = mixamorig:RightFoot
+r_toe = mixamorig:RightToeBase
+
+[michelle.glb]
+hips = mixamorig:Hips
+spine = mixamorig:Spine
+chest = mixamorig:Spine2
+neck = mixamorig:Neck
+head = mixamorig:Head
+l_clavicle = mixamorig:LeftShoulder
+l_upperarm = mixamorig:LeftArm
+l_forearm = mixamorig:LeftForeArm
+l_hand = mixamorig:LeftHand
+l_index = mixamorig:LeftHandIndex1
+r_clavicle = mixamorig:RightShoulder
+r_upperarm = mixamorig:RightArm
+r_forearm = mixamorig:RightForeArm
+r_hand = mixamorig:RightHand
+r_index = mixamorig:RightHandIndex1
+l_thigh = mixamorig:LeftUpLeg
+l_shin = mixamorig:LeftLeg
+l_foot = mixamorig:LeftFoot
+l_toe = mixamorig:LeftToeBase
+r_thigh = mixamorig:RightUpLeg
+r_shin = mixamorig:RightLeg
+r_foot = mixamorig:RightFoot
+r_toe = mixamorig:RightToeBase
+
+[readyplayerme.glb]
+hips = Hips
+spine = Spine
+chest = Spine2
+neck = Neck
+head = Head
+l_clavicle = LeftShoulder
+l_upperarm = LeftArm
+l_forearm = LeftForeArm
+l_hand = LeftHand
+l_index = LeftHandIndex1
+r_clavicle = RightShoulder
+r_upperarm = RightArm
+r_forearm = RightForeArm
+r_hand = RightHand
+r_index = RightHandIndex1
+l_thigh = LeftUpLeg
+l_shin = LeftLeg
+l_foot = LeftFoot
+l_toe = LeftToeBase
+r_thigh = RightUpLeg
+r_shin = RightLeg
+r_foot = RightFoot
+r_toe = RightToeBase
+
+[rigged-figure.glb]
+hips = torso_joint_1
+spine = torso_joint_2
+chest = torso_joint_3
+neck = neck_joint_1
+head = neck_joint_2
+l_thigh = leg_joint_L_1
+l_shin = leg_joint_L_2
+l_foot = leg_joint_L_3
+l_toe = leg_joint_L_5
+r_thigh = leg_joint_R_1
+r_shin = leg_joint_R_2
+r_foot = leg_joint_R_3
+r_toe = leg_joint_R_5
+l_upperarm = arm_joint_L_1
+l_forearm = arm_joint_L_2
+l_hand = arm_joint_L_3
+r_upperarm = arm_joint_R_1
+r_forearm = arm_joint_R_2
+r_hand = arm_joint_R_3
+
+[robot-expressive.glb]
+spine = Abdomen
+chest = Torso
+neck = Neck
+head = Head
+l_clavicle = Shoulder.L
+l_upperarm = UpperArm.L
+l_forearm = LowerArm.L
+l_index = Index.L
+r_clavicle = Shoulder.R
+r_upperarm = UpperArm.R
+r_forearm = LowerArm.R
+r_index = Index.R
+l_thigh = UpperLeg.L
+l_shin = LowerLeg.L
+r_thigh = UpperLeg.R
+r_shin = LowerLeg.R
+
+[samba-dancing.fbx]
+hips = mixamorig:Hips
+spine = mixamorig:Spine
+chest = mixamorig:Spine2
+neck = mixamorig:Neck
+head = mixamorig:Head
+l_clavicle = mixamorig:LeftShoulder
+l_upperarm = mixamorig:LeftArm
+l_forearm = mixamorig:LeftForeArm
+l_hand = mixamorig:LeftHand
+l_index = mixamorig:LeftHandIndex1
+r_clavicle = mixamorig:RightShoulder
+r_upperarm = mixamorig:RightArm
+r_forearm = mixamorig:RightForeArm
+r_hand = mixamorig:RightHand
+r_index = mixamorig:RightHandIndex1
+l_thigh = mixamorig:LeftUpLeg
+l_shin = mixamorig:LeftLeg
+l_foot = mixamorig:LeftFoot
+l_toe = mixamorig:LeftToeBase
+r_thigh = mixamorig:RightUpLeg
+r_shin = mixamorig:RightLeg
+r_foot = mixamorig:RightFoot
+r_toe = mixamorig:RightToeBase
+
+[seed-san.vrm]
+hips = hips
+spine = spine
+chest = chest
+neck = neck
+head = head 1
+l_clavicle = shoulder.L
+l_upperarm = upper_arm.L
+l_forearm = forearm.L
+l_hand = hand.L
+l_index = f_index.01.L
+l_thigh = thigh.L
+l_shin = shin.L
+l_foot = foot.L
+l_toe = toe.L
+r_clavicle = shoulder.R
+r_upperarm = upper_arm.R
+r_forearm = forearm.R
+r_hand = hand.R
+r_index = f_index.01.R
+r_thigh = thigh.R
+r_shin = shin.R
+r_foot = foot.R
+r_toe = toe.R
+
+[soldier.glb]
+hips = mixamorig:Hips
+spine = mixamorig:Spine
+chest = mixamorig:Spine2
+neck = mixamorig:Neck
+head = mixamorig:Head
+l_clavicle = mixamorig:LeftShoulder
+l_upperarm = mixamorig:LeftArm
+l_forearm = mixamorig:LeftForeArm
+l_hand = mixamorig:LeftHand
+l_index = mixamorig:LeftHandIndex1
+r_clavicle = mixamorig:RightShoulder
+r_upperarm = mixamorig:RightArm
+r_forearm = mixamorig:RightForeArm
+r_hand = mixamorig:RightHand
+r_index = mixamorig:RightHandIndex1
+l_thigh = mixamorig:LeftUpLeg
+l_shin = mixamorig:LeftLeg
+l_foot = mixamorig:LeftFoot
+l_toe = mixamorig:LeftToeBase
+r_thigh = mixamorig:RightUpLeg
+r_shin = mixamorig:RightLeg
+r_foot = mixamorig:RightFoot
+r_toe = mixamorig:RightToeBase
+
+[vrm-twist.vrm]
+hips = J_Bip_C_Hips
+spine = J_Bip_C_Spine
+chest = J_Bip_C_UpperChest
+neck = J_Bip_C_Neck
+head = J_Bip_C_Head
+l_clavicle = J_Bip_L_Shoulder
+l_upperarm = J_Bip_L_UpperArm
+l_forearm = J_Bip_L_LowerArm
+l_hand = J_Bip_L_Hand
+l_index = J_Bip_L_Index1
+l_thigh = J_Bip_L_UpperLeg
+l_shin = J_Bip_L_LowerLeg
+l_foot = J_Bip_L_Foot
+l_toe = J_Bip_L_ToeBase
+r_clavicle = J_Bip_R_Shoulder
+r_upperarm = J_Bip_R_UpperArm
+r_forearm = J_Bip_R_LowerArm
+r_hand = J_Bip_R_Hand
+r_index = J_Bip_R_Index1
+r_thigh = J_Bip_R_UpperLeg
+r_shin = J_Bip_R_LowerLeg
+r_foot = J_Bip_R_Foot
+r_toe = J_Bip_R_ToeBase
+
+[xbot.glb]
+hips = mixamorig:Hips
+spine = mixamorig:Spine
+chest = mixamorig:Spine2
+neck = mixamorig:Neck
+head = mixamorig:Head
+l_clavicle = mixamorig:LeftShoulder
+l_upperarm = mixamorig:LeftArm
+l_forearm = mixamorig:LeftForeArm
+l_hand = mixamorig:LeftHand
+l_index = mixamorig:LeftHandIndex1
+r_clavicle = mixamorig:RightShoulder
+r_upperarm = mixamorig:RightArm
+r_forearm = mixamorig:RightForeArm
+r_hand = mixamorig:RightHand
+r_index = mixamorig:RightHandIndex1
+l_thigh = mixamorig:LeftUpLeg
+l_shin = mixamorig:LeftLeg
+l_foot = mixamorig:LeftFoot
+l_toe = mixamorig:LeftToeBase
+r_thigh = mixamorig:RightUpLeg
+r_shin = mixamorig:RightLeg
+r_foot = mixamorig:RightFoot
+r_toe = mixamorig:RightToeBase

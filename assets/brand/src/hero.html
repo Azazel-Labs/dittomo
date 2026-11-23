@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- The README's hero, 1600×640: one dance played on three bodies. Rendered by build.sh. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="brand.css">
+<style>
+  body { width: 1600px; height: 640px; }
+  .left { position: absolute; left: 80px; top: 0; bottom: 0; width: 430px; display: flex; flex-direction: column; justify-content: center; }
+  .left img.logo { width: 360px; margin: 0 0 36px -6px; }
+  h1 { font-size: 62px; }
+  p.sub { font-size: 21px; margin-top: 20px; max-width: 410px; }
+  .right { position: absolute; right: 60px; top: 0; bottom: 0; display: flex; align-items: center; gap: 16px; }
+  .frame { width: 218px; height: 400px; }
+  .arrow { width: 44px; }
+  .targets { display: flex; gap: 14px; }
+</style>
+</head>
+<body>
+  <div class="glow coral"></div><div class="glow teal"></div>
+  <div class="left">
+    <img class="logo" src="../dittomo-logo-light.svg">
+    <h1>One motion.<br><span class="grad">Any body.</span></h1>
+    <p class="sub">Retargets animation between any two skeletons, and keeps where they look, where their hands rest and
+      where their feet land.</p>
+  </div>
+  <div class="right">
+    <figure class="frame src"><img src="frames/source.png"><figcaption>source</figcaption></figure>
+    <svg class="arrow" viewBox="0 0 54 24"><use href="#arrow"/></svg>
+    <div class="targets">
+      <figure class="frame dst"><img src="frames/rpm.png"><figcaption>dittomo</figcaption></figure>
+      <figure class="frame dst"><img src="frames/hvgirl.png"><figcaption>dittomo</figcaption></figure>
+      <figure class="frame dst"><img src="frames/xbot.png"><figcaption>dittomo</figcaption></figure>
+    </div>
+  </div>
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="ag" x1="0" x2="1"><stop offset="0" stop-color="#FF6A5E"/><stop offset="1" stop-color="#36C9D6"/></linearGradient>
+      <symbol id="arrow" viewBox="0 0 54 24"><path d="M3 12 H46 M36 3 L48 12 L36 21" fill="none" stroke="url(#ag)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+</body>
+</html>

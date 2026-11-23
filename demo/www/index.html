@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mummer demo</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #dddcd7;
+    --source: #2f6fdb; --target: #d2552c; --accent: #1d1d1f; --good: #2e8b57; --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141416; --panel: #1d1d20; --ink: #ececef; --muted: #9a9aa2; --line: #2e2e33;
+            --source: #6b9cff; --target: #ff8a5c; --accent: #ececef; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 0; color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 0 16px 16px; }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .drops { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px; }
+  .drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 10px; cursor: pointer; min-width: 0; }
+  .drop.over { border-color: var(--accent); }
+  .drop b { display: block; }
+  .drop span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .drop.source b { color: var(--source); } .drop.target b { color: var(--target); }
+  canvas { display: block; width: 100%; height: min(62vh, 560px); touch-action: none; cursor: grab; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 12px;
+         border-top: 1px solid var(--line); }
+  button, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                   border-radius: 6px; padding: 4px 10px; }
+  button:hover { border-color: var(--accent); }
+  label { display: inline-flex; gap: 5px; align-items: center; }
+  input[type=range] { flex: 1; min-width: 120px; }
+  .side { display: flex; flex-direction: column; min-height: 0; max-height: calc(62vh + 190px); }
+  .stats { padding: 12px; border-bottom: 1px solid var(--line); display: grid;
+           grid-template-columns: auto 1fr; gap: 2px 12px; }
+  .stats dt { color: var(--muted); } .stats dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .pairs { overflow: auto; flex: 1; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600;
+       padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 3px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  td.score { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  tr:hover td, tr.on td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .err { color: var(--bad); padding: 0 16px 8px; min-height: 1em; }
+  .hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>mummer</h1>
+  <p>Drop in two rigged models (glTF, GLB or FBX). The first one's clips play on the second, matched by shape alone.</p>
+</header>
+<div class="err" id="err"></div>
+<main>
+  <section class="card">
+    <div class="drops">
+      <label class="drop source" data-slot="0"><b>Source</b><span>Drop a file with clips, or click</span>
+        <input type="file" accept=".gltf,.glb,.fbx" hidden></label>
+      <label class="drop target" data-slot="1"><b>Target</b><span>Drop the model to drive, or click</span>
+        <input type="file" accept=".gltf,.glb,.fbx" hidden></label>
+    </div>
+    <canvas id="view"></canvas>
+    <div class="bar">
+      <button id="playing">Pause</button>
+      <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Frame">
+      <select id="clip" aria-label="Clip"></select>
+    </div>
+    <div class="bar">
+      <label><input type="checkbox" id="travel" checked> Travel for clips walked in place</label>
+      <label><input type="checkbox" id="feet" checked> Planted feet</label>
+      <label><input type="checkbox" id="push" checked> Push limbs out of the body</label>
+      <button id="sample">Load the sample</button>
+      <span class="hint">Drag to turn. Hover a row to find its bones.</span>
+    </div>
+  </section>
+  <aside class="card side">
+    <dl class="stats" id="stats"></dl>
+    <div class="pairs"><table><thead><tr><th>Target bone</th><th>Source bone</th><th>Score</th></tr></thead>
+      <tbody id="pairs"></tbody></table></div>
+  </aside>
+</main>
+<script src="main.js"></script>
+</body>
+</html>

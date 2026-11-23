@@ -43,6 +43,10 @@ const NOISE: &[&str] = &[
     "npc",
     "ctrl",
     "x",
+    // The middle of the body, as VRoid marks it (`J_Bip_C_Spine`).
+    "c",
+    "center",
+    "centre",
 ];
 
 /// Two words that make one.
@@ -81,7 +85,6 @@ const SAME: &[(&str, &str)] = &[
     ("collarbone", "clavicle"),
     ("clav", "clavicle"),
     ("shoulder", "clavicle"),
-    ("arm", "upperarm"),
     ("uparm", "upperarm"),
     ("humerus", "upperarm"),
     ("shldr", "upperarm"),
@@ -95,7 +98,6 @@ const SAME: &[(&str, &str)] = &[
     ("upperleg", "thigh"),
     ("femur", "thigh"),
     ("calf", "shin"),
-    ("leg", "shin"),
     ("lowerleg", "shin"),
     ("loleg", "shin"),
     ("knee", "shin"),
@@ -124,6 +126,14 @@ const NEAR: &[(&str, &str, f32)] = &[
     ("neck", "head", 0.3),
     ("head", "headtop", 0.5),
     ("foot", "toe", 0.3),
+    // A limb's whole chain, numbered (`arm_joint_L_2`).
+    ("arm", "upperarm", 0.6),
+    ("arm", "forearm", 0.6),
+    ("arm", "hand", 0.3),
+    ("arm", "clavicle", 0.3),
+    ("leg", "thigh", 0.6),
+    ("leg", "shin", 0.6),
+    ("leg", "foot", 0.3),
     ("hand", "finger", 0.3),
 ];
 
@@ -171,6 +181,13 @@ pub(crate) fn parse(name: &str) -> Name {
             SAME.iter()
                 .find(|(a, _)| *a == w)
                 .map_or(w, |(_, one)| (*one).to_owned())
+        })
+        .map(|w| match (w.as_str(), number) {
+            // Alone, an arm is the upper arm and a leg the shin (`LeftArm`, `LeftLeg`); numbered, the whole limb's
+            // chain.
+            ("arm", None) => "upperarm".to_owned(),
+            ("leg", None) => "shin".to_owned(),
+            _ => w,
         })
         .collect();
     if words.iter().any(|w| FINGERS.contains(&w.as_str())) {
@@ -277,6 +294,12 @@ mod tests {
             (Side::Left, w(&["upperarm", "twist"]), Some(1))
         );
         assert_eq!(words("pelvis"), (Side::Middle, w(&["hips"]), None));
+        assert_eq!(words("J_Bip_C_UpperChest"), (Side::Middle, w(&["upperchest"]), None));
+        assert_eq!(words("J_Bip_L_UpperArm"), (Side::Left, w(&["upperarm"]), None));
+        // Numbered, an arm or a leg is a joint somewhere along the limb.
+        assert_eq!(words("arm_joint_L_2"), (Side::Left, w(&["arm"]), Some(2)));
+        assert_eq!(words("leg_joint_R_1"), (Side::Right, w(&["leg"]), Some(1)));
+        assert_eq!(words("mixamorig:LeftLeg"), (Side::Left, w(&["shin"]), None));
     }
 
     #[test]
@@ -287,5 +310,7 @@ mod tests {
         assert!(l("chest", "spine_03").unwrap() > 0.4);
         assert!(l("hand_l", "foot_l").unwrap() < 0.01);
         assert_eq!(l("Bone.001", "hand_l"), None);
+        assert!(l("leg_joint_L_1", "thigh_l").unwrap() > 0.5);
+        assert!(l("arm_joint_L_2", "lowerarm_l").unwrap() > 0.5);
     }
 }

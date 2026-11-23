@@ -11,8 +11,21 @@ include = ["/src/**", "/README.md", "/LICENSE"]
 keywords = ["animation", "retargeting", "skeleton", "gltf", "gamedev"]
 categories = ["graphics", "game-development"]
 
+[features]
+# Skeletons and clips read from glTF, GLB and FBX in memory, through polysmelt (builds for wasm).
+load = ["dep:polysmelt"]
+# `load`, plus reading model files from disk.
+fs = ["load", "polysmelt/fs"]
+# `load`, plus USD (polysmelt's `usd` feature needs Rust 1.96).
+usd = ["load", "polysmelt/usd"]
+
 [dependencies]
 glam = "0.34"
+polysmelt = { version = "0.13.2", path = "../polysmelt", default-features = false, features = ["gltf", "fbx"], optional = true }
+
+[dev-dependencies]
+# Textures for the video example.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -22,3 +35,18 @@ needless_range_loop = "allow"
 semicolon_if_nothing_returned = "warn"
 redundant_closure_for_method_calls = "warn"
 explicit_iter_loop = "warn"
+
+[[bench]]
+name = "retarget"
+harness = false
+
+[[bench]]
+name = "rigs"
+harness = false
+required-features = ["fs"]
+
+[[example]]
+name = "video"
+required-features = ["fs"]
+
+["fs"]

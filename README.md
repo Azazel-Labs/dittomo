@@ -1,19 +1,203 @@
-# mummer
+<p align="center"><img src="assets/brand/hero.png" alt="dittomo: one motion, any body" width="100%"></p>
 
-**The same performance, any body.** mummer retargets an animation from one skeleton onto any other. The more alike the
-two rigs, the closer the copy, and a rig onto itself plays its clip unchanged.
+# dittomo
 
-Pure Rust, no `unsafe`, deterministic, MIT-0. Its only dependency is [glam](https://crates.io/crates/glam).
+**One motion. Any body.** dittomo retargets an animation from one skeleton onto any other. The more alike the two rigs,
+the closer the copy, and a rig onto itself plays its clip unchanged. It keeps what makes a performance read as the same:
+where the character looks, where its hands rest on its body, and where its feet land.
+
+<p align="center"><img src="assets/brand/demo.gif" alt="A samba danced by Michelle, and the same samba played by dittomo on a Ready Player Me avatar" width="640"></p>
+
+The crate is still named `mummer`, so the code below uses that name.
+
+Pure Rust, no `unsafe`, deterministic, MIT-0. Its only dependency is [glam](https://crates.io/crates/glam); reading
+model files adds [polysmelt](https://github.com/Azazel-Labs/polysmelt), behind a feature.
 
 ```rust
-use mummer::{Clip, Mapping, Skeleton};
+use mummer::{Clip, Fixes, Mapping, Skeleton};
 
 fn play_on(source: &Skeleton, target: &Skeleton, clip: &Clip) -> Result<Clip, mummer::Error> {
     let map = Mapping::new(source, target);
     println!("{:.0}% alike", map.quality() * 100.0);
-    map.apply(source, target, clip)
+    map.apply_with(source, target, clip, Fixes::ALL)
 }
 ```
+
+`apply` is the plain retarget; `apply_with` adds the contact fixes below, and `apply_touching` also keeps hands on the
+body, given both rigs' skins. For a game loop, `Player` poses one frame at a time without allocating.
+
+The videos are rendered by `examples/video.rs`: the source, dittomo's copy, and the same clip with each bone's rotation
+copied by name, side by side, skinned and drawn on the CPU and piped to `ffmpeg`.
+
+```sh
+cargo run --release --features fs --example video -- source.glb target.vrm out.mp4 [--clip NAME] [--seconds S]
+```
+
+## Results
+
+### Finding the right bones on real rigs
+
+Twelve real characters from four ecosystems, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot,
+Michelle, Soldier and Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan,
+RiggedFigure and BrainStem, two VRM avatars, and Babylon's HVGirl. Each rig's body joints are labelled by hand
+(`bench/rigs/labels.txt`); every one of the 132 ordered pairs is mapped, and a joint counts as found when the target's
+joint plays the source's. `cargo bench --features fs --bench rigs`:
+
+| Matcher | Joints found (2558) |
+| --- | ---: |
+| mummer | 92.7% |
+| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
+
+| Joint | mummer | By name | | Joint | mummer | By name |
+| --- | ---: | ---: | --- | --- | ---: | ---: |
+| hips | 100% | 38% | | thighs | 95% | 24% |
+| spine | 95% | 38% | | shins | 95% | 24% |
+| chest | 80% | 24% | | feet | 100% | 29% |
+| neck | 100% | 51% | | toes | 93% | 29% |
+| head | 88% | 32% | | clavicles | 100% | 44% |
+| upper arms | 91% / 83% | 23% | | forearms | 91% / 83% | 23% |
+| hands | 91% | 33% | | index fingers | 89% / 92% | 42% |
+
+What it gets wrong:
+
+- **RobotExpressive**, a cartoon whose legs start a fifth of its height out from the middle and whose feet hang from the
+  root for IK: a third of its joints are found against CesiumMan and RiggedFigure, whose names say nothing either.
+- **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting far out from
+  the middle: 60% to 93% against the Mixamo rigs. Most of the chest misses are its chest, which sits just above the
+  hips and is taken for a lower spine bone.
+- With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
+
+CI runs this on every push and fails below 90%. The rigs are fetched rather than committed; each keeps its own licence.
+Engines' own humanoid matchers (Unity's Avatar, Godot's `BoneMap`, Unreal's IK Retargeter) aren't in the table: they need
+the engine running.
+
+### Playing real clips
+
+The same rigs' own 35 clips (Mixamo dances, walks, runs and gestures, RobotExpressive's 14, CesiumMan's and
+RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four) played on every other rig: 385 clip and rig pairs.
+Each labelled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each
+in its own body's frame. The other rows are what a clip gets without a retargeter, even given the right bones: an
+engine's animation mixer plays a clip on another rig by copying each bone's local rotation, and a hand-written script
+commonly copies each bone's turn from rest in the world.
+
+| Retarget | Mean | Median | 90th percentile | Within 15° |
+| --- | ---: | ---: | ---: | ---: |
+| mummer | 3.4° | 0.2° | 7.7° | 94% |
+| mummer, with the joints it misses set by hand (`Mapping::set`) | 2.1° | 0.2° | 5.3° | 97% |
+| World turns from rest copied onto the right bones | 22.0° | 11.2° | 64.6° | 56% |
+| Local rotations copied onto the right bones | 74.7° | 83.8° | 151.4° | 22% |
+
+What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
+both rigs when the bones between are in other ratios. The upper arms are the biggest gap between mummer and the hand
+labels, from BrainStem's and RobotExpressive's misses above. CI fails if the mean passes 4°.
+
+Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
+It's off by 1.3° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
+turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the target's
+own rest look and take only the turn away from it; that costs chest → head 1.6° of direction, 4.6° to 6.2°.
+
+The same pairs again, with each contact fix alone and all together, over the 23,170 frames where a source foot is
+planted (within 5% of its height of the lowest it gets, moving under a tenth of its height a second). Slide is how far
+the target's foot moves each such frame; height off is how far it is from the source foot's height over the floor,
+scaled; both are over the target's height. Clips walked in place are judged on the travel their feet imply.
+
+| Fixes | Foot slide | Foot height off | Limb directions, mean |
+| --- | ---: | ---: | ---: |
+| none (`apply`) | 0.00402 | 0.0094 | 3.0° |
+| travel | 0.00109 | 0.0094 | 3.0° |
+| planted feet | 0.00322 | 0.0020 | 3.9° |
+| push-out | 0.00402 | 0.0094 | 3.0° |
+| all (`apply_with`) | 0.00007 | 0.0011 | 4.1° |
+
+Together they cut foot slide 57 times and the height error 8.5 times. The degree they cost is the legs bending to keep
+feet down where the target's stride and leg proportions differ from the source's. Push-out finds nothing to do here,
+as none of these clips put a hand through the body.
+
+Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,671 of them with the
+source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
+over each body's height; the target's should match the source's.
+
+| Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
+| --- | ---: | ---: | ---: |
+| all but touch (`apply_with`) | 0.0294 | 0.0654 | 8.0% |
+| all (`apply_touching`) | 0.0108 | 0.0213 | 1.4% |
+
+So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
+2.7 times closer and hands end up inside the body a sixth as often.
+
+### Speed
+
+On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench retarget`, best of several runs:
+
+| Case | Time |
+| --- | ---: |
+| Map a 65-bone Mixamo-layout rig onto itself | 1.1 ms |
+| Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 2.3 ms |
+| Play a clip, mixamo → mannequin, setup included | 2.5 µs per frame |
+| Pose one frame with a reused `Player` | 1.6 µs per frame |
+| A walk with every fix on: travel, planted feet, push-out | 3.3 µs per frame |
+| The same walk done in place, travel worked out from the feet | 3.3 µs per frame |
+| Set up a `Player` for a pair of rigs | 40 µs |
+
+three.js plays the same clip on the same rigs in `bench/three`, given mummer's bone pairs as its names so only playing
+is timed. Measured back to back with mummer on one machine (three.js r187 on Node 26):
+
+| Play a 60-frame walk, mixamo 65 → mannequin 76 | mummer | three.js `SkeletonUtils` | |
+| --- | ---: | ---: | ---: |
+| Whole clip, setup included (`apply`, `retargetClip`) | 3.6 µs per frame | 221 µs per frame | 61× |
+| One frame, rigs reused (`Player::pose`, `retarget`) | 2.5 µs per frame | 186 µs per frame | 74× |
+
+three.js does less for that time: it copies each bone's world rotation as it is, with no correction for rests that
+differ unless offsets are given by hand, and finds each bone's pair by name on every frame.
+
+Babylon.js's `AnimatorAvatar.retargetAnimationGroup` (9.34, in `bench/babylon`) is closer. It corrects for rests that
+differ, carrying each key's turn from the source bone's rest into the target's, and bakes a whole clip, with no call
+to pose one frame. Measured back to back on a busy machine, best of five runs each: mummer played a frame in 7.0 µs,
+Babylon in 50 µs (7×), and in 143 µs with the hips' path scaled to the target (20×), which it does by playing both
+clips through again key by key. three.js took 327 µs on the same runs. CI runs all three on every push.
+
+Foot skate per planted frame, over the character's height, on a 90-frame walk:
+
+| Target | Plain | Feet planted |
+| --- | ---: | ---: |
+| Same rig with 30% longer shins and feet | 0.00048 | 0.00002 |
+| Mannequin | 0.00053 | 0.00001 |
+
+Timings and foot skate are measured on made-up rigs that copy the real ones' layouts (see Tested on). CI benchmarks
+every pull request against its base on the same runner and fails it if anything gets more than 25% slower.
+
+## Reading models
+
+With the `load` feature, `mummer::load::Model` reads a skeleton and its clips from glTF, GLB (VRM avatars too) or FBX bytes
+(`Model::from_bytes(bytes, "fbx")`), FBX read directly with no Blender round trip. `fs` adds
+`Model::load(path)`, and `usd` adds USD. Each skin's joints, and the nodes above them, become the skeleton; each
+animation is sampled at its keys into a `Clip`. `load` builds for wasm. The twelve benchmark rigs and their 35 clips
+read in about 0.14 s together on one core of a laptop. The eleven glTF and VRM rigs take under 50 ms between them (the
+biggest, hvgirl's 1,295 frames over 147 channels, about 12 ms); the rest is the 3.7 MB Mixamo FBX with its 1,223-frame
+dance, most of it inflating its compressed arrays.
+
+## Contact fixes
+
+`Fixes` turns each on or off; all are on by default. None of them need bone names: legs and arms are found from the rest
+pose alone (`contact::legs`, `contact::arms`). The spine runs from the biggest root to the highest bone. A leg ends in a
+bone near the floor on a chain hanging from the spine; an arm ends at the first bone whose children split the chain
+evenly, as fingers do. The knee or elbow is the joint along the chain standing farthest from both the spine and the
+end, and the hip or shoulder the one above it farthest from both, so twist bones, sleeves and helpers along the way
+don't count. The arms are the chains off the one spine bone whose chains end in the most bones, so hair, capes and
+tails are left out, and fingers hanging low aren't taken for feet.
+
+- **Travel.** A clip walked in place gets the travel its planted feet imply. A clip that already travels is left alone.
+- **Planted feet.** Where the source's foot is planted, the target's is held where it lands, at the height the source's
+  foot is over the floor, scaled to the target. Two-bone IK (`contact::reach`) bends the knee and swings the hip to put
+  it there, keeping the foot's turn, easing in and out over about a tenth of a second.
+- **Push-out.** Spheres along the spine stand for the body; elbows, hands and forearms inside them are turned out, the
+  upper arm first, then the forearm.
+- **Touch** (`Mapping::apply_touching`, given each rig's `Surface`; `load::Model` reads it as `skin` from the skinned
+  mesh). Each skin is thinned to points about 1/80 of the height apart, each bound to the bone that moves it most.
+  Every frame, the gap from each hand to the skin of the rest of the body (arms left out) is measured on the source
+  and on the target, along the skin's smoothed outward facing. Where the source's hand is near its body, two-bone IK
+  moves the target's hand to the same gap over its own height, keeping its turn, and lets go smoothly as the source's
+  hand moves away.
 
 ## How it maps
 
@@ -45,7 +229,9 @@ the match got wrong.
 
 Each mapped bone takes its source bone's turn away from rest, in the world. That turn is first carried into the
 target's frame and corrected for the two rest poses: at rest, the source bone and the next mapped bones below it point
-one way, and the target's point another, and that difference is undone. So the target's bones point where the source's
+one way, and the target's point another, and the turn that best lines up all of them at once is undone. All of them,
+not the one with most below it: one rig's collarbones start above its chest and another's beside it, and lining up
+either alone would tip the chest. So the target's bones point where the source's
 do, frame by frame, whatever each rig's rest pose (A-pose or T-pose) or bone axes.
 
 A target bone between two mapped ones takes its share of their turns by how far along it is, so a short spine bends a
@@ -54,14 +240,39 @@ source moves rather than only turns, travel as their source does, scaled by how 
 
 ## Tested on
 
+The twelve real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
+bone holding two fingers, a COLLADA export stopping at the base of the head with numbered limbs in an A-pose, a
+nameless rig with one hand missing, and a chest whose collarbones start beside it rather than above it.
+
 Made-up humanoids that differ the ways real rigs do: names from different tools or none, extra roots and twist bones,
 two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimetres
 against metres, and different leg lengths. A sweep of 300 such pairs all map correctly, with every limb within a
 degree of the source's direction. A four-legged animal maps onto an unnamed one with a longer body and tail. A snake
 mapped from a human is found to share little.
 
+The contact tests walk a procedural gait (planted feet, swing, bobbing hips) on these rigs and on a longer-legged copy,
+and push a hand placed inside the chest back out. Their limb finding is tested on an avatar laid out as VRM exports
+are (twist bones between forearm and hand, helper bones off the collarbones, a ponytail, the chest bone well below the
+shoulders) and on a rig whose fingers hang below its knees.
+
+## Browser demo
+
+[demo/](demo) runs mummer in the browser as plain wasm, with no bindings generator and no JavaScript dependencies. Drop
+in two glTF, GLB or FBX files, or use the built-in sample. It shows both skeletons playing side by side, the quality, how
+long the match and the clip took, every target bone's match and score, and toggles for each fix. The whole module is
+about 1 MB, file readers included.
+
+```sh
+sh demo/build.sh
+cd demo/www && python -m http.server   # then open http://localhost:8000
+```
+
 ## Next
 
-- **Root motion.** For a clip that runs in place, work out the travel from its planted feet.
-- **Feet held planted** with leg IK, so feet don't slide when leg lengths differ.
-- **A benchmark** on real rigs (Mixamo's same clip on different characters as the reference), and a browser demo.
+The full plan, including the learned runtime this feeds and the open-source landscape, is in
+[docs/plan.md](docs/plan.md).
+
+- **The rest of the comparison benchmark**: the learned methods (R2ET, SAN). Bone-finding, limb directions, foot contact
+  on real clips and playback against three.js and Babylon are done (above).
+- **Engine humanoid profiles** in the rig benchmark, by exporting what Unity's Avatar and Godot's `BoneMap` choose.
+- **Many characters per call**, laid out as structure of arrays.
