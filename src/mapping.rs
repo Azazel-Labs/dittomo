@@ -3,8 +3,10 @@
 //! Every pair of bones gets a likeness from their names and shapes, and the two trees are matched as wholes for the
 //! most total likeness, keeping the family: a bone below another plays a bone below the other's, and bones in separate
 //! limbs play bones in separate limbs. A bone on either side can be passed over, its children taking its place, so
-//! extra bones don't throw the match off. (This is the constrained tree mapping of Zhang, 1996, which pairs up subtrees
-//! with the Hungarian method and so stays fast whatever the order of children.)
+//! extra bones don't throw the match off; passed over alone among its siblings, its children stand beside them, as a
+//! pelvis holding both legs does against hips that hold the legs and the spine together. (This is the constrained tree
+//! mapping of Zhang, 1996, which pairs up subtrees with the Hungarian method and so stays fast whatever the order of
+//! children.)
 
 use glam::Quat;
 
@@ -288,6 +290,49 @@ fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
                         total,
                         Forest::Paired(pairs.into_iter().map(|(i, j)| (ka[a][i], kb[b][j])).collect()),
                     );
+                }
+                // A child passed over with its siblings kept, its own children standing beside them: a pelvis
+                // between the hips and both legs, where the other rig hangs the legs and the spine off the hips
+                // alike. Passing the pelvis over alone would keep one leg at most. A child with one child of its own
+                // needs no splice: passing it over within its pair does as much.
+                let spliced = |rows: &[usize], cols: &[usize]| {
+                    let w: Vec<Vec<f32>> = rows
+                        .iter()
+                        .map(|&i| cols.iter().map(|&j| tree[at(i, j)]).collect())
+                        .collect();
+                    let (total, pairs) = assign(&w);
+                    (
+                        total,
+                        pairs.into_iter().map(|(i, j)| (rows[i], cols[j])).collect::<Vec<_>>(),
+                    )
+                };
+                if ka[a].len() > 1 {
+                    for &i in ka[a].iter().filter(|&&i| ka[i].len() > 1) {
+                        let rows: Vec<usize> = ka[a]
+                            .iter()
+                            .copied()
+                            .filter(|&x| x != i)
+                            .chain(ka[i].iter().copied())
+                            .collect();
+                        let (total, pairs) = spliced(&rows, &kb[b]);
+                        if total > best.0 {
+                            best = (total, Forest::Paired(pairs));
+                        }
+                    }
+                }
+                if kb[b].len() > 1 {
+                    for &j in kb[b].iter().filter(|&&j| kb[j].len() > 1) {
+                        let cols: Vec<usize> = kb[b]
+                            .iter()
+                            .copied()
+                            .filter(|&x| x != j)
+                            .chain(kb[j].iter().copied())
+                            .collect();
+                        let (total, pairs) = spliced(&ka[a], &cols);
+                        if total > best.0 {
+                            best = (total, Forest::Paired(pairs));
+                        }
+                    }
                 }
             }
             for &j in &kb[b] {

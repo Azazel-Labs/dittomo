@@ -41,6 +41,10 @@ name = "retarget"
 harness = false
 
 [[bench]]
+name = "san"
+harness = false
+
+[[bench]]
 name = "rigs"
 harness = false
 required-features = ["fs"]
@@ -48,5 +52,3 @@ required-features = ["fs"]
 [[example]]
 name = "video"
 required-features = ["fs"]
-
-["fs"]

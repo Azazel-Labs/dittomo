@@ -15,6 +15,10 @@ enum Side {
 enum Part {
     Root,
     Hips,
+    /// A bone at the hips holding both legs, as some rigs have.
+    Pelvis,
+    /// A bone on the floor under the hips that moves nothing (a facial rig's anchor, say).
+    Stray,
     Spine(u8),
     Neck,
     Head,
@@ -51,6 +55,8 @@ struct Style {
     /// Degrees turned about up from facing +z.
     facing: f32,
     root: bool,
+    /// Legs hung off a pelvis bone at the hips, and a stray bone on the floor beside them.
+    pelvis: bool,
     twists: bool,
     fingers: bool,
     /// How bones' axes sit at rest: 0 all the world's, 1 y along the bone, 2 x along the bone and rolled.
@@ -67,6 +73,7 @@ impl Default for Style {
             unit: 1.0,
             facing: 0.0,
             root: false,
+            pelvis: false,
             twists: false,
             fingers: true,
             axes: 1,
@@ -106,6 +113,8 @@ fn name(p: Part, naming: Naming, i: usize) -> String {
             match p {
                 Part::Root => "Root".into(),
                 Part::Hips => "mixamorig:Hips".into(),
+                Part::Pelvis => "mixamorig:Pelvis".into(),
+                Part::Stray => "FacialAnim_Joint".into(),
                 Part::Spine(0) => "mixamorig:Spine".into(),
                 Part::Spine(k) => format!("mixamorig:Spine{k}"),
                 Part::Neck => "mixamorig:Neck".into(),
@@ -130,6 +139,8 @@ fn name(p: Part, naming: Naming, i: usize) -> String {
             match p {
                 Part::Root => "root".into(),
                 Part::Hips => "pelvis".into(),
+                Part::Pelvis => "hip_hub".into(),
+                Part::Stray => "facial_anchor".into(),
                 Part::Spine(k) => format!("spine_{:02}", k + 1),
                 Part::Neck => "neck_01".into(),
                 Part::Head => "head".into(),
@@ -159,6 +170,13 @@ fn humanoid(st: Style) -> Rig {
         list.push((Part::Root, None, Vec3::ZERO));
     }
     list.push((Part::Hips, st.root.then_some(Part::Root), Vec3::new(0.0, h, 0.0)));
+    let legs_from = if st.pelvis {
+        list.push((Part::Pelvis, Some(Part::Hips), Vec3::new(0.0, h, 0.0)));
+        list.push((Part::Stray, Some(Part::Hips), Vec3::new(0.01, 0.01, -0.08)));
+        Part::Pelvis
+    } else {
+        Part::Hips
+    };
     for k in 0..st.spine {
         let y = h + 0.5 * f32::from(k + 1) / f32::from(st.spine);
         list.push((Part::Spine(k), Some(top), Vec3::new(0.0, y - 0.04, 0.0)));
@@ -184,7 +202,7 @@ fn humanoid(st: Style) -> Rig {
         }
         let thigh = Vec3::new(0.1 * x, h - 0.05, 0.0);
         let shin = Vec3::new(0.1 * x, 0.52 * h, 0.01);
-        list.push((Part::Thigh(s), Some(Part::Hips), thigh));
+        list.push((Part::Thigh(s), Some(legs_from), thigh));
         if st.twists {
             list.push((Part::LegTwist(s), Some(Part::Thigh(s)), (thigh + shin) / 2.0));
         }
@@ -206,7 +224,8 @@ fn humanoid(st: Style) -> Rig {
                 (None, Some(p)) => pos[i] - pos[index(p)],
                 (None, None) => Vec3::Y,
             }
-            .normalize();
+            .try_normalize()
+            .unwrap_or(Vec3::Y);
             match st.axes {
                 0 => Quat::IDENTITY,
                 1 => Quat::from_rotation_arc(Vec3::Y, along),
@@ -352,6 +371,41 @@ fn names_from_another_tool_extra_bones_and_another_spine_still_match() {
     let out = map.apply(&from.skeleton, &to.skeleton, &clip).expect("plays");
     let w = worst(&from, &to, &map, &clip, &out);
     assert!(w < 1.0, "worst {w}°");
+}
+
+#[test]
+fn legs_hung_off_a_pelvis_both_match() {
+    // The pelvis stands between the hips and both legs on one rig; the other hangs its legs and its spine off the
+    // hips alike. Both legs must find their match, whichever way round, by names or by shape alone.
+    for naming in [Naming::Mixamo, Naming::Blank] {
+        let with = humanoid(Style {
+            pelvis: true,
+            naming,
+            ..Style::default()
+        });
+        let without = humanoid(Style {
+            naming: if naming == Naming::Blank {
+                Naming::Blank
+            } else {
+                Naming::Unreal
+            },
+            legs: 1.1,
+            ..Style::default()
+        });
+        for (from, to) in [(&with, &without), (&without, &with)] {
+            let map = Mapping::new(&from.skeleton, &to.skeleton);
+            assert_eq!(
+                wrong(from, to, &map, &[Part::Pelvis, Part::Stray]),
+                vec![],
+                "{}",
+                naming as u8
+            );
+            let clip = swing(from, 1.0);
+            let out = map.apply(&from.skeleton, &to.skeleton, &clip).expect("plays");
+            let w = worst(from, to, &map, &clip, &out);
+            assert!(w < 1.0, "worst {w}°");
+        }
+    }
 }
 
 #[test]
@@ -617,6 +671,7 @@ fn a_sweep_of_rigs_all_match_and_play() {
             facing: [0.0, 90.0, 200.0][pick(3, 23) as usize],
             legs: [0.8, 1.0, 1.25][pick(3, 29) as usize],
             unit: [1.0, 100.0][pick(2, 31) as usize],
+            pelvis: pick(2, 37) == 1,
         };
         let (from, to) = (humanoid(from), humanoid(to));
         let map = Mapping::new(&from.skeleton, &to.skeleton);
@@ -624,7 +679,7 @@ fn a_sweep_of_rigs_all_match_and_play() {
             .into_iter()
             .flat_map(|s| [Part::ArmTwist(s), Part::LegTwist(s)])
             .collect();
-        ignore.push(Part::Root);
+        ignore.extend([Part::Root, Part::Pelvis, Part::Stray]);
         let bad = wrong(&from, &to, &map, &ignore);
         let clip = swing(&from, 1.0);
         let out = map.apply(&from.skeleton, &to.skeleton, &clip).expect("plays");

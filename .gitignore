@@ -1,4 +1,5 @@
 target/
 demo/www/*.wasm
 bench/rigs/data/
+bench/san/data/
 node_modules/

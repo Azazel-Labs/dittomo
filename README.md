@@ -123,6 +123,38 @@ over each body's height; the target's should match the source's.
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
 2.7 times closer and hands end up inside the body a sixth as often.
 
+### Against the learned retargeters
+
+[SAN](https://arxiv.org/abs/2005.05732) ([code](https://github.com/DeepMotionEditing/deep-motion-editing), SIGGRAPH
+2020) set the Mixamo test most learned retargeters report on: 106 clips played from each of four characters onto the
+others with the same skeleton (intra-structural), and from BigVegas, whose skeleton adds a pelvis hub, hair, a cape and
+a facial joint, onto all four (cross-structural). The error is the mean squared distance of each joint from the clip
+Mixamo itself made for the target, over the target's height squared, ×10³. `sh bench/san/fetch.sh` downloads SAN's test
+set; `cargo bench --bench san` scores it with SAN's own formula.
+
+| Method | Trained | Intra | Cross |
+| --- | :---: | ---: | ---: |
+| NKN (CVPR 2018), from SAN's table | yes | 6.24 | 243 |
+| PMnet (BMVC 2019), from SAN's table | yes | 5.72 | – |
+| CycleGAN-style, from SAN's table | yes | 7.66 | 8.97 |
+| SAN, from SAN's table | yes | 2.76 | 2.25 |
+| **dittomo** (`apply`, no fixes) | no | **1.60** | **0.85** |
+| Local rotations copied by bone name, root moved as the source's | no | 43.0 | 24.9 |
+| Local rotations copied by bone name, root scaled by hips height | no | 1.37 | 0.70 |
+
+dittomo finds the bones itself, needs no training, and beats SAN on both. Three caveats:
+
+- Copying local rotations by name and scaling the root does better still, because Mixamo makes these clips by copying
+  rotations onto each character and then adjusting its legs; per joint, the copy is exact above the hips.
+  [R2ET](https://arxiv.org/abs/2303.08658) ([code](https://github.com/Kebii/R2ET), CVPR 2023) says the same of its own
+  table, where copying beats every learned method on position error. This test rewards doing what Mixamo does more than
+  looking right. The copy works only because all five skeletons share Mixamo's names, rest axes and T-pose; on the real
+  rigs above it is off by 74.7°.
+- SAN's paper gives 8.86 for its copy baseline; unscaled, these runs get 43.0, mostly from Mousey being about half
+  BigVegas's height. The scaled copy is the fair baseline.
+- The travel fix, which adds the travel an in-place clip's feet imply, does harm here (8.2 and 14.3): Mixamo's in-place
+  dances, like "Dancing Running Man", are meant to stay put.
+
 ### Speed
 
 On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench retarget`, best of several runs:
@@ -270,7 +302,7 @@ cd demo/www && python -m http.server   # then open http://localhost:8000
 The full plan, including the learned runtime this feeds and the open-source landscape, is in
 [docs/plan.md](docs/plan.md).
 
-- **The rest of the comparison benchmark**: the learned methods (R2ET, SAN). Bone-finding, limb directions, foot contact
-  on real clips and playback against three.js and Babylon are done (above).
+- **The rest of the comparison benchmark**: R2ET's own test (its pairs aren't published as data). Bone-finding, limb
+  directions, foot contact, playback against three.js and Babylon, and SAN's Mixamo test are done (above).
 - **Engine humanoid profiles** in the rig benchmark, by exporting what Unity's Avatar and Godot's `BoneMap` choose.
 - **Many characters per call**, laid out as structure of arrays.
