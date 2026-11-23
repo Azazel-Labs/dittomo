@@ -365,6 +365,48 @@ fn finds_arms_past_twist_bones_helpers_and_hair() {
     assert_eq!(names(&sk, &contact::legs(&sk)), lr("thigh", "shin", "foot"));
 }
 
+/// The CMU motion capture skeleton, its rest pose as the BVH files write it (subject 14): a hand that splits into
+/// just two short branches (finger base and thumb), a collarbone starting at the chest, and a forearm about as long as
+/// the shoulder stands out from the spine. The hand is the hand, not a fingertip, and the elbow the elbow.
+#[test]
+fn finds_cmu_arms_with_a_short_forearm_and_two_finger_hands() {
+    let middle = [
+        ("hips", None, [0.0, 0.0, 0.0]),
+        ("lower_back", Some("hips"), [0.0, 0.0, 0.0]),
+        ("spine", Some("lower_back"), [-0.02, 2.08, -0.17]),
+        ("spine1", Some("spine"), [0.03, 4.16, -0.20]),
+        ("neck", Some("spine1"), [0.03, 4.16, -0.20]),
+        ("neck1", Some("neck"), [-0.08, 5.76, 0.11]),
+        ("head", Some("neck1"), [0.01, 7.42, -0.20]),
+        ("crown", Some("head"), [0.05, 9.11, -0.34]),
+    ];
+    let left = side(&[
+        ("hip_joint", Some("hips"), [0.0, 0.0, 0.0]),
+        ("up_leg", Some("hip_joint"), [1.62, -1.81, 0.67]),
+        ("leg", Some("up_leg"), [4.19, -8.87, 0.67]),
+        ("foot", Some("leg"), [6.71, -15.80, 0.67]),
+        ("toe", Some("foot"), [6.95, -16.44, 2.78]),
+        ("toe_end", Some("toe"), [6.95, -16.44, 3.88]),
+        ("shoulder", Some("spine1"), [0.03, 4.16, -0.20]),
+        ("arm", Some("shoulder"), [3.55, 4.89, -0.75]),
+        ("fore_arm", Some("arm"), [8.88, 4.89, -0.75]),
+        ("hand", Some("fore_arm"), [12.36, 4.89, -0.75]),
+        ("finger_base", Some("hand"), [12.36, 4.89, -0.75]),
+        ("index1", Some("finger_base"), [12.93, 4.89, -0.75]),
+        ("index1_end", Some("index1"), [13.40, 4.89, -0.75]),
+        ("thumb", Some("hand"), [12.36, 4.89, -0.75]),
+        ("thumb_end", Some("thumb"), [12.83, 4.89, -0.28]),
+    ]);
+    let sk = mirrored(&middle, &left);
+    let lr = |a: &str, b: &str, c: &str| {
+        ["L", "R"]
+            .map(|s| [format!("{a}.{s}"), format!("{b}.{s}"), format!("{c}.{s}")])
+            .to_vec()
+    };
+    assert_eq!(names(&sk, &contact::arms(&sk)), lr("arm", "fore_arm", "hand"));
+    assert_eq!(names(&sk, &contact::legs(&sk)), lr("up_leg", "leg", "foot"));
+}
+
 /// Arms hanging to the knees, fingers reaching below the lowest seventh of the body as a cartoon robot's do: the
 /// fingers are no legs.
 #[test]

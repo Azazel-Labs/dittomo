@@ -113,21 +113,26 @@ fn legs_in(skeleton: &Skeleton, s: &Shape, trunk: &Trunk) -> Vec<Limb> {
 }
 
 /// Picks a limb's upper and lower bones from the chain between the spine and its end, top first, given how far each
-/// bone stands from the spine. The lower is the joint standing farthest from both the spine and the end: the knee or
-/// elbow, not a twist bone partway along the shin or forearm. The upper is the joint above it standing farthest from
-/// both the spine and the lower: the hip or shoulder, not a collarbone by the spine or a twist bone partway along the
-/// thigh or upper arm.
+/// bone stands from the spine: the pair whose three spans (spine to upper, upper to lower, lower to end) are all long,
+/// the shortest of them as long as can be, then the next shortest. That is the hip or shoulder and the knee or elbow:
+/// not a collarbone by the spine, nor a twist bone partway along a thigh, shin, upper arm or forearm, as each leaves a
+/// span short. A shoulder standing out from the spine about as far as a short forearm is long still loses to the elbow.
 fn split(
     chain: &[usize],
     end: Vec3,
     pos: impl Fn(usize) -> Vec3,
     spine: impl Fn(usize) -> f32,
 ) -> Option<(usize, usize)> {
-    let apart = |b: usize, from: Vec3| pos(b).distance(from).min(spine(b));
-    let lower = (1..chain.len()).max_by(|&i, &j| apart(chain[i], end).total_cmp(&apart(chain[j], end)))?;
-    let to = pos(chain[lower]);
-    let upper = (0..lower).max_by(|&i, &j| apart(chain[i], to).total_cmp(&apart(chain[j], to)))?;
-    Some((chain[upper], chain[lower]))
+    let spans = |(u, l): (usize, usize)| {
+        let (a, b) = (chain[u], chain[l]);
+        let mut s = [spine(a), pos(a).distance(pos(b)), pos(b).distance(end)];
+        s.sort_by(f32::total_cmp);
+        s
+    };
+    (1..chain.len())
+        .flat_map(|l| (0..l).map(move |u| (u, l)))
+        .max_by(|&p, &q| spans(p).partial_cmp(&spans(q)).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(u, l)| (chain[u], chain[l]))
 }
 
 /// The body's trunk: how many bones each bone holds (itself included), and the spine, from the biggest root to the
@@ -579,7 +584,7 @@ pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
             let mut chain = Vec::new();
             let mut end = c;
             while let Some(&next) = s.children[end].iter().max_by_key(|&&k| under[k]) {
-                if 2 * under[next] < under[end] {
+                if 2 * under[next] <= under[end] {
                     let far = s.children[end]
                         .iter()
                         .all(|&k| pos(k).distance(pos(end)) > 0.1 * s.height);
