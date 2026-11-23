@@ -1,8 +1,8 @@
-// Plays the retarget benchmark's clip through Babylon.js's AnimatorAvatar, to compare with mummer on the same rigs, clip
+// Plays the retarget benchmark's clip through Babylon.js's AnimatorAvatar, to compare with dittomo on the same rigs, clip
 // and bone pairs. Write the rigs with `cargo bench --bench retarget -- --dump target/rigs.json`, then
 // `npm ci --ignore-scripts && node retarget.mjs ../../target/rigs.json` here.
 //
-// Babylon is given mummer's mapping as its node names, so only retargeting is timed. `retargetAnimationGroup` rewrites
+// Babylon is given dittomo's mapping as its node names, so only retargeting is timed. `retargetAnimationGroup` rewrites
 // every key of a clip once (a bake, like three.js's `retargetClip`); it doesn't play a pose at a time. Each key moves
 // the source bone's change from rest into the target bone's rest frame, by four 4×4 matrix products and a decompose.
 
@@ -113,7 +113,7 @@ const play =
     played = avatar.retargetAnimationGroup(group, { mapNodeNames, fixRootPosition: false });
   }) / frames;
 
-// The same with the hips' path scaled to the target's size, as mummer does: Babylon plays both clips key by key for it.
+// The same with the hips' path scaled to the target's size, as dittomo does: Babylon plays both clips key by key for it.
 const hips = rigs.source[0].name;
 const foot = rigs.names[Object.keys(rigs.names).find((t) => /foot/i.test(t))];
 let scaled;

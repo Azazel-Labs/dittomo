@@ -17,16 +17,16 @@
 //!
 //! Then every clip of every rig is played on every other rig, and each labelled limb segment's direction (upper arm
 //! from shoulder to elbow, and so on) is compared with the source's, each in its own body's frame, against two ways
-//! of copying a clip onto the right bones without mummer: copying each bone's local rotation, as an engine's
+//! of copying a clip onto the right bones without dittomo: copying each bone's local rotation, as an engine's
 //! animation mixer does when a clip is played on another rig by bone name, and copying each bone's turn from rest in
 //! the world.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use dittomo::load::Model;
+use dittomo::{Clip, Fixes, Mapping, Quat, Skeleton, Transform, Vec3};
 use glam::Mat3;
-use mummer::load::Model;
-use mummer::{Clip, Fixes, Mapping, Quat, Skeleton, Transform, Vec3};
 
 const JOINTS: [&str; 23] = [
     "hips",
@@ -246,9 +246,9 @@ fn main() {
         rigs.len() * (rigs.len() - 1)
     );
     println!("| Matcher | joints found |\n| --- | ---: |");
-    println!("| mummer | {:.1}% |", pct(found, asked));
+    println!("| dittomo | {:.1}% |", pct(found, asked));
     println!("| exact name (three.js, Babylon default) | {:.1}% |", pct(named, asked));
-    println!("\n| Joint | mummer | by name |\n| --- | ---: | ---: |");
+    println!("\n| Joint | dittomo | by name |\n| --- | ---: | ---: |");
     for joint in JOINTS {
         if let Some(&(f, n, a)) = per.get(joint) {
             println!("| {joint} | {:.0}% | {:.0}% |", pct(f, a), pct(n, a));
@@ -354,11 +354,11 @@ fn looks(rig: &Rig, frame: &[Vec3; 3], pose: &[Transform]) -> Option<Vec3> {
 }
 
 /// Every clip of every rig that has one played on every other rig: how far, in degrees, each labelled limb segment
-/// points from where the source's does, measured in each body's own frame. Gives mummer's mean.
+/// points from where the source's does, measured in each body's own frame. Gives dittomo's mean.
 fn motion(rigs: &[Rig], show: bool) -> f32 {
     let methods = [
-        "mummer",
-        "mummer, labelled bones set by hand",
+        "dittomo",
+        "dittomo, labelled bones set by hand",
         "world turns from rest copied onto the labelled bones",
         "local rotations copied onto the labelled bones",
     ];
@@ -496,7 +496,7 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
     }
     println!(
         "
-| Segment | mummer | labelled | world turns | local copied |
+| Segment | dittomo | labelled | world turns | local copied |
 | --- | ---: | ---: | ---: | ---: |"
     );
     for (k, (a, b)) in SEGMENTS.iter().enumerate() {
@@ -508,7 +508,7 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
     if show {
         println!(
             "
-Per pair, mean degrees (mummer / labelled / world turns / local copied):"
+Per pair, mean degrees (dittomo / labelled / world turns / local copied):"
         );
         for ((s, t), pair) in &per {
             let m: Vec<String> = pair.iter().map(|v| format!("{:.1}", stats(v).0)).collect();
@@ -585,7 +585,7 @@ fn contact(rigs: &[Rig]) {
                     poses: clip.poses[..n].to_vec(),
                 };
                 // A walk in place slides its planted feet back; given its travel, they stay put, as they should.
-                let src: Vec<_> = mummer::contact::travel(ss, &clip)
+                let src: Vec<_> = dittomo::contact::travel(ss, &clip)
                     .poses
                     .iter()
                     .map(|p| ss.world(p))

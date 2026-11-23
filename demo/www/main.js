@@ -1,10 +1,10 @@
-// The page for mummer's wasm demo. The module has no imports: files go in through a buffer it owns, results come out
+// The page for dittomo's wasm demo. The module has no imports: files go in through a buffer it owns, results come out
 // of its memory at the pointers its exports give.
 
 const $ = (id) => document.getElementById(id);
 const ui = {
   err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"),
-  travel: $("travel"), feet: $("feet"), push: $("push"), sample: $("sample"), stats: $("stats"), pairs: $("pairs"),
+  travel: $("travel"), feet: $("feet"), push: $("push"), touch: $("touch"), sample: $("sample"), stats: $("stats"), pairs: $("pairs"),
 };
 
 let wasm;
@@ -18,7 +18,7 @@ const text = () => new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, w
 const fail = (m) => { ui.err.textContent = m; };
 
 async function start() {
-  const bytes = await (await fetch("mummer_demo.wasm")).arrayBuffer();
+  const bytes = await (await fetch("dittomo_demo.wasm")).arrayBuffer();
   ({ instance: { exports: wasm } } = await WebAssembly.instantiate(bytes, {}));
   sample();
 }
@@ -57,7 +57,7 @@ function remap() {
 
 function play() {
   if (!report) return;
-  const fixes = (ui.travel.checked ? 1 : 0) | (ui.feet.checked ? 2 : 0) | (ui.push.checked ? 4 : 0);
+  const fixes = (ui.travel.checked ? 1 : 0) | (ui.feet.checked ? 2 : 0) | (ui.push.checked ? 4 : 0) | (ui.touch.checked ? 8 : 0);
   const t0 = performance.now();
   frames = wasm.play(+ui.clip.value || 0, fixes);
   report.played = performance.now() - t0;
@@ -210,7 +210,7 @@ for (const drop of document.querySelectorAll(".drop")) {
 }
 ui.playing.onclick = () => { playing = !playing; ui.playing.textContent = playing ? "Pause" : "Play"; };
 ui.scrub.oninput = () => { frame = +ui.scrub.value; clock = times ? times[frame] - times[0] : 0; };
-for (const el of [ui.clip, ui.travel, ui.feet, ui.push]) el.onchange = play;
+for (const el of [ui.clip, ui.travel, ui.feet, ui.push, ui.touch]) el.onchange = play;
 ui.sample.onclick = sample;
 
 let drag = null;

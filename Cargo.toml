@@ -1,12 +1,12 @@
 [package]
-name = "mummer"
+name = "dittomo"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Retarget animation from any skeleton onto any other: the more alike the two, the closer the copy"
 readme = "README.md"
 license = "MIT-0"
-repository = "https://github.com/Azazel-Labs/mummer"
+repository = "https://github.com/Azazel-Labs/dittomo"
 include = ["/src/**", "/README.md", "/LICENSE"]
 keywords = ["animation", "retargeting", "skeleton", "gltf", "gamedev"]
 categories = ["graphics", "game-development"]

@@ -1,4 +1,4 @@
-//! mummer in the browser, through a handful of plain wasm exports (no bindings generator).
+//! dittomo in the browser, through a handful of plain wasm exports (no bindings generator).
 //!
 //! The page asks for a buffer, writes a model file's extension then its bytes into it, and calls [`load`] for the
 //! source (slot 0) or the target (slot 1). [`map`] matches the two and leaves a JSON report as the text; [`play`] plays
@@ -7,8 +7,8 @@
 
 use std::cell::RefCell;
 
-use mummer::load::Model;
-use mummer::{Clip, Fixes, Mapping, Skeleton, contact};
+use dittomo::load::Model;
+use dittomo::{Clip, Fixes, Mapping, Skeleton, Surface, contact};
 
 #[path = "../benches/common/mod.rs"]
 #[allow(dead_code)]
@@ -72,6 +72,7 @@ pub extern "C" fn sample() {
         nodes: (0..skeleton.len()).collect(),
         skeleton,
         clips,
+        skin: Surface::default(),
     };
     let source = common::mixamo();
     let walk = common::gait(&source, 180, false);
@@ -104,7 +105,8 @@ pub extern "C" fn map() -> u32 {
     })
 }
 
-/// Plays the source's clip `clip` on the target with the fixes in `fixes` (1 travel, 2 feet, 4 push-out), leaving
+/// Plays the source's clip `clip` on the target with the fixes in `fixes` (1 travel, 2 feet, 4 push-out, 8 hands on
+/// the body, which needs both models' skins; the built-in sample has none), leaving
 /// each frame's time and every bone's place in the world, for both. The number of frames, or 0 with the error as the
 /// text.
 #[unsafe(no_mangle)]
@@ -129,13 +131,15 @@ pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
             travel: fixes & 1 != 0,
             feet: fixes & 2 != 0,
             push_out: fixes & 4 != 0,
+            touch: fixes & 8 != 0,
         };
         let shown = if fixes.travel {
             contact::travel(&source.skeleton, from)
         } else {
             from.clone()
         };
-        let played = match mapping.apply_with(&source.skeleton, &target.skeleton, from, fixes) {
+        let skins = [&source.skin, &target.skin];
+        let played = match mapping.apply_touching(&source.skeleton, &target.skeleton, skins, from, fixes) {
             Ok(c) => c,
             Err(e) => {
                 s.text = e.to_string();

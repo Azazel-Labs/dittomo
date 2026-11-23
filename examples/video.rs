@@ -14,8 +14,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use mummer::load::Model;
-use mummer::{Clip, Fixes, Mapping, Transform, Vec3};
+use dittomo::load::Model;
+use dittomo::{Clip, Fixes, Mapping, Transform, Vec3};
 use polysmelt::assets::Folder;
 use polysmelt::document::{Document, Keep, Pose};
 use polysmelt::mesh::Mesh;
@@ -147,9 +147,9 @@ fn main() {
     for f in range {
         let t = start + (f as f32 / FPS) % length.max(f32::EPSILON);
         let s_pose = sample(clip, t);
-        let mummer_pose = sample(&played, t);
-        // The same travel as mummer's, so only the rotations differ.
-        let mut copied = mummer_pose.clone();
+        let dittomo_pose = sample(&played, t);
+        // The same travel as dittomo's, so only the rotations differ.
+        let mut copied = dittomo_pose.clone();
         for (b, bone) in ts.bones().iter().enumerate() {
             copied[b].rotation = map.source_of(b).map_or(bone.rest.rotation, |sb| s_pose[sb].rotation);
         }
@@ -161,11 +161,11 @@ fn main() {
                 .enumerate()
                 .map(|(p, panel)| {
                     let (src, tgt, labels) = (&src, &tgt, &labels);
-                    let (mummer_pose, copied) = (&mummer_pose, &copied);
+                    let (dittomo_pose, copied) = (&dittomo_pose, &copied);
                     sc.spawn(move || {
                         let mesh = match p {
                             0 => src.doc.flatten(Pose::Animation { index: a, time: t }).expect("draws"),
-                            1 => tgt.draw(mummer_pose),
+                            1 => tgt.draw(dittomo_pose),
                             _ => tgt.draw(copied),
                         };
                         let Some(mesh) = mesh else { return false };

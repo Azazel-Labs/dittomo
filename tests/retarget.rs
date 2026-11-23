@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use mummer::{Bone, Clip, Mapping, Quat, Skeleton, Transform, Vec3};
+use dittomo::{Bone, Clip, Mapping, Quat, Skeleton, Transform, Vec3};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Side {

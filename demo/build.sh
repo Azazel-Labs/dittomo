@@ -3,8 +3,8 @@
 set -e
 cd "$(dirname "$0")"
 cargo build --release --target wasm32-unknown-unknown
-cp target/wasm32-unknown-unknown/release/mummer_demo.wasm www/
+cp target/wasm32-unknown-unknown/release/dittomo_demo.wasm www/
 if command -v wasm-opt >/dev/null 2>&1; then
-  wasm-opt -O3 www/mummer_demo.wasm -o www/mummer_demo.wasm
+  wasm-opt -O3 www/dittomo_demo.wasm -o www/dittomo_demo.wasm
 fi
-ls -l www/mummer_demo.wasm
+ls -l www/dittomo_demo.wasm

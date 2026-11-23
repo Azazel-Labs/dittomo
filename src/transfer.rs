@@ -37,7 +37,7 @@ enum Plan {
 /// Plays poses of one skeleton on another through a [`Mapping`], a frame at a time, without allocating.
 ///
 /// ```
-/// # use mummer::{Bone, Mapping, Player, Skeleton, Transform, Vec3};
+/// # use dittomo::{Bone, Mapping, Player, Skeleton, Transform, Vec3};
 /// # let bone = |name: &str, parent| Bone { name: name.into(), parent, rest: Transform::new(Vec3::Y, Default::default()) };
 /// # let rig = Skeleton::new(vec![bone("hips", None), bone("spine", Some(0))]).unwrap();
 /// let mapping = Mapping::new(&rig, &rig);

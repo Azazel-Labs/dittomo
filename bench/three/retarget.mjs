@@ -1,9 +1,9 @@
-// Plays the retarget benchmark's clip through three.js SkeletonUtils, to compare with mummer on the same rigs, clip and
+// Plays the retarget benchmark's clip through three.js SkeletonUtils, to compare with dittomo on the same rigs, clip and
 // bone pairs. Write the rigs with `cargo bench --bench retarget -- --dump target/rigs.json`, then
 // `npm ci --ignore-scripts && node retarget.mjs ../../target/rigs.json` here.
 //
-// three.js is given mummer's mapping as its bone names, so only playing is timed. Its `retarget` copies each mapped
-// bone's world rotation, with no correction for rests that differ, so it does less than mummer per bone.
+// three.js is given dittomo's mapping as its bone names, so only playing is timed. Its `retarget` copies each mapped
+// bone's world rotation, with no correction for rests that differ, so it does less than dittomo per bone.
 
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';

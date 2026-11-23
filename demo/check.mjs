@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, extname } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { instance: { exports: w } } = await WebAssembly.instantiate(readFileSync(join(here, "www/mummer_demo.wasm")), {});
+const { instance: { exports: w } } = await WebAssembly.instantiate(readFileSync(join(here, "www/dittomo_demo.wasm")), {});
 const text = () => new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.text(), w.text_len()));
 const check = (ok, what) => { if (!ok) { console.error(`failed: ${what}: ${text()}`); process.exit(1); } };
 
@@ -14,7 +14,7 @@ check(w.map(), "map the sample");
 const report = JSON.parse(text());
 check(report.quality > 0.5, `quality ${report.quality}`);
 check(report.target.legs.length === 2 && report.target.arms.length === 2, "two legs and two arms");
-for (const [clip, fixes] of [[0, 0], [1, 7]]) {
+for (const [clip, fixes] of [[0, 0], [1, 15]]) {
   const t = performance.now();
   const frames = w.play(clip, fixes);
   check(frames > 0, `play clip ${clip}`);

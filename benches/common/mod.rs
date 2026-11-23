@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use mummer::{Bone, Clip, Quat, Skeleton, Transform, Vec3};
+use dittomo::{Bone, Clip, Quat, Skeleton, Transform, Vec3};
 
 /// How bones' axes sit at rest.
 #[derive(Clone, Copy)]
@@ -222,7 +222,7 @@ pub fn walk(sk: &Skeleton, frames: usize) -> Clip {
 #[must_use]
 pub fn gait(sk: &Skeleton, frames: usize, in_place: bool) -> Clip {
     use std::f32::consts::PI;
-    let legs = mummer::contact::legs(sk);
+    let legs = dittomo::contact::legs(sk);
     let rest = sk.rest();
     let world = sk.world(&rest);
     let (lo, hi) = world.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
@@ -255,7 +255,7 @@ pub fn gait(sk: &Skeleton, frames: usize, in_place: bool) -> Clip {
                 )
             };
             let z = if in_place { z - speed * t } else { z };
-            mummer::contact::reach(sk, &mut pose, leg, Vec3::new(at.x, at.y + lift, z));
+            dittomo::contact::reach(sk, &mut pose, leg, Vec3::new(at.x, at.y + lift, z));
         }
         clip.times.push(t);
         clip.poses.push(pose);

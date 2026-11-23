@@ -1,9 +1,9 @@
 [package]
-name = "mummer-demo"
+name = "dittomo-demo"
 version = "0.0.0"
 edition = "2024"
 publish = false
-description = "mummer in the browser: drop in two models, see the mapping, play the clip"
+description = "dittomo in the browser: drop in two models, see the mapping, play the clip"
 license = "MIT-0"
 
 [lib]
@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 path = "lib.rs"
 
 [dependencies]
-mummer = { path = "..", features = ["load"] }
+dittomo = { path = "..", features = ["load"] }
 
 [profile.release]
 opt-level = 3
@@ -20,5 +20,5 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# Its own workspace, so it builds apart from mummer.
+# Its own workspace, so it builds apart from dittomo.
 [workspace]

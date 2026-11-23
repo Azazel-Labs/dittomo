@@ -4,8 +4,8 @@
 
 use std::path::PathBuf;
 
-use mummer::Mapping;
-use mummer::load::Model;
+use dittomo::Mapping;
+use dittomo::load::Model;
 
 fn path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/armature_animated.fbx")

@@ -4,8 +4,8 @@
 #[allow(dead_code)]
 mod common;
 
-use mummer::contact::{self, Limb};
-use mummer::{Clip, Fixes, Mapping, Skeleton, Transform, Vec3};
+use dittomo::contact::{self, Limb};
+use dittomo::{Clip, Fixes, Mapping, Skeleton, Transform, Vec3};
 
 fn names(sk: &Skeleton, limbs: &[Limb]) -> Vec<[String; 3]> {
     let n = |b: usize| sk.bones()[b].name.clone();
@@ -243,10 +243,10 @@ fn placed(joints: &[(&str, Option<&str>, [f32; 3])]) -> Skeleton {
             let at = Vec3::from(at) * 170.0;
             let parent = parent.map(index);
             let from = parent.map_or(Vec3::ZERO, |p| Vec3::from(joints[p].2) * 170.0);
-            mummer::Bone {
+            dittomo::Bone {
                 name: name.to_owned(),
                 parent,
-                rest: Transform::new(at - from, mummer::Quat::IDENTITY),
+                rest: Transform::new(at - from, dittomo::Quat::IDENTITY),
             }
         })
         .collect();
@@ -396,7 +396,7 @@ fn fingers_hanging_low_are_no_legs() {
 
 /// Skin on the mixamo rig: a trunk `r` wide around the spine from the hips to the chest, and a ball round each hand
 /// and its fingers.
-fn skin(sk: &Skeleton, r: f32) -> mummer::Surface {
+fn skin(sk: &Skeleton, r: f32) -> dittomo::Surface {
     let rest = sk.world(&sk.rest());
     let bone = |n: &str| sk.index_of(&format!("mixamorig:{n}")).unwrap();
     let mut points = Vec::new();
@@ -427,7 +427,7 @@ fn skin(sk: &Skeleton, r: f32) -> mummer::Surface {
             }
         }
     }
-    mummer::Surface::new(sk, points, 1.0)
+    dittomo::Surface::new(sk, points, 1.0)
 }
 
 #[test]
@@ -437,7 +437,7 @@ fn a_surface_keeps_its_outside() {
     assert!(!s.is_empty());
     // The same points facing in, as a lining would, are all left out.
     let hips = sk.index_of("mixamorig:Hips").unwrap();
-    let lining = mummer::Surface::new(
+    let lining = dittomo::Surface::new(
         &sk,
         (0..48).map(|k| {
             let a = k as f32 / 48.0 * std::f32::consts::TAU;
@@ -457,12 +457,12 @@ fn a_hand_resting_on_a_thin_body_rests_on_a_thick_one() {
     let arm = contact::arms(&sk)[0];
     let x = at(&sk, &sk.rest(), arm.end).x.signum();
     let uppers: Vec<usize> = contact::arms(&sk).iter().map(|a| a.upper).collect();
-    let gap = |s: &mummer::Surface, pose: &[Transform]| s.gap(&sk, &sk.world(pose), arm.end, &uppers).unwrap();
+    let gap = |s: &dittomo::Surface, pose: &[Transform]| s.gap(&sk, &sk.world(pose), arm.end, &uppers).unwrap();
     let touch = Fixes {
         touch: true,
         ..Fixes::NONE
     };
-    let play = |pose: &[Transform], skins: [&mummer::Surface; 2], fixes| {
+    let play = |pose: &[Transform], skins: [&dittomo::Surface; 2], fixes| {
         let clip = Clip {
             times: vec![0.0],
             poses: vec![pose.to_vec()],
@@ -498,6 +498,6 @@ fn a_hand_resting_on_a_thin_body_rests_on_a_thick_one() {
     let out = play(&sk.rest(), [&thin, &thick], touch);
     assert_eq!(out, play(&sk.rest(), [&thin, &thick], Fixes::NONE));
     // And without skins, touch does nothing.
-    let empty = mummer::Surface::default();
+    let empty = dittomo::Surface::default();
     assert_eq!(play(&rest_on_hip, [&empty, &empty], touch), plain);
 }

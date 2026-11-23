@@ -4,7 +4,7 @@ name: CI
 # on real rigs, and on pull requests a benchmark of the base and the change on the same runner that
 # fails if the change got slower.
 #
-# mummer reads models through polysmelt, a path dependency beside it, so every job checks the two
+# dittomo reads models through polysmelt, a path dependency beside it, so every job checks the two
 # out side by side.
 
 on:
@@ -37,18 +37,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: mummer
+          path: dittomo
       - uses: actions/checkout@v4
         with:
           repository: Azazel-Labs/polysmelt
           path: polysmelt
       - run: rustup toolchain install && rustup component add clippy
-        working-directory: mummer
+        working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mummer
+          workspaces: dittomo
       - run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
-        working-directory: mummer
+        working-directory: dittomo
 
   test:
     strategy:
@@ -59,20 +59,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: mummer
+          path: dittomo
       - uses: actions/checkout@v4
         with:
           repository: Azazel-Labs/polysmelt
           path: polysmelt
       - run: rustup toolchain install
-        working-directory: mummer
+        working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mummer
+          workspaces: dittomo
       - run: cargo test --all-targets --features fs
-        working-directory: mummer
+        working-directory: dittomo
       - run: cargo test --doc --features fs
-        working-directory: mummer
+        working-directory: dittomo
 
   # The browser demo: built for wasm, then driven from node as the page drives it.
   demo:
@@ -80,20 +80,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: mummer
+          path: dittomo
       - uses: actions/checkout@v4
         with:
           repository: Azazel-Labs/polysmelt
           path: polysmelt
       - run: rustup toolchain install && rustup target add wasm32-unknown-unknown && rustup component add clippy
-        working-directory: mummer
+        working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mummer/demo
+          workspaces: dittomo/demo
       - run: cargo clippy --target wasm32-unknown-unknown -- -D warnings
-        working-directory: mummer/demo
+        working-directory: dittomo/demo
       - run: sh build.sh && node check.mjs
-        working-directory: mummer/demo
+        working-directory: dittomo/demo
 
   # Mapping on real rigs: downloads them (cached on the script, which pins each by commit and
   # SHA-256), writes the accuracy table to the job summary, and fails below the floor.
@@ -102,25 +102,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: mummer
+          path: dittomo
       - uses: actions/checkout@v4
         with:
           repository: Azazel-Labs/polysmelt
           path: polysmelt
       - run: rustup toolchain install
-        working-directory: mummer
+        working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mummer
+          workspaces: dittomo
       - uses: actions/cache@v4
         with:
-          path: mummer/bench/rigs/data
-          key: rigs-${{ hashFiles('mummer/bench/rigs/fetch.sh') }}
+          path: dittomo/bench/rigs/data
+          key: rigs-${{ hashFiles('dittomo/bench/rigs/fetch.sh') }}
       - run: sh bench/rigs/fetch.sh
-        working-directory: mummer
+        working-directory: dittomo
       - run: cargo bench --features fs --bench rigs -- --min 90 --max-degrees 4 | tee -a "$GITHUB_STEP_SUMMARY"
         shell: bash
-        working-directory: mummer
+        working-directory: dittomo
 
   # Both builds run on one runner, one after the other, so the machine is the same for each.
   bench:
@@ -129,31 +129,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: mummer
+          path: dittomo
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          path: base/mummer
+          path: base/dittomo
       - uses: actions/checkout@v4
         with:
           repository: Azazel-Labs/polysmelt
           path: polysmelt
       - run: ln -s "$PWD/polysmelt" base/polysmelt
       - run: rustup toolchain install
-        working-directory: mummer
+        working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            mummer
-            base/mummer
+            dittomo
+            base/dittomo
       - name: Base
-        working-directory: base/mummer
+        working-directory: base/dittomo
         run: |
           if [ -f benches/retarget.rs ]; then
             cargo bench --bench retarget -- --budget 2 --json "$GITHUB_WORKSPACE/base.json"
           fi
       - name: Change
-        working-directory: mummer
+        working-directory: dittomo
         run: |
           if [ -f "$GITHUB_WORKSPACE/base.json" ]; then
             cargo bench --bench retarget -- --budget 2 --against "$GITHUB_WORKSPACE/base.json" --slack 0.25 | tee -a "$GITHUB_STEP_SUMMARY"
@@ -161,37 +161,37 @@ jobs:
             cargo bench --bench retarget -- --budget 2 | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 
-  # mummer, three.js and Babylon.js playing the same clip on the same rigs, one after the other on one runner.
+  # dittomo, three.js and Babylon.js playing the same clip on the same rigs, one after the other on one runner.
   three:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          path: mummer
+          path: dittomo
       - uses: actions/checkout@v4
         with:
           repository: Azazel-Labs/polysmelt
           path: polysmelt
       - run: rustup toolchain install
-        working-directory: mummer
+        working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mummer
+          workspaces: dittomo
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: mummer
-        working-directory: mummer
+      - name: dittomo
+        working-directory: dittomo
         run: |
           cargo bench --bench retarget -- --dump target/rigs.json
           cargo bench --bench retarget | tee -a "$GITHUB_STEP_SUMMARY"
       - name: three.js
-        working-directory: mummer/bench/three
+        working-directory: dittomo/bench/three
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           node retarget.mjs ../../target/rigs.json | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Babylon.js
-        working-directory: mummer/bench/babylon
+        working-directory: dittomo/bench/babylon
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           node retarget.mjs ../../target/rigs.json | tee -a "$GITHUB_STEP_SUMMARY"

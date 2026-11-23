@@ -15,7 +15,7 @@ mod common;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use mummer::{Clip, Fixes, Mapping, Player, Skeleton, Transform};
+use dittomo::{Clip, Fixes, Mapping, Player, Skeleton, Transform};
 
 struct Case {
     name: &'static str,

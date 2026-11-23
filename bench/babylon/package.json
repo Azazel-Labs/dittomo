@@ -1,8 +1,8 @@
 {
-  "name": "mummer-bench-babylon",
+  "name": "dittomo-bench-babylon",
   "private": true,
   "type": "module",
-  "description": "Plays the retarget benchmark's clip through Babylon.js's AnimatorAvatar, to compare with mummer",
+  "description": "Plays the retarget benchmark's clip through Babylon.js's AnimatorAvatar, to compare with dittomo",
   "dependencies": {
     "@babylonjs/core": "9.34.0"
   }

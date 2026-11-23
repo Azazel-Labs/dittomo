@@ -8,15 +8,13 @@ where the character looks, where its hands rest on its body, and where its feet 
 
 <p align="center"><img src="assets/brand/demo.gif" alt="A samba danced by Michelle, and the same samba played by dittomo on a Ready Player Me avatar" width="640"></p>
 
-The crate is still named `mummer`, so the code below uses that name.
-
 Pure Rust, no `unsafe`, deterministic, MIT-0. Its only dependency is [glam](https://crates.io/crates/glam); reading
 model files adds [polysmelt](https://github.com/Azazel-Labs/polysmelt), behind a feature.
 
 ```rust
-use mummer::{Clip, Fixes, Mapping, Skeleton};
+use dittomo::{Clip, Fixes, Mapping, Skeleton};
 
-fn play_on(source: &Skeleton, target: &Skeleton, clip: &Clip) -> Result<Clip, mummer::Error> {
+fn play_on(source: &Skeleton, target: &Skeleton, clip: &Clip) -> Result<Clip, dittomo::Error> {
     let map = Mapping::new(source, target);
     println!("{:.0}% alike", map.quality() * 100.0);
     map.apply_with(source, target, clip, Fixes::ALL)
@@ -45,10 +43,10 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| mummer | 92.7% |
+| dittomo | 92.7% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
-| Joint | mummer | By name | | Joint | mummer | By name |
+| Joint | dittomo | By name | | Joint | dittomo | By name |
 | --- | ---: | ---: | --- | --- | ---: | ---: |
 | hips | 100% | 38% | | thighs | 95% | 24% |
 | spine | 95% | 38% | | shins | 95% | 24% |
@@ -82,13 +80,13 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| mummer | 3.4° | 0.2° | 7.7° | 94% |
-| mummer, with the joints it misses set by hand (`Mapping::set`) | 2.1° | 0.2° | 5.3° | 97% |
+| dittomo | 3.4° | 0.2° | 7.7° | 94% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.1° | 0.2° | 5.3° | 97% |
 | World turns from rest copied onto the right bones | 22.0° | 11.2° | 64.6° | 56% |
 | Local rotations copied onto the right bones | 74.7° | 83.8° | 151.4° | 22% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
-both rigs when the bones between are in other ratios. The upper arms are the biggest gap between mummer and the hand
+both rigs when the bones between are in other ratios. The upper arms are the biggest gap between dittomo and the hand
 labels, from BrainStem's and RobotExpressive's misses above. CI fails if the mean passes 4°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
@@ -139,10 +137,10 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 | The same walk done in place, travel worked out from the feet | 3.3 µs per frame |
 | Set up a `Player` for a pair of rigs | 40 µs |
 
-three.js plays the same clip on the same rigs in `bench/three`, given mummer's bone pairs as its names so only playing
-is timed. Measured back to back with mummer on one machine (three.js r187 on Node 26):
+three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
+is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):
 
-| Play a 60-frame walk, mixamo 65 → mannequin 76 | mummer | three.js `SkeletonUtils` | |
+| Play a 60-frame walk, mixamo 65 → mannequin 76 | dittomo | three.js `SkeletonUtils` | |
 | --- | ---: | ---: | ---: |
 | Whole clip, setup included (`apply`, `retargetClip`) | 3.6 µs per frame | 221 µs per frame | 61× |
 | One frame, rigs reused (`Player::pose`, `retarget`) | 2.5 µs per frame | 186 µs per frame | 74× |
@@ -152,7 +150,7 @@ differ unless offsets are given by hand, and finds each bone's pair by name on e
 
 Babylon.js's `AnimatorAvatar.retargetAnimationGroup` (9.34, in `bench/babylon`) is closer. It corrects for rests that
 differ, carrying each key's turn from the source bone's rest into the target's, and bakes a whole clip, with no call
-to pose one frame. Measured back to back on a busy machine, best of five runs each: mummer played a frame in 7.0 µs,
+to pose one frame. Measured back to back on a busy machine, best of five runs each: dittomo played a frame in 7.0 µs,
 Babylon in 50 µs (7×), and in 143 µs with the hips' path scaled to the target (20×), which it does by playing both
 clips through again key by key. three.js took 327 µs on the same runs. CI runs all three on every push.
 
@@ -168,7 +166,7 @@ every pull request against its base on the same runner and fails it if anything 
 
 ## Reading models
 
-With the `load` feature, `mummer::load::Model` reads a skeleton and its clips from glTF, GLB (VRM avatars too) or FBX bytes
+With the `load` feature, `dittomo::load::Model` reads a skeleton and its clips from glTF, GLB (VRM avatars too) or FBX bytes
 (`Model::from_bytes(bytes, "fbx")`), FBX read directly with no Blender round trip. `fs` adds
 `Model::load(path)`, and `usd` adds USD. Each skin's joints, and the nodes above them, become the skeleton; each
 animation is sampled at its keys into a `Clip`. `load` builds for wasm. The twelve benchmark rigs and their 35 clips
@@ -257,7 +255,7 @@ shoulders) and on a rig whose fingers hang below its knees.
 
 ## Browser demo
 
-[demo/](demo) runs mummer in the browser as plain wasm, with no bindings generator and no JavaScript dependencies. Drop
+[demo/](demo) runs dittomo in the browser as plain wasm, with no bindings generator and no JavaScript dependencies. Drop
 in two glTF, GLB or FBX files, or use the built-in sample. It shows both skeletons playing side by side, the quality, how
 long the match and the clip took, every target bone's match and score, and toggles for each fix. The whole module is
 about 1 MB, file readers included.
