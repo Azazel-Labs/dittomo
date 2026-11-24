@@ -678,17 +678,7 @@ fn lower(target: &Skeleton, t: &Shape, played: &Clip, feet: &[Going], ramp: usiz
         let [hip, knee, foot] = [leg.upper, leg.lower, leg.end].map(|b| track(target, played, b));
         for f in 0..n {
             let Some(goal) = goals[f] else { continue };
-            let long = hip[f].distance(knee[f]) + knee[f].distance(foot[f]);
-            let reach = long * (hip[f].distance(foot[f]) / long).clamp(0.98, 0.999);
-            // Lowered by `y`, the hip is `reach` from the goal: |v + y Y| = reach, the smaller root. A goal further
-            // across than the leg reaches can't be reached by lowering, and the body is lowered a tenth of the leg at
-            // most, so a foot held far off isn't dragged down to.
-            let v = goal - hip[f];
-            let across = v.x * v.x + v.z * v.z;
-            if across < reach * reach {
-                let y = -v.y - (reach * reach - across).sqrt();
-                need[f] = need[f].max(y.min(0.1 * long));
-            }
+            need[f] = need[f].max(sink([hip[f], knee[f], foot[f]], goal));
         }
     }
     if need.iter().all(|&y| y <= 0.0) {
@@ -754,6 +744,106 @@ const SETTLE: f32 = 0.12;
 fn smooth(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
     x * x * (3.0 - 2.0 * x)
+}
+
+/// How far to lower a leg's hip, its hip, knee and foot at `leg`, for the foot to reach `goal` bent at least as much as
+/// it is, or as a leg standing nearly straight is ([`lower`]); not at all if it doesn't need to.
+fn sink(leg: [Vec3; 3], goal: Vec3) -> f32 {
+    let [hip, knee, foot] = leg;
+    let long = hip.distance(knee) + knee.distance(foot);
+    if long <= 0.0 {
+        return 0.0;
+    }
+    let reach = long * (hip.distance(foot) / long).clamp(0.98, 0.999);
+    // Lowered by `y`, the hip is `reach` from the goal: |v + y Y| = reach, the smaller root. A goal further across than
+    // the leg reaches can't be reached by lowering, and the body is lowered a tenth of the leg at most, so a foot held
+    // far off isn't dragged down to.
+    let v = goal - hip;
+    let across = v.x * v.x + v.z * v.z;
+    if across >= reach * reach {
+        return 0.0;
+    }
+    (-v.y - (reach * reach - across).sqrt()).clamp(0.0, 0.1 * long)
+}
+
+/// The body lowered over feet held further off than the legs reach, as [`lower`] lowers it over a whole clip, but as
+/// the poses come: as far as the legs need at once, then eased back up over [`SETTLE`] once they need less; never so
+/// far that a bone but the feet (or a root standing on the floor at rest) comes under the floor.
+#[derive(Clone)]
+pub(crate) struct Sink {
+    roots: Vec<usize>,
+    /// The bones kept over the floor, and the path placing them.
+    body: Vec<usize>,
+    path: Vec<usize>,
+    floor: f32,
+    /// How far the body was lowered the pose before.
+    drop: f32,
+}
+
+impl Sink {
+    fn new<'a>(target: &Skeleton, t: &Shape, legs: impl Iterator<Item = &'a Limb> + Clone) -> Self {
+        let body: Vec<usize> = (0..target.len())
+            .filter(|&b| {
+                !legs.clone().any(|leg| b == leg.end || below(target, b, leg.end))
+                    && t.rest[b].position().y - t.floor >= 0.01 * t.height
+            })
+            .collect();
+        Self {
+            roots: (0..target.len())
+                .filter(|&b| target.bones()[b].parent.is_none())
+                .collect(),
+            path: paths(target, body.iter().copied()),
+            body,
+            floor: t.floor,
+            drop: 0.0,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.drop = 0.0;
+    }
+
+    /// Lowers `played`, placed in `tw` as far as each leg's hip, knee and foot, `dt` seconds after the pose before, for
+    /// each leg to reach its goal, if it has one; then places it again in `tw` along `t_path`. Whether it was lowered.
+    fn lower<'a>(
+        &mut self,
+        target: &Skeleton,
+        dt: f32,
+        played: &mut [Transform],
+        tw: &mut [At],
+        t_path: &[usize],
+        goals: impl Iterator<Item = (&'a Limb, Option<Vec3>)>,
+    ) -> bool {
+        let need = goals
+            .filter_map(|(leg, goal)| Some(sink([leg.upper, leg.lower, leg.end].map(|b| tw[b].position()), goal?)))
+            .fold(0.0, f32::max);
+        let eased = if dt > 0.0 {
+            self.drop * (-dt / SETTLE).exp()
+        } else {
+            self.drop
+        };
+        let mut drop = need.max(eased);
+        if drop < 1e-6 {
+            self.drop = 0.0;
+            return false;
+        }
+        place(target, played, &self.path, tw);
+        let room = self
+            .body
+            .iter()
+            .map(|&b| tw[b].position().y - self.floor)
+            .fold(f32::INFINITY, f32::min);
+        drop = drop.min(room.max(0.0));
+        self.drop = drop;
+        if drop <= 0.0 {
+            return false;
+        }
+        for &r in &self.roots {
+            played[r].translation.y -= drop;
+        }
+        place(target, played, t_path, tw);
+        true
+    }
 }
 
 /// A target foot, or a mapped bone under it, and the source bone it plays, with how high each stands at rest and how
@@ -927,6 +1017,9 @@ pub(crate) struct Feet {
     /// The target's height over the source's.
     k: f32,
     s_height: f32,
+    sink: Sink,
+    /// Where each foot is this pose before it is moved, and where it goes, if it is moved.
+    goals: Vec<(Vec3, Option<Vec3>)>,
 }
 
 #[derive(Clone, Copy)]
@@ -972,6 +1065,8 @@ impl Feet {
             .collect();
         (!feet.is_empty()).then(|| Self {
             ground: Ground::new(feet.iter().map(|f| f.s_rest_y).collect(), s.height),
+            sink: Sink::new(target, t, feet.iter().map(|f| &f.leg)),
+            goals: vec![(Vec3::ZERO, None); feet.len()],
             s_path: paths(source, soles.iter().flatten().map(|p| p.source)),
             t_path: paths(target, soles.iter().flatten().map(|p| p.target)),
             feet,
@@ -995,6 +1090,7 @@ impl Feet {
             };
         }
         self.ground.reset();
+        self.sink.reset();
     }
 
     /// The source bones to place ([`place_source`]) before each pose.
@@ -1042,6 +1138,7 @@ impl Feet {
             };
             let up = ease.max(smooth((0.08 * h - low) / (0.04 * h)));
             let free = tw[f.leg.end].position();
+            self.goals[l] = (free, None);
             if up <= 0.0 {
                 f.shown = Some(free);
                 continue;
@@ -1063,10 +1160,42 @@ impl Feet {
                 free.y + (y - free.y) * up,
                 free.z + (lock.z - free.z) * ease,
             );
-            // Legs hang apart, so reaching one leaves the other placed as it was.
-            reach_in(target, played, tw, &f.leg, goal);
+            self.goals[l].1 = Some(goal);
             f.shown = Some(goal);
         }
+        let legs = self.feet.iter().map(|f| &f.leg);
+        reach_all(target, played, tw, &self.t_path, &mut self.sink, dt, legs, &self.goals);
+    }
+}
+
+/// Puts the foot of each of `legs` where it goes in `goals` (where it is, and where it goes if it is moved), `played`
+/// placed in `tw` along `t_path`, the body first lowered by `sink` if the legs need it, `dt` seconds after the pose
+/// before. A foot not moved over a body lowered is kept where it was.
+#[allow(clippy::too_many_arguments)]
+fn reach_all<'a>(
+    target: &Skeleton,
+    played: &mut [Transform],
+    tw: &mut [At],
+    t_path: &[usize],
+    sink: &mut Sink,
+    dt: f32,
+    legs: impl Iterator<Item = &'a Limb> + Clone,
+    goals: &[(Vec3, Option<Vec3>)],
+) {
+    let lowered = sink.lower(
+        target,
+        dt,
+        played,
+        tw,
+        t_path,
+        legs.clone().zip(goals.iter().map(|g| g.1)),
+    );
+    for (leg, &(free, goal)) in legs.zip(goals) {
+        let Some(goal) = goal.or(lowered.then_some(free)) else {
+            continue;
+        };
+        // Legs hang apart, so reaching one leaves the other placed as it was.
+        reach_in(target, played, tw, leg, goal);
     }
 }
 
@@ -1097,6 +1226,8 @@ pub(crate) struct Ahead {
     w_at: Vec<Vec3>,
     w_times: Vec<f32>,
     w_down: Vec<bool>,
+    sink: Sink,
+    goals: Vec<(Vec3, Option<Vec3>)>,
 }
 
 impl Ahead {
@@ -1122,6 +1253,8 @@ impl Ahead {
             w_at: Vec::with_capacity(kept),
             w_times: Vec::with_capacity(kept),
             w_down: Vec::with_capacity(kept),
+            sink: feet.sink.clone(),
+            goals: vec![(Vec3::ZERO, None); n],
         };
         ahead.reset();
         ahead
@@ -1132,6 +1265,7 @@ impl Ahead {
         self.ground.reset();
         self.held.fill(None);
         (self.seen, self.clock) = (0, 0.0);
+        self.sink.reset();
     }
 
     /// Takes in the next pose of the source, placed in `scratch` as for [`Feet`], `dt` seconds after the one before,
@@ -1178,8 +1312,9 @@ impl Ahead {
         .min(self.delay);
         let at_o = o - first;
         let tw = &mut scratch.tw;
-        let mut placed = false;
+        place(target, played, &self.t_path, tw);
         for (i, f) in self.feet.iter().enumerate() {
+            self.goals[i] = (tw[f.leg.end].position(), None);
             self.w_at.clear();
             self.w_times.clear();
             for g in first..=last {
@@ -1241,15 +1376,17 @@ impl Ahead {
             }
             let x = 1.0 - d as f32 / (ramp + 1) as f32;
             let w = x * x * (3.0 - 2.0 * x);
-            if !placed {
-                place(target, played, &self.t_path, tw);
-                placed = true;
-            }
             let y = self.t_y[slot(o) * n + i];
-            let free = tw[f.leg.end].position();
-            // Legs hang apart, so reaching one leaves the other placed as it was.
-            reach_in(target, played, tw, &f.leg, free.lerp(Vec3::new(lock.x, y, lock.z), w));
+            let free = self.goals[i].0;
+            self.goals[i].1 = Some(free.lerp(Vec3::new(lock.x, y, lock.z), w));
         }
+        let dt = if o > first {
+            self.times[slot(o)] - self.times[slot(o - 1)]
+        } else {
+            0.0
+        };
+        let legs = self.feet.iter().map(|f| &f.leg);
+        reach_all(target, played, tw, &self.t_path, &mut self.sink, dt, legs, &self.goals);
     }
 }
 

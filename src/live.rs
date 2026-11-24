@@ -12,10 +12,11 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 /// Arms are kept out of the body, hands brought together and, given skins ([`Live::touching`]), kept at the skin's
 /// distance just as the whole clip has them, as those fixes look only at the pose in hand. Hands are kept on the head as
 /// the whole clip has them too, but eased on as the source's get there, where the whole clip eases them on ahead, so a
-/// hand darting to the head gets there a little late. Planted feet
-/// and travel are worked out as the poses come: a foot plants as soon as the source's is down and nearly still and lets
-/// go once it lifts, held where it was when it planted. A clip walked in place is planted on the travel its feet imply,
-/// as far as the planted foot slides back, then kept in place unless [`Fixes::travel`] moves it on.
+/// hand darting to the head gets there a little late. Planted feet and travel are worked out as the poses come: a foot
+/// plants as soon as the source's is down and nearly still and lets go once it lifts, held where it was when it
+/// planted. A clip walked in place is planted on the travel its feet imply, as far as the planted foot slides back,
+/// then kept in place unless [`Fixes::travel`] moves it on. A body whose legs can't reach where its feet are held is
+/// lowered at once as far as they need, then eased back up, where the whole clip eases it down ahead.
 ///
 /// A foot can be held only once it has landed, where the whole clip eases it toward where it will land, so planted
 /// feet slide more. [`Live::delayed`] plays each pose a few poses late, and plants feet with those few in sight as the
@@ -376,10 +377,10 @@ impl Live {
     }
 }
 
-/// Each bone's translation from a pose played without the travel, its turn kept: the legs stay posed as they were
-/// planted, the body where the source's is.
+/// Each bone's translation across the floor from a pose played without the travel, its turn kept: the legs stay posed
+/// as they were planted, the body where the source's is, but as low as it was lowered for the feet.
 fn keep_translations(out: &mut [Transform], still: &[Transform]) {
     for (b, k) in out.iter_mut().zip(still) {
-        b.translation = k.translation;
+        (b.translation.x, b.translation.z) = (k.translation.x, k.translation.z);
     }
 }
