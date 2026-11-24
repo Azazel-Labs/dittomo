@@ -71,7 +71,7 @@ pub struct Limb {
 
 /// The skeleton's legs, found from its rest pose: a bone standing in the lowest 15% of the body whose parent stands
 /// above that, with bones below it reaching the floor, on a chain hanging from the spine. The knee and hip are picked
-/// from that chain ([`split`]), so twist bones along it don't count.
+/// from that chain (`split`), so twist bones along it don't count.
 #[must_use]
 pub fn legs(skeleton: &Skeleton) -> Vec<Limb> {
     legs_of(skeleton, &Shape::light(skeleton))
@@ -442,6 +442,257 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
     }
 }
 
+/// How long, in seconds, a foot takes to settle where it is held once it plants, and to let go once it lifts.
+const SETTLE: f32 = 0.12;
+
+/// The smooth step from 0 to 1 as `x` goes from 0 to 1.
+fn smooth(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// Feet kept still while the source's are planted, worked out as the poses come from those so far, with nothing ahead
+/// to look at. A source foot plants as soon as it is down and nearly still, and lifts once it rises or moves off by a
+/// little more, so it doesn't flicker between the two. The target's is held where it was when it planted, at the height
+/// the source's stands scaled, and let go over [`SETTLE`]. A foot coming down to the floor is brought to the source's
+/// height scaled as it nears it, so it lands without a jump.
+pub(crate) struct Feet {
+    feet: Vec<Foot>,
+    s_path: Vec<usize>,
+    t_path: Vec<usize>,
+    /// The target's height over the source's.
+    k: f32,
+    s_height: f32,
+}
+
+#[derive(Clone, Copy)]
+struct Foot {
+    leg: Limb,
+    source: usize,
+    s_rest_y: f32,
+    t_rest_y: f32,
+    /// The lowest the source's foot has been, or stands at rest if lower: a foot coming down from its first step isn't
+    /// taken to be on the floor.
+    ground: f32,
+    last: Option<Vec3>,
+    /// The source foot's speed across the floor.
+    speed: f32,
+    down: bool,
+    /// Where the target's foot is held, if it is or is letting go.
+    lock: Option<Vec3>,
+    /// Seconds since the foot planted or lifted.
+    since: f32,
+}
+
+impl Feet {
+    /// Nothing if no target leg's foot plays a source bone.
+    pub(crate) fn new(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> Option<Self> {
+        let feet: Vec<Foot> = legs_of(target, t)
+            .into_iter()
+            .filter_map(|leg| {
+                let a = map.source_of(leg.end)?;
+                Some(Foot {
+                    leg,
+                    source: a,
+                    s_rest_y: s.rest[a].position().y,
+                    t_rest_y: t.rest[leg.end].position().y,
+                    ground: s.rest[a].position().y,
+                    last: None,
+                    speed: 0.0,
+                    down: false,
+                    lock: None,
+                    since: 0.0,
+                })
+            })
+            .collect();
+        (!feet.is_empty()).then(|| Self {
+            s_path: paths(source, feet.iter().map(|f| f.source)),
+            t_path: paths(target, feet.iter().map(|f| f.leg.end)),
+            feet,
+            k: t.height / s.height,
+            s_height: s.height,
+        })
+    }
+
+    /// Forgets every contact, as after a cut.
+    pub(crate) fn reset(&mut self) {
+        for f in &mut self.feet {
+            *f = Foot {
+                ground: f.s_rest_y,
+                last: None,
+                speed: 0.0,
+                down: false,
+                lock: None,
+                since: 0.0,
+                ..*f
+            };
+        }
+    }
+
+    /// Fixes `played`, the target playing `pose` of the source, `dt` seconds after the pose before.
+    pub(crate) fn pose(
+        &mut self,
+        [source, target]: [&Skeleton; 2],
+        dt: f32,
+        pose: &[Transform],
+        played: &mut [Transform],
+        scratch: &mut Scratch,
+    ) {
+        let h = self.s_height;
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+        let Scratch { sw, tw, .. } = scratch;
+        place(source, pose, &self.s_path, sw);
+        let mut placed = false;
+        for f in &mut self.feet {
+            let at = sw[f.source].position();
+            f.ground = f.ground.min(at.y);
+            if let (Some(last), true) = (f.last, dt > 0.0) {
+                f.speed = flat(at - last).length() / dt;
+            }
+            f.last = Some(at);
+            let low = at.y - f.ground;
+            f.since += dt;
+            if f.down {
+                if low > 0.06 * h || f.speed > 0.5 * h {
+                    (f.down, f.since) = (false, 0.0);
+                }
+            } else if low < 0.04 * h && f.speed < 0.35 * h {
+                (f.down, f.since, f.lock) = (true, 0.0, None);
+            }
+            // Held across the floor at once, as the foot is where it planted, and let go over SETTLE. Its height is
+            // the source's scaled while planted, and on the way down to the floor from twice the height a foot plants
+            // at, so it doesn't jump on landing.
+            let ease = match (f.down, f.lock) {
+                (true, _) => 1.0,
+                (false, Some(_)) if f.since < SETTLE => smooth(1.0 - f.since / SETTLE),
+                _ => {
+                    f.lock = None;
+                    0.0
+                }
+            };
+            let up = ease.max(smooth((0.08 * h - low) / (0.04 * h)));
+            if up <= 0.0 {
+                continue;
+            }
+            if !placed {
+                place(target, played, &self.t_path, tw);
+                placed = true;
+            }
+            let free = tw[f.leg.end].position();
+            let lock = if f.down {
+                *f.lock.get_or_insert(free)
+            } else {
+                f.lock.unwrap_or(free)
+            };
+            let y = f.t_rest_y + (at.y - f.s_rest_y) * self.k;
+            let goal = Vec3::new(
+                free.x + (lock.x - free.x) * ease,
+                free.y + (y - free.y) * up,
+                free.z + (lock.z - free.z) * ease,
+            );
+            // Legs hang apart, so reaching one leaves the other placed as it was.
+            reach_in(target, played, tw, &f.leg, goal);
+        }
+    }
+}
+
+/// The travel a clip walked in place implies ([`travelled`]), worked out as the poses come: each pose the body moves as
+/// far as the lowest foot slid back since the pose before, and on as it was going while no foot is down. Slides slower
+/// than a twentieth of the height a second are taken for a foot shuffling, not walking. Once the hips have wandered a
+/// fifth of the height from where they began, the clip travels on its own and the travel stops growing.
+pub(crate) struct Travel {
+    /// Each leg's foot and upper bone, in the source.
+    legs: Vec<(usize, usize)>,
+    path: Vec<usize>,
+    roots: Vec<usize>,
+    s_height: f32,
+    /// Each foot's height at rest.
+    rest: Vec<f32>,
+    /// The lowest each foot has been, or stands at rest if lower.
+    ground: Vec<f32>,
+    last: Vec<Option<Vec3>>,
+    start: Option<Vec3>,
+    velocity: Vec3,
+    moved: Vec3,
+    on: bool,
+}
+
+impl Travel {
+    /// Nothing if the source has no legs.
+    pub(crate) fn new(source: &Skeleton, s: &Shape) -> Option<Self> {
+        let legs: Vec<(usize, usize)> = legs_of(source, s).iter().map(|l| (l.end, l.upper)).collect();
+        (!legs.is_empty()).then(|| Self {
+            path: paths(source, legs.iter().map(|l| l.0)),
+            roots: (0..source.len())
+                .filter(|&b| source.bones()[b].parent.is_none())
+                .collect(),
+            s_height: s.height,
+            rest: legs.iter().map(|l| s.rest[l.0].position().y).collect(),
+            ground: legs.iter().map(|l| s.rest[l.0].position().y).collect(),
+            last: vec![None; legs.len()],
+            start: None,
+            velocity: Vec3::ZERO,
+            moved: Vec3::ZERO,
+            on: true,
+            legs,
+        })
+    }
+
+    /// Forgets the travel so far, as after a cut.
+    pub(crate) fn reset(&mut self) {
+        self.ground.clone_from(&self.rest);
+        self.last.fill(None);
+        (self.start, self.velocity, self.moved, self.on) = (None, Vec3::ZERO, Vec3::ZERO, true);
+    }
+
+    /// Writes `pose`, `dt` seconds after the pose before, into `out` with the travel so far.
+    pub(crate) fn pose(
+        &mut self,
+        source: &Skeleton,
+        dt: f32,
+        pose: &[Transform],
+        out: &mut [Transform],
+        scratch: &mut Scratch,
+    ) {
+        let h = self.s_height;
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+        let sw = &mut scratch.sw;
+        place(source, pose, &self.path, sw);
+        let hips = self.legs.iter().map(|&(_, u)| sw[u].position()).sum::<Vec3>() / self.legs.len() as f32;
+        let start = *self.start.get_or_insert(hips);
+        if flat(hips - start).length() > 0.2 * h {
+            self.on = false;
+        }
+        let mut lowest: Option<(f32, Vec3)> = None;
+        for (l, &(foot, _)) in self.legs.iter().enumerate() {
+            let at = sw[foot].position();
+            self.ground[l] = self.ground[l].min(at.y);
+            let low = at.y - self.ground[l];
+            if let Some(last) = self.last[l]
+                && low < 0.04 * h
+                && lowest.is_none_or(|(m, _)| low < m)
+            {
+                lowest = Some((low, -flat(at - last)));
+            }
+            self.last[l] = Some(at);
+        }
+        if self.on && dt > 0.0 {
+            match lowest {
+                Some((_, step)) if step.length() > 0.05 * h * dt => {
+                    self.velocity = step / dt;
+                    self.moved += step;
+                }
+                Some(_) => self.velocity = Vec3::ZERO,
+                None => self.moved += self.velocity * dt,
+            }
+        }
+        out.copy_from_slice(pose);
+        for &r in &self.roots {
+            out[r].translation += self.moved;
+        }
+    }
+}
+
 struct Arm {
     limb: Limb,
     /// Away from the body at rest, for a point right on the spine.
@@ -502,7 +753,7 @@ impl Body {
     }
 
     /// The bones to place for the spheres and the arms.
-    fn path(&self, skeleton: &Skeleton) -> Vec<usize> {
+    pub(crate) fn path(&self, skeleton: &Skeleton) -> Vec<usize> {
         let ends = self.spine.iter().copied().chain(self.arms.iter().map(|a| a.limb.end));
         paths(skeleton, ends.chain(self.head.map(|h| h.bone)))
     }
@@ -663,49 +914,72 @@ fn spheres(spine: &[usize], pos: impl Fn(usize) -> Vec3) -> Vec<Vec3> {
     v
 }
 
+/// What fixing one pose at a time needs besides the pose: each rig placed in the world, as far as needed, and the
+/// spheres an arm keeps out of. Made once, so poses are fixed without allocating.
+pub(crate) struct Scratch {
+    sw: Vec<At>,
+    tw: Vec<At>,
+    spheres: Vec<(Vec3, f32)>,
+}
+
+impl Scratch {
+    pub(crate) fn new(source: &Skeleton, target: &Skeleton) -> Self {
+        Self {
+            sw: vec![At::IDENTITY; source.len()],
+            tw: vec![At::IDENTITY; target.len()],
+            spheres: Vec::with_capacity(64),
+        }
+    }
+}
+
 /// Pushes each pose's elbows and hands out of the spheres along its spine: the upper arm turns at the shoulder to
 /// clear the elbow, then the forearm at the elbow to clear the hand.
 pub(crate) fn push_out(target: &Skeleton, body: &Body, clip: &mut Clip) {
-    let parent = |b: usize| target.bones()[b].parent;
     let path = body.path(target);
-    let mut world = vec![At::IDENTITY; target.len()];
-    let mut centres = Vec::with_capacity(2 * body.spine.len() + 1);
+    let mut scratch = Scratch::new(target, target);
     for pose in &mut clip.poses {
-        // Arms don't move the spine or each other, so the world is worked out once a pose.
-        place(target, pose, &path, &mut world);
-        body.spheres(&world, &mut centres);
-        let need = |p: Vec3, out: Vec3| {
-            centres
-                .iter()
-                .filter_map(|&(q, reach)| {
-                    let d = p - q;
-                    let len = d.length();
-                    (len < reach).then(|| d.normalize_or(out) * (reach - len))
-                })
-                .max_by(|u, v| u.length_squared().total_cmp(&v.length_squared()))
+        push_pose(target, body, &path, pose, &mut scratch);
+    }
+}
+
+/// [`push_out`] for one pose, `path` being the body's.
+pub(crate) fn push_pose(target: &Skeleton, body: &Body, path: &[usize], pose: &mut [Transform], scratch: &mut Scratch) {
+    let parent = |b: usize| target.bones()[b].parent;
+    let (world, centres) = (&mut scratch.tw, &mut scratch.spheres);
+    // Arms don't move the spine or each other, so the world is worked out once a pose.
+    place(target, pose, path, world);
+    body.spheres(world, centres);
+    let need = |p: Vec3, out: Vec3| {
+        centres
+            .iter()
+            .filter_map(|&(q, reach)| {
+                let d = p - q;
+                let len = d.length();
+                (len < reach).then(|| d.normalize_or(out) * (reach - len))
+            })
+            .max_by(|u, v| u.length_squared().total_cmp(&v.length_squared()))
+    };
+    let above = |bone: usize| parent(bone).map_or(Quat::IDENTITY, |p| world[p].rotation);
+    for arm in &body.arms {
+        let l = &arm.limb;
+        let (up, low) = (&world[l.upper], &world[l.lower]);
+        let (a, b, c) = (up.position(), low.position(), world[l.end].position());
+        let turn = need(b, arm.out).map_or(Quat::IDENTITY, |push| arc(b - a, b + push - a));
+        if turn != Quat::IDENTITY {
+            pose[l.upper].rotation = (above(l.upper).inverse() * turn * up.rotation).normalize();
+        }
+        let (b2, c2) = (a + turn * (b - a), a + turn * (c - a));
+        let mid = need((b2 + c2) / 2.0, arm.out).map(|p| p * 2.0);
+        let hand = need(c2, arm.out);
+        let push = match (mid, hand) {
+            (Some(m), Some(h)) => Some(if m.length_squared() > h.length_squared() { m } else { h }),
+            (m, h) => m.or(h),
         };
-        let above = |bone: usize| parent(bone).map_or(Quat::IDENTITY, |p| world[p].rotation);
-        for arm in &body.arms {
-            let l = &arm.limb;
-            let (up, low) = (&world[l.upper], &world[l.lower]);
-            let (a, b, c) = (up.position(), low.position(), world[l.end].position());
-            let turn = need(b, arm.out).map_or(Quat::IDENTITY, |push| arc(b - a, b + push - a));
-            if turn != Quat::IDENTITY {
-                pose[l.upper].rotation = (above(l.upper).inverse() * turn * up.rotation).normalize();
-            }
-            let (b2, c2) = (a + turn * (b - a), a + turn * (c - a));
-            let mid = need((b2 + c2) / 2.0, arm.out).map(|p| p * 2.0);
-            let hand = need(c2, arm.out);
-            let push = match (mid, hand) {
-                (Some(m), Some(h)) => Some(if m.length_squared() > h.length_squared() { m } else { h }),
-                (m, h) => m.or(h),
-            };
-            if let Some(push) = push {
-                let bend = arc(c2 - b2, c2 + push - b2);
-                // The lower bone's parent is now turned by `turn`, and the lower bone by `bend` after it.
-                let above_new = turn * above(l.lower);
-                pose[l.lower].rotation = (above_new.inverse() * bend * turn * low.rotation).normalize();
-            }
+        if let Some(push) = push {
+            let bend = arc(c2 - b2, c2 + push - b2);
+            // The lower bone's parent is now turned by `turn`, and the lower bone by `bend` after it.
+            let above_new = turn * above(l.lower);
+            pose[l.lower].rotation = (above_new.inverse() * bend * turn * low.rotation).normalize();
         }
     }
 }
@@ -891,52 +1165,97 @@ pub(crate) fn hands(
     from: &Clip,
     out: &mut Clip,
 ) {
-    let [(source, s), (target, t)] = rigs;
-    let arms = played(map, s_body, t_body);
-    let pairs: Vec<(usize, usize)> = (0..arms.len())
-        .flat_map(|i| (i + 1..arms.len()).map(move |j| (i, j)))
-        .collect();
-    if pairs.is_empty() {
+    let Some(mut fix) = Hands::new(map, rigs, [s_body, t_body]) else {
         return;
-    }
-    let (turn, scale) = (map.turn(), t.height / s.height);
-    // Within `near` of each other (over the height) the source's hands are together; past `far`, apart.
-    let (near, far) = (0.06, 0.15);
-    let s_path = paths(source, arms.iter().map(|a| a.1));
-    let t_path = t_body.path(target);
-    let (mut sw, mut tw) = (vec![At::IDENTITY; source.len()], vec![At::IDENTITY; target.len()]);
-    let mut spheres = Vec::new();
-    let mut last: Vec<Option<Vec3>> = vec![None; pairs.len()];
+    };
+    let [(source, _), (target, _)] = rigs;
+    let mut scratch = Scratch::new(source, target);
     for (pose, played) in from.poses.iter().zip(&mut out.poses) {
-        place(source, pose, &s_path, &mut sw);
-        for (k, &(i, j)) in pairs.iter().enumerate() {
-            let ((li, si), (lj, sj)) = (arms[i], arms[j]);
+        fix.pose([source, target], t_body, pose, played, &mut scratch);
+    }
+}
+
+/// [`hands`], made ready for two rigs, then run a pose at a time.
+pub(crate) struct Hands {
+    arms: Vec<(Limb, usize)>,
+    pairs: Vec<(usize, usize)>,
+    s_path: Vec<usize>,
+    t_path: Vec<usize>,
+    turn: Quat,
+    scale: f32,
+    s_height: f32,
+    /// Where each pair of hands met last pose, if they did.
+    last: Vec<Option<Vec3>>,
+}
+
+impl Hands {
+    /// Nothing if no two arms play the source's.
+    pub(crate) fn new(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], [s_body, t_body]: [&Body; 2]) -> Option<Self> {
+        let [(source, s), (target, t)] = rigs;
+        let arms = played(map, s_body, t_body);
+        let pairs: Vec<(usize, usize)> = (0..arms.len())
+            .flat_map(|i| (i + 1..arms.len()).map(move |j| (i, j)))
+            .collect();
+        if pairs.is_empty() {
+            return None;
+        }
+        Some(Self {
+            s_path: paths(source, arms.iter().map(|a| a.1)),
+            t_path: t_body.path(target),
+            turn: map.turn(),
+            scale: t.height / s.height,
+            s_height: s.height,
+            last: vec![None; pairs.len()],
+            arms,
+            pairs,
+        })
+    }
+
+    /// Forgets where the hands met, as after a cut.
+    pub(crate) fn reset(&mut self) {
+        self.last.fill(None);
+    }
+
+    pub(crate) fn pose(
+        &mut self,
+        [source, target]: [&Skeleton; 2],
+        t_body: &Body,
+        pose: &[Transform],
+        played: &mut [Transform],
+        scratch: &mut Scratch,
+    ) {
+        // Within `near` of each other (over the height) the source's hands are together; past `far`, apart.
+        let (near, far) = (0.06, 0.15);
+        let Scratch { sw, tw, spheres } = scratch;
+        place(source, pose, &self.s_path, sw);
+        for (k, &(i, j)) in self.pairs.iter().enumerate() {
+            let ((li, si), (lj, sj)) = (self.arms[i], self.arms[j]);
             let apart = sw[sj].position() - sw[si].position();
-            let x = ((apart.length() / s.height - near) / (far - near)).clamp(0.0, 1.0);
+            let x = ((apart.length() / self.s_height - near) / (far - near)).clamp(0.0, 1.0);
             let w = 1.0 - x * x * (3.0 - 2.0 * x);
             if w <= 0.0 {
-                last[k] = None;
+                self.last[k] = None;
                 continue;
             }
-            place(target, played, &t_path, &mut tw);
-            t_body.spheres(&tw, &mut spheres);
+            place(target, played, &self.t_path, tw);
+            t_body.spheres(tw, spheres);
             let (hi, hj) = (tw[li.end].position(), tw[lj.end].position());
-            let way = (hj - hi).lerp(turn * apart * scale, w);
+            let way = (hj - hi).lerp(self.turn * apart * self.scale, w);
             let shoulder = |l: &Limb| {
                 let (a, b, c) = (tw[l.upper].position(), tw[l.lower].position(), tw[l.end].position());
                 (a, 0.999 * (a.distance(b) + b.distance(c)))
             };
             let m = meet(
                 (hi + hj) / 2.0,
-                last[k],
+                self.last[k],
                 [-way / 2.0, way / 2.0],
                 [shoulder(&li), shoulder(&lj)],
-                &spheres,
+                spheres,
             );
-            last[k] = Some(m);
+            self.last[k] = Some(m);
             // Arms hang apart, so reaching one leaves the other placed as it was.
-            reach_in(target, played, &tw, &li, m - way / 2.0);
-            reach_in(target, played, &tw, &lj, m + way / 2.0);
+            reach_in(target, played, tw, &li, m - way / 2.0);
+            reach_in(target, played, tw, &lj, m + way / 2.0);
         }
     }
 }
@@ -968,25 +1287,69 @@ pub(crate) fn on_head(
     from: &Clip,
     out: &mut Clip,
 ) {
-    let [(source, s), (target, t)] = rigs;
-    let (Some(sh), Some(th)) = (s_body.head, t_body.head) else {
+    let Some(fix) = OnHead::new(map, rigs, [s_body, t_body]) else {
         return;
     };
-    let arms = played(map, s_body, t_body);
-    if arms.is_empty() {
-        return;
-    }
-    let (near, far) = (1.5, 2.0);
-    let (turn, scale) = (map.turn(), th.radius / sh.radius);
-    let (s_rest, t_rest) = (s.rest[sh.bone].rotation.inverse(), t.rest[th.bone].rotation.inverse());
-    let s_path = paths(source, arms.iter().map(|a| a.1).chain([sh.bone]));
-    let t_path = paths(target, arms.iter().map(|a| a.0.end).chain([th.bone]));
-    let (mut sw, mut tw) = (vec![At::IDENTITY; source.len()], vec![At::IDENTITY; target.len()]);
+    let [(source, _), (target, _)] = rigs;
+    let mut scratch = Scratch::new(source, target);
     for (pose, played) in from.poses.iter().zip(&mut out.poses) {
-        place(source, pose, &s_path, &mut sw);
-        let (sc, s_turn) = (sh.centre(&sw), sw[sh.bone].rotation * s_rest);
+        fix.pose([source, target], pose, played, &mut scratch);
+    }
+}
+
+/// [`on_head`], made ready for two rigs, then run a pose at a time.
+pub(crate) struct OnHead {
+    heads: [Head; 2],
+    /// Each target arm playing a source arm: the target's limb, the source's hand and the source's limb.
+    arms: Vec<(Limb, usize, Limb)>,
+    turn: Quat,
+    scale: f32,
+    /// Each head bone's rest turn, undone.
+    rests: [Quat; 2],
+    s_path: Vec<usize>,
+    t_path: Vec<usize>,
+}
+
+impl OnHead {
+    /// Nothing if either body has no head, or no arm plays the source's.
+    pub(crate) fn new(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], [s_body, t_body]: [&Body; 2]) -> Option<Self> {
+        let [(source, s), (target, t)] = rigs;
+        let (sh, th) = (s_body.head?, t_body.head?);
+        let arms: Vec<(Limb, usize, Limb)> = played(map, s_body, t_body)
+            .into_iter()
+            .filter_map(|(limb, a)| Some((limb, a, s_body.arms.iter().find(|sa| sa.limb.end == a)?.limb)))
+            .collect();
+        if arms.is_empty() {
+            return None;
+        }
+        Some(Self {
+            heads: [sh, th],
+            turn: map.turn(),
+            scale: th.radius / sh.radius,
+            rests: [s.rest[sh.bone].rotation.inverse(), t.rest[th.bone].rotation.inverse()],
+            s_path: paths(
+                source,
+                arms.iter().flat_map(|a| [a.1, a.2.upper, a.2.lower]).chain([sh.bone]),
+            ),
+            t_path: paths(target, arms.iter().map(|a| a.0.end).chain([th.bone])),
+            arms,
+        })
+    }
+
+    pub(crate) fn pose(
+        &self,
+        [source, target]: [&Skeleton; 2],
+        pose: &[Transform],
+        played: &mut [Transform],
+        scratch: &mut Scratch,
+    ) {
+        let (near, far) = (1.5, 2.0);
+        let ([sh, th], [s_rest, t_rest]) = (self.heads, self.rests);
+        let Scratch { sw, tw, .. } = scratch;
+        place(source, pose, &self.s_path, sw);
+        let (sc, s_turn) = (sh.centre(sw), sw[sh.bone].rotation * s_rest);
         let mut placed = false;
-        for &(limb, a) in &arms {
+        for &(limb, a, sl) in &self.arms {
             let d = sw[a].position() - sc;
             let x = ((d.length() / sh.radius - near) / (far - near)).clamp(0.0, 1.0);
             let w = 1.0 - x * x * (3.0 - 2.0 * x);
@@ -995,27 +1358,24 @@ pub(crate) fn on_head(
             }
             // Arms hang apart, so reaching one leaves the other, and the head, placed as they were.
             if !placed {
-                place(target, played, &t_path, &mut tw);
+                place(target, played, &self.t_path, tw);
                 placed = true;
             }
-            let (t_turn, centre) = (tw[th.bone].rotation * t_rest, th.centre(&tw));
-            let goal = centre + t_turn * (turn * (s_turn.inverse() * d)) * scale;
+            let (t_turn, centre) = (tw[th.bone].rotation * t_rest, th.centre(tw));
+            let goal = centre + t_turn * (self.turn * (s_turn.inverse() * d)) * self.scale;
             let (sa, sb, sc) = (
                 tw[limb.upper].position(),
                 tw[limb.lower].position(),
                 tw[limb.end].position(),
             );
             let goal = within(goal, centre, (sa, 0.999 * (sa.distance(sb) + sb.distance(sc))));
-            reach_in(target, played, &tw, &limb, sc.lerp(goal, w));
+            reach_in(target, played, tw, &limb, sc.lerp(goal, w));
             // The arm no deeper in the head than the source's is in theirs.
-            let Some(sl) = s_body.arms.iter().find(|sa| sa.limb.end == a) else {
-                continue;
-            };
             let deep = |p: [Vec3; 3], c: Vec3| off_line(c, p[0], p[1]).min(off_line(c, p[1], p[2]));
-            let s_arm = [sl.limb.upper, sl.limb.lower, a].map(|b| sw[b].position());
+            let s_arm = [sl.upper, sl.lower, a].map(|b| sw[b].position());
             let need = deep(s_arm, sc).min(sh.radius) / sh.radius * th.radius;
-            place(target, played, &t_path, &mut tw);
-            swivel(target, played, &tw, &limb, |arm| deep(arm, centre), need);
+            place(target, played, &self.t_path, tw);
+            swivel(target, played, tw, &limb, |arm| deep(arm, centre), need);
         }
     }
 }

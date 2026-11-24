@@ -5,7 +5,7 @@
 mod common;
 
 use dittomo::contact::{self, Limb};
-use dittomo::{Clip, Fixes, Mapping, Skeleton, Transform, Vec3};
+use dittomo::{Clip, Fixes, Live, Mapping, Skeleton, Transform, Vec3};
 
 fn names(sk: &Skeleton, limbs: &[Limb]) -> Vec<[String; 3]> {
     let n = |b: usize| sk.bones()[b].name.clone();
@@ -824,5 +824,140 @@ fn hands_stay_on_heads_big_and_small_covering_the_ears_and_on_top() {
             clear > s_clear - 0.05,
             "{name}: a forearm {clear} head radii from the middle of the head, the source's {s_clear}"
         );
+    }
+}
+
+/// The clip played a pose at a time by a [`Live`], each `dt` after the last as the clip's times have it.
+fn live(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip, fixes: Fixes) -> Clip {
+    let mut live = Live::new(map, source, target, fixes).unwrap();
+    let mut out = target.rest();
+    let poses = clip
+        .poses
+        .iter()
+        .enumerate()
+        .map(|(f, p)| {
+            let dt = if f == 0 { 0.0 } else { clip.times[f] - clip.times[f - 1] };
+            live.pose(dt, p, &mut out).unwrap();
+            out.clone()
+        })
+        .collect();
+    Clip {
+        times: clip.times.clone(),
+        poses,
+    }
+}
+
+fn close(a: &Clip, b: &Clip) -> f32 {
+    a.poses
+        .iter()
+        .zip(&b.poses)
+        .flat_map(|(p, q)| p.iter().zip(q))
+        .map(|(x, y)| {
+            let turn = (x.rotation - y.rotation)
+                .length()
+                .min((x.rotation + y.rotation).length());
+            turn.max(x.translation.distance(y.translation) / x.translation.length().max(1.0))
+        })
+        .fold(0.0, f32::max)
+}
+
+#[test]
+fn live_with_no_fixes_plays_as_the_whole_clip_does() {
+    let (source, target) = (common::mixamo(), common::mannequin());
+    let walk = common::gait(&source, 60, false);
+    let map = Mapping::new(&source, &target);
+    let whole = map.apply(&source, &target, &walk).unwrap();
+    let off = close(&whole, &live(&map, &source, &target, &walk, Fixes::NONE));
+    assert!(off < 1e-6, "{off}");
+}
+
+#[test]
+fn live_keeps_planted_feet_still_with_nothing_ahead() {
+    let source = common::mixamo();
+    let walk = common::gait(&source, 90, false);
+    for (name, target) in [
+        ("long legs", long_legs(&source, 1.3)),
+        ("mannequin", common::mannequin()),
+    ] {
+        let map = Mapping::new(&source, &target);
+        let plain = map.apply(&source, &target, &walk).unwrap();
+        let whole = map.apply_with(&source, &target, &walk, feet_only()).unwrap();
+        let fixed = live(&map, &source, &target, &walk, feet_only());
+        let [before, offline, online] = [&plain, &whole, &fixed].map(|c| skate(&map, &source, &target, &walk, c));
+        eprintln!(
+            "{name}, skate per planted frame over height: {before:.5}, whole clip {offline:.5}, live {online:.5}"
+        );
+        assert!(online < 0.1 * before, "{before} -> {online}");
+        assert!(online < 1e-4, "{online}");
+    }
+}
+
+#[test]
+fn live_gives_a_clip_walked_in_place_its_travel() {
+    let sk = common::mixamo();
+    let frames = 90;
+    let in_place = common::gait(&sk, frames, true);
+    let map = Mapping::new(&sk, &sk);
+    let fixes = Fixes {
+        travel: true,
+        feet: true,
+        ..Fixes::NONE
+    };
+    let walked = live(&map, &sk, &sk, &in_place, fixes);
+    let z = |c: &Clip| c.poses[frames - 1][0].translation.z - in_place.poses[frames - 1][0].translation.z;
+    let (went, should) = (z(&walked), z(&common::gait(&sk, frames, false)));
+    eprintln!("live travel {went:.1}, walking {should:.1}");
+    assert!(
+        (went - should).abs() < 0.15 * should,
+        "travelled {went}, should {should}"
+    );
+    // A clip that travels on its own is left to.
+    let walk = common::gait(&sk, frames, false);
+    let travel = Fixes {
+        travel: true,
+        ..Fixes::NONE
+    };
+    let again = live(&map, &sk, &sk, &walk, travel);
+    let off = z(&again) - z(&walk);
+    assert!(off.abs() < 0.03 * should, "{off}");
+}
+
+#[test]
+fn live_claps_and_keeps_out_of_the_body_as_the_whole_clip_does() {
+    let source = common::mixamo();
+    let clip = claps(&source);
+    let fixes = Fixes {
+        push_out: true,
+        hands: true,
+        head: true,
+        ..Fixes::NONE
+    };
+    for by in [0.6, 1.5] {
+        let target = long_arms(&source, by);
+        let map = Mapping::new(&source, &target);
+        let whole = map.apply_with(&source, &target, &clip, fixes).unwrap();
+        let off = close(&whole, &live(&map, &source, &target, &clip, fixes));
+        assert!(off < 1e-5, "{off}");
+    }
+}
+
+#[test]
+fn live_starts_over_when_reset() {
+    let source = common::mixamo();
+    let target = long_legs(&source, 1.3);
+    let walk = common::gait(&source, 60, true);
+    let map = Mapping::new(&source, &target);
+    let mut live = Live::new(&map, &source, &target, Fixes::ALL).unwrap();
+    let mut out = target.rest();
+    for p in &walk.poses {
+        live.pose(1.0 / 30.0, p, &mut out).unwrap();
+    }
+    live.reset();
+    let mut fresh = Live::new(&map, &source, &target, Fixes::ALL).unwrap();
+    let mut want = target.rest();
+    for p in &walk.poses[..10] {
+        live.pose(1.0 / 30.0, p, &mut out).unwrap();
+        fresh.pose(1.0 / 30.0, p, &mut want).unwrap();
+        assert_eq!(out, want);
     }
 }

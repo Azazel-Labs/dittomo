@@ -3,7 +3,7 @@
 //! Bones alone say where joints are, not how thick the body around them is: a man in a frock coat is wider at the hips
 //! than a dancer in a crop top, though their hip joints sit alike. A [`Surface`] keeps points spread over the skin at
 //! rest, each with the way it faces, held in the frame of the bone it moves with; posed with the skeleton, it gives how
-//! far any point is from the body ([`Surface::near`]). [`crate::Mapping::apply_touching`] uses it to keep a hand as far
+//! far any point is from the body (`Surface::near`). [`crate::Mapping::apply_touching`] uses it to keep a hand as far
 //! from the target's body as the source's is from its own.
 
 use glam::{IVec3, Vec3};

@@ -20,11 +20,15 @@
 //! out of the body. [`Mapping::apply_touching`] also keeps hands as far from the target's skin as the source's are from
 //! theirs ([`Surface`]), so a hand on a hip stays on the hip of a wider body.
 //!
+//! [`Player`] poses one frame at a time without allocating. [`Live`] does too, for poses that come one at a time with
+//! nothing ahead to look at, and makes the same fixes from the poses so far.
+//!
 //! With the `load` feature, [`load::Model`] reads skeletons and clips from glTF, GLB and FBX (and USD with `usd`).
 #![forbid(unsafe_code)]
 
 mod assign;
 pub mod contact;
+mod live;
 #[cfg(feature = "load")]
 pub mod load;
 mod mapping;
@@ -35,6 +39,7 @@ mod transfer;
 
 pub use contact::Fixes;
 pub use glam::{Mat4, Quat, Vec3};
+pub use live::Live;
 pub use mapping::{Mapping, Pair};
 pub use surface::Surface;
 pub use transfer::Player;

@@ -24,6 +24,28 @@ fn play_on(source: &Skeleton, target: &Skeleton, clip: &Clip) -> Result<Clip, di
 `apply` is the plain retarget; `apply_with` adds the contact fixes below, and `apply_touching` also keeps hands on the
 body, given both rigs' skins. For a game loop, `Player` poses one frame at a time without allocating.
 
+For poses that arrive one at a time, with nothing ahead to look at (motion capture streaming in, a networked player,
+another animation system's output), `Live` plays each and makes the same fixes from the poses so far, also without
+allocating:
+
+```rust
+use dittomo::{Fixes, Live, Mapping, Skeleton, Transform};
+
+fn stream(source: &Skeleton, target: &Skeleton, poses: impl Iterator<Item = (f32, Vec<Transform>)>) {
+    let map = Mapping::new(source, target);
+    let mut live = Live::new(&map, source, target, Fixes::ALL).unwrap();
+    let mut out = target.rest();
+    for (dt, pose) in poses {
+        live.pose(dt, &pose, &mut out).unwrap();
+        // draw `out`
+    }
+}
+```
+
+Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as
+soon as the source's are down and nearly still, and a clip walked in place moves on as far as the planted foot slides
+back. Keeping hands at the skin's distance needs the whole clip and is left out.
+
 The videos are rendered by `examples/video.rs`: the source, dittomo's copy, and the same clip with each bone's rotation
 copied by name, side by side, skinned and drawn on the CPU and piped to `ffmpeg`.
 
@@ -94,20 +116,22 @@ It's off by 1.3° on average (local rotations copied: 54.6°). It was 11.8° whe
 turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the target's
 own rest look and take only the turn away from it; that costs chest → head 1.6° of direction, 4.6° to 6.2°.
 
-The same pairs again, with each contact fix alone and all together, over the 23,170 frames where a source foot is
+The same pairs again, with each contact fix alone and all together, over the 23,420 frames where a source foot is
 planted (within 5% of its height of the lowest it gets, moving under a tenth of its height a second). Slide is how far
 the target's foot moves each such frame; height off is how far it is from the source foot's height over the floor,
 scaled; both are over the target's height. Clips walked in place are judged on the travel their feet imply.
 
 | Fixes | Foot slide | Foot height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00402 | 0.0094 | 3.0° |
-| travel | 0.00109 | 0.0094 | 3.0° |
-| planted feet | 0.00322 | 0.0020 | 3.9° |
-| push-out | 0.00402 | 0.0094 | 3.0° |
+| none (`apply`) | 0.00389 | 0.0093 | 3.0° |
+| travel | 0.00099 | 0.0093 | 3.0° |
+| planted feet | 0.00318 | 0.0020 | 3.9° |
+| push-out | 0.00389 | 0.0093 | 3.0° |
 | all (`apply_with`) | 0.00007 | 0.0011 | 4.2° |
+| all, live (`Live`) | 0.00025 | 0.0011 | 4.4° |
 
-Together they cut foot slide 57 times and the height error 8.5 times. The degree they cost is the legs bending to keep
+Together they cut foot slide 56 times and the height error 8.5 times. Played live, with nothing ahead, slide is cut 16
+times: a foot can only be held once it has landed, where the whole clip eases it toward where it will land. The degree they cost is the legs bending to keep
 feet down where the target's stride and leg proportions differ from the source's. Push-out finds nothing to do here,
 as none of these clips put a hand through the body.
 
@@ -168,6 +192,9 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 | A walk with every fix on: travel, planted feet, push-out | 3.3 µs per frame |
 | The same walk done in place, travel worked out from the feet | 3.3 µs per frame |
 | Set up a `Player` for a pair of rigs | 40 µs |
+
+On a busier run, where a reused `Player` took 2.9 µs a frame and the walk with every fix 7.5 µs, `Live` played the same
+walk with every fix but touch in 7.0 µs a frame, and the walk done in place in 6.9 µs (the whole clip: 8.8 µs).
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
 is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):

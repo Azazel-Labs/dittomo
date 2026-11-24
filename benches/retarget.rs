@@ -15,7 +15,7 @@ mod common;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dittomo::{Clip, Fixes, Mapping, Player, Skeleton, Transform};
+use dittomo::{Clip, Fixes, Live, Mapping, Player, Skeleton, Transform};
 
 struct Case {
     name: &'static str,
@@ -158,11 +158,35 @@ fn main() {
             per: "frame",
         });
     }
+    // The same walks a pose at a time as they come, every fix a live player makes on.
+    for (name, clip) in [("walk", &gait), ("walk in place", &in_place)] {
+        let mut live = Live::new(&mapping, &mixamo, &mannequin, Fixes::ALL).expect("fits");
+        let mut out = mannequin.rest();
+        let micros = time(budget, || {
+            live.reset();
+            for p in &clip.poses {
+                live.pose(1.0 / 30.0, black_box(p), &mut out).expect("plays");
+            }
+            black_box(&out);
+        }) / clip.poses.len() as f64;
+        cases.push(Case {
+            name: Box::leak(format!("mixamo 65 → mannequin 76: {name}, live, all fixes").into_boxed_str()),
+            micros,
+            per: "frame, reused live player",
+        });
+    }
 
     cases.push(Case {
         name: "mixamo 65 → mannequin 76: player setup",
         micros: time(budget, || {
             black_box(Player::new(&mapping, &mixamo, black_box(&mannequin)).expect("same rigs"));
+        }),
+        per: "rig pair",
+    });
+    cases.push(Case {
+        name: "mixamo 65 → mannequin 76: live player setup",
+        micros: time(budget, || {
+            black_box(Live::new(&mapping, &mixamo, black_box(&mannequin), Fixes::ALL).expect("same rigs"));
         }),
         per: "rig pair",
     });
