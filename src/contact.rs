@@ -7,7 +7,7 @@
 //! no solver: [`reach`] is two-bone IK, and the push-out is one step against spheres along the spine (after the ultrafast
 //! online retargeting of Wang et al., 2025, which runs the same step against spheres fitted to the mesh).
 
-use glam::{Affine3A, Quat, Vec3};
+use glam::{Affine3A, Quat, Vec3, Vec3A};
 
 use crate::shape::Shape;
 use crate::surface::{Surface, under};
@@ -536,19 +536,17 @@ impl Feet {
         }
     }
 
-    /// Fixes `played`, the target playing `pose` of the source, `dt` seconds after the pose before.
-    pub(crate) fn pose(
-        &mut self,
-        [source, target]: [&Skeleton; 2],
-        dt: f32,
-        pose: &[Transform],
-        played: &mut [Transform],
-        scratch: &mut Scratch,
-    ) {
+    /// The source bones to place ([`place_source`]) before each pose.
+    pub(crate) fn s_path(&self) -> &[usize] {
+        &self.s_path
+    }
+
+    /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]), `dt` seconds
+    /// after the pose before.
+    pub(crate) fn pose(&mut self, target: &Skeleton, dt: f32, played: &mut [Transform], scratch: &mut Scratch) {
         let h = self.s_height;
         let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
         let Scratch { sw, tw, .. } = scratch;
-        place(source, pose, &self.s_path, sw);
         let mut placed = false;
         for f in &mut self.feet {
             let at = sw[f.source].position();
@@ -610,7 +608,6 @@ impl Feet {
 /// many as are in sight.
 pub(crate) struct Ahead {
     feet: Vec<Foot>,
-    s_path: Vec<usize>,
     t_path: Vec<usize>,
     k: f32,
     s_height: f32,
@@ -636,7 +633,6 @@ impl Ahead {
         let n = feet.feet.len();
         let mut ahead = Self {
             feet: feet.feet.clone(),
-            s_path: feet.s_path.clone(),
             t_path: feet.t_path.clone(),
             k: feet.k,
             s_height: feet.s_height,
@@ -664,15 +660,9 @@ impl Ahead {
         (self.seen, self.clock) = (0, 0.0);
     }
 
-    /// Takes in the next pose of the source, `dt` seconds after the one before, and the target playing it.
-    pub(crate) fn see(
-        &mut self,
-        [source, target]: [&Skeleton; 2],
-        dt: f32,
-        pose: &[Transform],
-        played: &[Transform],
-        scratch: &mut Scratch,
-    ) {
+    /// Takes in the next pose of the source, placed in `scratch` as for [`Feet`], `dt` seconds after the one before,
+    /// and the target playing it.
+    pub(crate) fn see(&mut self, target: &Skeleton, dt: f32, played: &[Transform], scratch: &mut Scratch) {
         let (n, kept) = (self.feet.len(), self.times.len());
         let slot = self.seen % kept;
         if self.seen > 0 {
@@ -680,7 +670,6 @@ impl Ahead {
         }
         self.times[slot] = self.clock;
         let Scratch { sw, tw, .. } = scratch;
-        place(source, pose, &self.s_path, sw);
         place(target, played, &self.t_path, tw);
         for (i, f) in self.feet.iter_mut().enumerate() {
             let at = sw[f.source].position();
@@ -818,7 +807,13 @@ impl Travel {
         (self.start, self.velocity, self.moved, self.on) = (None, Vec3::ZERO, Vec3::ZERO, true);
     }
 
-    /// Writes `pose`, `dt` seconds after the pose before, into `out` with the travel so far.
+    /// The source bones it places.
+    pub(crate) fn path(&self) -> &[usize] {
+        &self.path
+    }
+
+    /// Writes `pose`, `dt` seconds after the pose before, into `out` with the travel so far, and leaves `out` placed
+    /// in `scratch` over `also` (bones on paths from the roots, as [`place_source`] takes) as well as its own path.
     pub(crate) fn pose(
         &mut self,
         source: &Skeleton,
@@ -826,11 +821,13 @@ impl Travel {
         pose: &[Transform],
         out: &mut [Transform],
         scratch: &mut Scratch,
+        also: Option<&[usize]>,
     ) {
         let h = self.s_height;
         let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
         let sw = &mut scratch.sw;
-        place(source, pose, &self.path, sw);
+        let path = also.unwrap_or(&self.path);
+        place(source, pose, path, sw);
         let hips = self.legs.iter().map(|&(_, u)| sw[u].position()).sum::<Vec3>() / self.legs.len() as f32;
         let start = *self.start.get_or_insert(hips);
         if flat(hips - start).length() > 0.1 * h {
@@ -862,6 +859,10 @@ impl Travel {
         out.copy_from_slice(pose);
         for &r in &self.roots {
             out[r].translation += self.moved;
+        }
+        // Every root moved on, so every bone under one did.
+        for &b in path {
+            sw[b].matrix.translation += Vec3A::from(self.moved);
         }
     }
 }
@@ -1215,7 +1216,21 @@ fn paths(skeleton: &Skeleton, ends: impl IntoIterator<Item = usize>) -> Vec<usiz
     (0..skeleton.len()).filter(|&b| on[b]).collect()
 }
 
+/// Places the source's bones on these paths ([`union`]) under a pose, in `scratch`, for the fixes that look at them.
+pub(crate) fn place_source(source: &Skeleton, pose: &[Transform], path: &[usize], scratch: &mut Scratch) {
+    place(source, pose, path, &mut scratch.sw);
+}
+
+/// The bones on any of these paths from the roots, parents first.
+pub(crate) fn union(paths: &[&[usize]]) -> Vec<usize> {
+    let mut all: Vec<usize> = paths.iter().flat_map(|p| p.iter().copied()).collect();
+    all.sort_unstable();
+    all.dedup();
+    all
+}
+
 /// Places these bones (parents first, each one's parent among them unless it's a root) in the world under a pose.
+/// Each turn is made whole before it is chained, not after, so the bones down a chain needn't wait on it.
 fn place(skeleton: &Skeleton, pose: &[Transform], bones: &[usize], world: &mut [At]) {
     for &b in bones {
         let l = &pose[b];
@@ -1223,7 +1238,7 @@ fn place(skeleton: &Skeleton, pose: &[Transform], bones: &[usize], world: &mut [
         world[b] = match skeleton.bones()[b].parent {
             Some(p) => At {
                 matrix: world[p].matrix * local,
-                rotation: (world[p].rotation * l.rotation).normalize(),
+                rotation: world[p].rotation * l.rotation.normalize(),
             },
             None => At {
                 matrix: local,
@@ -1389,6 +1404,11 @@ impl Hands {
         self.last.fill(None);
     }
 
+    /// The source bones to place ([`place_source`]) before [`Self::placed`].
+    pub(crate) fn s_path(&self) -> &[usize] {
+        &self.s_path
+    }
+
     pub(crate) fn pose(
         &mut self,
         [source, target]: [&Skeleton; 2],
@@ -1397,10 +1417,15 @@ impl Hands {
         played: &mut [Transform],
         scratch: &mut Scratch,
     ) {
+        place(source, pose, &self.s_path, &mut scratch.sw);
+        self.placed(target, t_body, played, scratch);
+    }
+
+    /// [`Self::pose`], with the source's pose placed in `scratch` ([`Self::s_path`]).
+    pub(crate) fn placed(&mut self, target: &Skeleton, t_body: &Body, played: &mut [Transform], scratch: &mut Scratch) {
         // Within `near` of each other (over the height) the source's hands are together; past `far`, apart.
         let (near, far) = (0.06, 0.15);
         let Scratch { sw, tw, spheres } = scratch;
-        place(source, pose, &self.s_path, sw);
         for (k, &(i, j)) in self.pairs.iter().enumerate() {
             let ((li, si), (lj, sj)) = (self.arms[i], self.arms[j]);
             let apart = sw[sj].position() - sw[si].position();
@@ -1509,6 +1534,11 @@ impl OnHead {
         })
     }
 
+    /// The source bones to place ([`place_source`]) before [`Self::placed`].
+    pub(crate) fn s_path(&self) -> &[usize] {
+        &self.s_path
+    }
+
     pub(crate) fn pose(
         &self,
         [source, target]: [&Skeleton; 2],
@@ -1516,10 +1546,15 @@ impl OnHead {
         played: &mut [Transform],
         scratch: &mut Scratch,
     ) {
+        place(source, pose, &self.s_path, &mut scratch.sw);
+        self.placed(target, played, scratch);
+    }
+
+    /// [`Self::pose`], with the source's pose placed in `scratch` ([`Self::s_path`]).
+    pub(crate) fn placed(&self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch) {
         let (near, far) = (1.5, 2.0);
         let ([sh, th], [s_rest, t_rest]) = (self.heads, self.rests);
         let Scratch { sw, tw, .. } = scratch;
-        place(source, pose, &self.s_path, sw);
         let (sc, s_turn) = (sh.centre(sw), sw[sh.bone].rotation * s_rest);
         let mut placed = false;
         for &(limb, a, sl) in &self.arms {

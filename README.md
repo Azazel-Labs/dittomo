@@ -130,7 +130,7 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 | planted feet | 0.00318 | 0.0020 | 3.9° |
 | push-out | 0.00389 | 0.0093 | 3.0° |
 | all (`apply_with`) | 0.00007 | 0.0011 | 4.2° |
-| all, live (`Live`) | 0.00025 | 0.0011 | 4.4° |
+| all, live (`Live`) | 0.00024 | 0.0011 | 4.4° |
 | all, live, 6 poses late (`Live::delayed`) | 0.00022 | 0.0012 | 4.2° |
 
 Together they cut foot slide 56 times and the height error 8.5 times. The degree they cost is the legs bending to keep
@@ -193,14 +193,14 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 | Map a 65-bone Mixamo-layout rig onto itself | 1.1 ms |
 | Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 2.3 ms |
 | Play a clip, mixamo → mannequin, setup included | 2.5 µs per frame |
-| Pose one frame with a reused `Player` | 1.6 µs per frame |
+| Pose one frame with a reused `Player` | 1.3 µs per frame |
 | A walk with every fix on: travel, planted feet, push-out | 3.3 µs per frame |
 | The same walk done in place, travel worked out from the feet | 3.3 µs per frame |
 | Set up a `Player` for a pair of rigs | 40 µs |
 
-On a busier run, where a reused `Player` took 2.9 µs a frame and the walk with every fix 6.7 µs, `Live` played the same
-walk with every fix but touch in 5.4 µs a frame, the walk done in place in 5.2 µs (the whole clip: 7.7 µs), and the
-walk six poses late in 7.3 µs.
+On a busier run, where mapping onto the mannequin took 3.2 ms and the walk with every fix 4.5 µs a frame, `Live`
+played the same walk with every fix but touch in 3.1 µs a frame, the walk done in place in 3.0 µs (the whole clip:
+4.9 µs), and the walk six poses late in 3.4 µs.
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
 is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):

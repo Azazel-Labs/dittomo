@@ -42,6 +42,10 @@ pub struct Live {
     head: Option<OnHead>,
     /// The source's pose with its travel.
     walked: Vec<Transform>,
+    /// The source bones placed once for every fix looking at the pose as it comes, and, if poses are played late,
+    /// those placed for the fixes looking at the pose played.
+    s_now: Vec<usize>,
+    s_due: Vec<usize>,
     scratch: Scratch,
     /// If poses are played late, the feet planted with those ahead in sight.
     ahead: Option<Ahead>,
@@ -72,7 +76,7 @@ impl Live {
             head = fixes.head.then(|| OnHead::new(map, rigs, [sb, tb])).flatten();
         }
         let push_out = t_body.as_ref().filter(|_| fixes.push_out).map(|b| b.path(target));
-        Ok(Self {
+        let mut live = Self {
             player,
             travel: fixes.travel.then(|| Travel::new(source, &s)).flatten(),
             feet: fixes.feet.then(|| Feet::new(map, rigs)).flatten(),
@@ -81,13 +85,33 @@ impl Live {
             hands,
             head,
             walked: source.rest(),
+            s_now: Vec::new(),
+            s_due: Vec::new(),
             scratch: Scratch::new(source, target),
             source: source.clone(),
             target: target.clone(),
             ahead: None,
             kept: Vec::new(),
             seen: 0,
-        })
+        };
+        live.paths();
+        Ok(live)
+    }
+
+    /// Works out which source bones to place for which pose.
+    fn paths(&mut self) {
+        let empty: &[usize] = &[];
+        let travel = self.travel.as_ref().map_or(empty, Travel::path);
+        let feet = self.feet.as_ref().map_or(empty, Feet::s_path);
+        let hands = self.hands.as_ref().map_or(empty, Hands::s_path);
+        let head = self.head.as_ref().map_or(empty, OnHead::s_path);
+        if self.kept.is_empty() {
+            self.s_now = contact::union(&[travel, feet, hands, head]);
+            self.s_due = Vec::new();
+        } else {
+            self.s_now = contact::union(&[travel, feet]);
+            self.s_due = contact::union(&[hands, head]);
+        }
     }
 
     /// Plays each pose `poses` poses late, so that feet can be planted with those in sight: eased toward where they will
@@ -104,6 +128,7 @@ impl Live {
         } else {
             Vec::new()
         };
+        self.paths();
         self.reset();
         self
     }
@@ -160,42 +185,53 @@ impl Live {
         if !self.kept.is_empty() {
             return self.pose_late(dt, source, out);
         }
-        let rigs = [&self.source, &self.target];
         let from = match &mut self.travel {
             Some(t) => {
-                t.pose(&self.source, dt, source, &mut self.walked, &mut self.scratch);
+                t.pose(
+                    &self.source,
+                    dt,
+                    source,
+                    &mut self.walked,
+                    &mut self.scratch,
+                    Some(&self.s_now),
+                );
                 &self.walked[..]
             }
-            None => source,
+            None => {
+                contact::place_source(&self.source, source, &self.s_now, &mut self.scratch);
+                source
+            }
         };
         self.player.pose(from, out)?;
         if let Some(f) = &mut self.feet {
-            f.pose(rigs, dt, from, out, &mut self.scratch);
+            f.pose(&self.target, dt, out, &mut self.scratch);
         }
         if let (Some(path), Some(body)) = (&self.push_out, &self.body) {
             contact::push_pose(&self.target, body, path, out, &mut self.scratch);
         }
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
-            h.pose(rigs, body, from, out, &mut self.scratch);
+            h.placed(&self.target, body, out, &mut self.scratch);
         }
         if let Some(h) = &self.head {
-            h.pose(rigs, from, out, &mut self.scratch);
+            h.placed(&self.target, out, &mut self.scratch);
         }
         Ok(())
     }
 
     /// [`Self::pose`], played [`Self::delay`] poses late.
     fn pose_late(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<(), Error> {
-        let rigs = [&self.source, &self.target];
         let n = self.kept.len();
         let (walked, played) = &mut self.kept[self.seen % n];
         match &mut self.travel {
-            Some(t) => t.pose(&self.source, dt, source, walked, &mut self.scratch),
-            None => walked.copy_from_slice(source),
+            Some(t) => t.pose(&self.source, dt, source, walked, &mut self.scratch, Some(&self.s_now)),
+            None => {
+                walked.copy_from_slice(source);
+                contact::place_source(&self.source, source, &self.s_now, &mut self.scratch);
+            }
         }
         self.player.pose(walked, played)?;
         if let Some(a) = &mut self.ahead {
-            a.see(rigs, dt, walked, played, &mut self.scratch);
+            a.see(&self.target, dt, played, &mut self.scratch);
         }
         let due = self.seen.saturating_sub(n - 1);
         self.seen += 1;
@@ -207,11 +243,14 @@ impl Live {
         if let (Some(path), Some(body)) = (&self.push_out, &self.body) {
             contact::push_pose(&self.target, body, path, out, &mut self.scratch);
         }
+        if !self.s_due.is_empty() {
+            contact::place_source(&self.source, from, &self.s_due, &mut self.scratch);
+        }
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
-            h.pose(rigs, body, from, out, &mut self.scratch);
+            h.placed(&self.target, body, out, &mut self.scratch);
         }
         if let Some(h) = &self.head {
-            h.pose(rigs, from, out, &mut self.scratch);
+            h.placed(&self.target, out, &mut self.scratch);
         }
         Ok(())
     }

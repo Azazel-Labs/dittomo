@@ -69,6 +69,7 @@ pub struct Player {
     /// The mapped target bones that travel only if their source moves: (target, source, how far).
     moving: Vec<(usize, usize, f32)>,
     // Scratch, one entry per bone.
+    /// Each source bone's turn in the world, turned into the target's frame.
     s_rot: Vec<Quat>,
     s_mat: Vec<Affine3A>,
     turned: Vec<Quat>,
@@ -206,7 +207,9 @@ impl Player {
                 });
             }
         }
-        // The source in the world, as far as needed.
+        // The source in the world, as far as needed, its turns in the target's frame. Each turn is made whole before
+        // it is chained, not after, so the bones down a chain needn't wait on it.
+        let turn = self.turn;
         for a in 0..ns {
             if !self.s_rot_need[a] {
                 continue;
@@ -214,23 +217,22 @@ impl Player {
             let local = &source[a];
             match self.s_parent[a] {
                 Some(p) => {
-                    self.s_rot[a] = (self.s_rot[p] * local.rotation).normalize();
+                    self.s_rot[a] = self.s_rot[p] * local.rotation.normalize();
                     if self.s_mat_need[a] {
                         self.s_mat[a] = self.s_mat[p] * affine(local);
                     }
                 }
                 None => {
-                    self.s_rot[a] = local.rotation.normalize();
+                    self.s_rot[a] = turn * local.rotation.normalize();
                     if self.s_mat_need[a] {
                         self.s_mat[a] = affine(local);
                     }
                 }
             }
         }
-        let turn = self.turn;
         for (b, p) in self.plans.iter().enumerate() {
             if let Plan::Mapped { source: a, pre, .. } = *p {
-                self.turned[b] = turn * self.s_rot[a] * pre;
+                self.turned[b] = self.s_rot[a] * pre;
             }
         }
         for b in 0..nt {
@@ -239,19 +241,20 @@ impl Player {
                 None => (Quat::IDENTITY, Affine3A::IDENTITY),
             };
             let rest = self.t_rest[b];
-            let (rotation, translation) = match self.plans[b] {
-                Plan::Rest => (rest.rotation, rest.translation),
+            // A bone's turn in the world is known before its parent's, but for a bone kept at rest.
+            let (rotation, translation, world) = match self.plans[b] {
+                Plan::Rest => (rest.rotation, rest.translation, up_r * rest.rotation),
                 Plan::Mapped { source: a, travel, .. } => {
-                    let r = (up_r.inverse() * self.turned[b] * self.t_rest_rot[b]).normalize();
+                    let w = self.turned[b] * self.t_rest_rot[b];
                     let at = travel.map_or(rest.translation, |k| {
                         let moved = turn * (Vec3::from(self.s_mat[a].translation) - self.s_rest_pos[a]) * k;
                         up_m.inverse().transform_point3(self.t_rest_pos[b] + moved)
                     });
-                    (r, at)
+                    (whole(up_r.inverse() * w), at, w)
                 }
                 Plan::Between { above, below, along } => {
                     let w = self.turned[above].lerp(self.turned[below], along) * self.t_rest_rot[b];
-                    ((up_r.inverse() * w).normalize(), rest.translation)
+                    (whole(up_r.inverse() * w), rest.translation, w)
                 }
             };
             let local = Transform {
@@ -259,7 +262,7 @@ impl Player {
                 rotation,
                 scale: rest.scale,
             };
-            self.t_rot[b] = up_r * rotation;
+            self.t_rot[b] = world;
             if self.t_mat_need[b] {
                 self.t_mat[b] = up_m * affine(&local);
             }
@@ -267,6 +270,12 @@ impl Player {
         }
         Ok(())
     }
+}
+
+/// A turn that is whole but for rounding (a product of whole turns) made whole again, with a step of Newton's method
+/// in place of a square root and a division.
+fn whole(q: Quat) -> Quat {
+    q * (1.5 - 0.5 * q.length_squared())
 }
 
 fn affine(t: &Transform) -> Affine3A {

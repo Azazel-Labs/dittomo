@@ -53,11 +53,17 @@ Phase 1 so far (November 2026):
   end, FBX loading a third faster, a GLB on disk read one system call per accessor (12 times faster for a rig with
   1,407 channels), and baking a clip sorting every key of every channel (55 times faster); `Rig::poser` steps through
   each channel's keys rather than searching them.
-- `Player` poses a frame in about 1.6 µs (65 → 76 bones) without allocating, normalizing only what comes in and what
-  goes out. Playing a clip, setup included, went from about 30 µs per frame to 2.5 µs.
+- `Player` poses a frame in about 1.3 µs (65 → 76 bones) without allocating, normalizing only what comes in and what
+  goes out. Playing a clip, setup included, went from about 30 µs per frame to 2.5 µs. Each bone's turn is made whole
+  before it is chained and a target bone's world turn is known without its parent's, so no square root waits on
+  another down a chain; that halved the time to pose a frame (2.8 to 1.4 µs on the same busy runs).
 - `apply_with` adds travel for in-place clips, planted feet with two-bone IK, and sphere push-out, at about 3.3 µs per
   frame with all three on, travel worked out from the feet or not. Planted-foot skate on a
   longer-legged target fell from 0.00048 to 0.00002 of its height per frame. Legs and arms are found without names.
+- `Live` makes the same fixes (all but touch) as poses come, with nothing ahead to look at, in about 3.1 µs a frame on a
+  busy machine with every fix on, under the 5 µs target, or 3.4 µs played six poses late, which plants feet as the
+  whole clip does. Each fix used to place the source again; placing it once a frame for all of them, travel moving it
+  on afterwards, took a fifth off.
 - Mapping takes 1.1 ms for a 65-bone rig onto itself and 2.3 ms onto a 76-bone mannequin.
 - **Bone-finding on twelve real rigs** (Mixamo, Ready Player Me, VRM, Khronos samples, three.js and Babylon
   characters; 132 ordered pairs, 2558 hand-labelled joints): dittomo finds 92.7% of joints; matching by exact name, as
