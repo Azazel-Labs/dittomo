@@ -397,4 +397,4 @@ The full plan, including the learned runtime this feeds and the open-source land
 - **The rest of the comparison benchmark**: R2ET's own test (its pairs aren't published as data). Bone-finding, limb
   directions, foot contact, playback against three.js and Babylon, and SAN's Mixamo test are done (above).
 - **Engine humanoid profiles** in the rig benchmark, by exporting what Unity's Avatar and Godot's `BoneMap` choose.
-- **Many characters per call**, laid out as structure of arrays.
+- **FBX out**, for tools that read no glTF, once polysmelt writes FBX; clips go out as GLB (and VRM) for now.

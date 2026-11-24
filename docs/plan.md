@@ -391,6 +391,9 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       real-rig table and the speed table to each run's summary and fails on a drop, but doesn't commit them back.
 - [x] **Browser demo** (wasm): drop in two glTF or FBX files, see the mapping and its quality, play the clip.
       polysmelt builds for wasm without its `fs` feature and loads from memory (`formats::load_bytes`).
+- [x] **Clips written back:** `Model::write_clip` into the target's own document, thinned to the keys linear playback
+      needs, out as GLB or VRM, from code, the `dittomo` command, or the demo's Download button (all in wasm, nothing
+      uploaded). FBX out waits on a polysmelt FBX writer.
 
 ### Phase 2: teacher
 
