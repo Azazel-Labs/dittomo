@@ -766,8 +766,8 @@ fn head_ball(sk: &Skeleton) -> (usize, Vec3, f32) {
     let world = sk.world(&sk.rest());
     let (a, b) = (world[head].position(), world[top].position());
     let r = 0.45 * a.distance(b);
-    let centre = b - (b - world[find("Neck")].position()).normalize() * r;
-    (head, world[head].matrix.inverse().transform_point3(centre), r)
+    let center = b - (b - world[find("Neck")].position()).normalize() * r;
+    (head, world[head].matrix.inverse().transform_point3(center), r)
 }
 
 /// Hands to the ears, held there while the head turns from side to side; then up onto the top of the head, held there
@@ -776,7 +776,7 @@ fn covers_ears(sk: &Skeleton) -> Clip {
     let frames = 120;
     let rest = sk.rest();
     let world = sk.world(&rest);
-    let (head, centre, r) = head_ball(sk);
+    let (head, center, r) = head_ball(sk);
     let smooth = |x: f32, a: f32, b: f32| {
         let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
         t * t * (3.0 - 2.0 * t)
@@ -797,7 +797,7 @@ fn covers_ears(sk: &Skeleton) -> Clip {
                 let ear = Vec3::new(x * 1.15, -0.3, -0.1) * r;
                 let top = Vec3::new(x * 0.6, 1.15, 0.0) * r;
                 let on = ear.lerp(top, smooth(t, 1.0, 1.25));
-                let goal = placed.transform_point3(centre + on);
+                let goal = placed.transform_point3(center + on);
                 let from = world[arm.end].position();
                 contact::reach(sk, &mut pose, &arm, from.lerp(goal, smooth(t, 0.0, 0.25)));
             }
@@ -816,11 +816,11 @@ fn hands_stay_on_heads_big_and_small_covering_the_ears_and_on_top() {
     let clip = covers_ears(&source);
     // Where a wrist is on its head: in the head's own frame, over the head's radius.
     let on_head = |sk: &Skeleton, pose: &[Transform], end: usize| {
-        let (head, centre, r) = head_ball(sk);
+        let (head, center, r) = head_ball(sk);
         let w = sk.world(pose);
         let rest = sk.world(&sk.rest())[head].rotation;
         let turn = w[head].rotation * rest.inverse();
-        turn.inverse() * (w[end].position() - w[head].matrix.transform_point3(centre)) / r
+        turn.inverse() * (w[end].position() - w[head].matrix.transform_point3(center)) / r
     };
     let arms = contact::arms(&source);
     let held: Vec<usize> = (0..clip.poses.len())
@@ -880,11 +880,11 @@ fn hands_stay_on_heads_big_and_small_covering_the_ears_and_on_top() {
             );
         }
         // Hands keep their turn, and forearms stay out of the head.
-        let (head, centre, r) = head_ball(&target);
+        let (head, center, r) = head_ball(&target);
         let mut clear = f32::MAX;
         for f in 0..clip.poses.len() {
             let (p, q) = (target.world(&plain.poses[f]), target.world(&played.poses[f]));
-            let c = q[head].matrix.transform_point3(centre);
+            let c = q[head].matrix.transform_point3(center);
             for arm in &t_arms {
                 assert!(p[arm.end].rotation.angle_between(q[arm.end].rotation) < 1e-3);
                 let (b, e) = (q[arm.lower].position(), q[arm.end].position());

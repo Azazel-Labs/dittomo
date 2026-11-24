@@ -6,8 +6,8 @@
 //! cargo bench --features fs --bench rigs -- --dump     # print each rig's tree
 //! cargo bench --features fs --bench rigs -- --pairs    # print every pair's misses
 //! cargo bench --features fs --bench rigs -- --show xbot cesium   # the target's tree, with what each bone plays
-//! cargo bench --features fs --bench rigs -- --min 90   # fail below 90% of joints found (CI)
-//! cargo bench --features fs --bench rigs -- --max-degrees 4   # fail if limbs stray more than 4° on average (CI)
+//! cargo bench --features fs --bench rigs -- --min 95   # fail below 95% of joints found (CI)
+//! cargo bench --features fs --bench rigs -- --max-degrees 3   # fail if limbs stray more than 3° on average (CI)
 //! ```
 //!
 //! `bench/rigs/labels.txt` names, for each rig, the bone playing each of 23 joints of the body (hips, spine, chest,

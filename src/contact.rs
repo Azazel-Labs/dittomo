@@ -1004,19 +1004,19 @@ pub(crate) struct Body {
 #[derive(Clone, Copy)]
 struct Head {
     bone: usize,
-    /// The centre in the bone's frame.
-    centre: Vec3,
+    /// The center in the bone's frame.
+    center: Vec3,
     radius: f32,
 }
 
 impl Head {
-    fn centre(&self, world: &[At]) -> Vec3 {
-        world[self.bone].matrix.transform_point3(self.centre)
+    fn center(&self, world: &[At]) -> Vec3 {
+        world[self.bone].matrix.transform_point3(self.center)
     }
 }
 
 impl Body {
-    /// Fits the head to the skin bound to the head bone, where there's enough of it: centred on it, as far round as
+    /// Fits the head to the skin bound to the head bone, where there's enough of it: centerd on it, as far round as
     /// the skin is from there, half of it nearer and half farther.
     pub(crate) fn fit_head(&mut self, s: &Shape, skin: &Surface) {
         let Some(head) = self.head.as_mut() else {
@@ -1033,12 +1033,12 @@ impl Body {
         if points.len() < 16 {
             return;
         }
-        let centre = points.iter().sum::<Vec3>() / points.len() as f32;
-        let mut far: Vec<f32> = points.iter().map(|p| p.distance(centre)).collect();
+        let center = points.iter().sum::<Vec3>() / points.len() as f32;
+        let mut far: Vec<f32> = points.iter().map(|p| p.distance(center)).collect();
         let half = far.len() / 2;
         let (_, &mut radius, _) = far.select_nth_unstable_by(half, f32::total_cmp);
         if radius > 0.02 * s.height && radius < 0.25 * s.height {
-            head.centre = rest.inverse().transform_point3(centre);
+            head.center = rest.inverse().transform_point3(center);
             head.radius = radius;
         }
     }
@@ -1060,7 +1060,7 @@ impl Body {
                 .windows(2)
                 .map(|w| ((world[w[0]].position() + world[w[1]].position()) / 2.0, reach)),
         );
-        out.extend(self.head.map(|h| (h.centre(world), h.radius + self.limb)));
+        out.extend(self.head.map(|h| (h.center(world), h.radius + self.limb)));
     }
 }
 
@@ -1072,7 +1072,7 @@ fn head(above: &[usize], s: &Shape) -> Option<Head> {
     let (&first, &top) = (above.first()?, above.last()?);
     let (base, top_at) = (pos(first), pos(top));
     let up = (top_at - base).normalize_or(Vec3::Y);
-    let (centre, radius) = if (top_at - base).length() > 0.12 * s.height {
+    let (center, radius) = if (top_at - base).length() > 0.12 * s.height {
         let skull = above.len().checked_sub(2).map_or(base, |i| pos(above[i]));
         let radius = (0.45 * skull.distance(top_at)).clamp(0.035 * s.height, 0.15 * s.height);
         (top_at - up * radius, radius)
@@ -1085,11 +1085,11 @@ fn head(above: &[usize], s: &Shape) -> Option<Head> {
         .iter()
         .rev()
         .copied()
-        .find(|&b| along(pos(b)) <= along(centre))
+        .find(|&b| along(pos(b)) <= along(center))
         .unwrap_or(first);
     Some(Head {
         bone,
-        centre: s.rest[bone].matrix.inverse().transform_point3(centre),
+        center: s.rest[bone].matrix.inverse().transform_point3(center),
         radius,
     })
 }
@@ -1178,14 +1178,14 @@ pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
             .map(|(a, sb)| pos(a.limb.upper).distance(pos(*sb)))
             .fold(f32::INFINITY, f32::min);
     let limb_r = 0.3 * torso0;
-    let centres = spheres(&spine, pos);
+    let centers = spheres(&spine, pos);
     let clear = arms
         .iter()
         .flat_map(|(a, _)| {
             let (b, c) = (pos(a.limb.lower), pos(a.limb.end));
             [b, c, (b + c) / 2.0]
         })
-        .flat_map(|p| centres.iter().map(move |q| p.distance(*q)))
+        .flat_map(|p| centers.iter().map(move |q| p.distance(*q)))
         .fold(f32::INFINITY, f32::min);
     let torso = torso0.min(clear - limb_r);
     (torso > 0.2 * torso0).then(|| Body {
@@ -1236,12 +1236,12 @@ pub(crate) fn push_out(target: &Skeleton, body: &Body, clip: &mut Clip) {
 /// [`push_out`] for one pose, `path` being the body's.
 pub(crate) fn push_pose(target: &Skeleton, body: &Body, path: &[usize], pose: &mut [Transform], scratch: &mut Scratch) {
     let parent = |b: usize| target.bones()[b].parent;
-    let (world, centres) = (&mut scratch.tw, &mut scratch.spheres);
+    let (world, centers) = (&mut scratch.tw, &mut scratch.spheres);
     // Arms don't move the spine or each other, so the world is worked out once a pose.
     place(target, pose, path, world);
-    body.spheres(world, centres);
+    body.spheres(world, centers);
     let need = |p: Vec3, out: Vec3| {
-        centres
+        centers
             .iter()
             .filter_map(|&(q, reach)| {
                 let d = p - q;
@@ -1464,7 +1464,7 @@ impl Touch {
                 Some(Reaching {
                     limb: *limb,
                     source: *a,
-                    middle: [s_skin.centre(*a)?, t_skin.centre(limb.end)?],
+                    middle: [s_skin.center(*a)?, t_skin.center(limb.end)?],
                     hand: [s_skin.balls(|b| s_on[b]), t_skin.balls(|b| t_on[b])],
                     below: t_path.iter().copied().filter(|&b| moved[b]).collect(),
                 })
@@ -1754,7 +1754,7 @@ impl OnHead {
         let (near, far) = (1.5, 2.0);
         let ([sh, th], [s_rest, t_rest]) = (self.heads, self.rests);
         let Scratch { sw, tw, .. } = scratch;
-        let (sc, s_turn) = (sh.centre(sw), sw[sh.bone].rotation * s_rest);
+        let (sc, s_turn) = (sh.center(sw), sw[sh.bone].rotation * s_rest);
         let mut placed = false;
         for &(limb, a, sl) in &self.arms {
             let d = sw[a].position() - sc;
@@ -1768,21 +1768,21 @@ impl OnHead {
                 place(target, played, &self.t_path, tw);
                 placed = true;
             }
-            let (t_turn, centre) = (tw[th.bone].rotation * t_rest, th.centre(tw));
-            let goal = centre + t_turn * (self.turn * (s_turn.inverse() * d)) * self.scale;
+            let (t_turn, center) = (tw[th.bone].rotation * t_rest, th.center(tw));
+            let goal = center + t_turn * (self.turn * (s_turn.inverse() * d)) * self.scale;
             let (sa, sb, sc) = (
                 tw[limb.upper].position(),
                 tw[limb.lower].position(),
                 tw[limb.end].position(),
             );
-            let goal = within(goal, centre, (sa, 0.999 * (sa.distance(sb) + sb.distance(sc))));
+            let goal = within(goal, center, (sa, 0.999 * (sa.distance(sb) + sb.distance(sc))));
             reach_in(target, played, tw, &limb, sc.lerp(goal, w));
             // The arm no deeper in the head than the source's is in theirs.
             let deep = |p: [Vec3; 3], c: Vec3| off_line(c, p[0], p[1]).min(off_line(c, p[1], p[2]));
             let s_arm = [sl.upper, sl.lower, a].map(|b| sw[b].position());
             let need = deep(s_arm, sc).min(sh.radius) / sh.radius * th.radius;
             place(target, played, &self.t_path, tw);
-            swivel(target, played, tw, &limb, |arm| deep(arm, centre), need);
+            swivel(target, played, tw, &limb, |arm| deep(arm, center), need);
         }
     }
 }
@@ -1840,33 +1840,33 @@ fn swivel(
     }
 }
 
-/// `goal`, or if it's out of reach (a ball round a shoulder), the point nearest it as far from `centre` as it is, over
+/// `goal`, or if it's out of reach (a ball round a shoulder), the point nearest it as far from `center` as it is, over
 /// the head and within reach: a short arm whose hand can't get to the top of a big head rests it as high up the side as
 /// it gets, not inside. With nowhere on that sphere in reach, the point on it nearest the shoulder.
-fn within(goal: Vec3, centre: Vec3, (shoulder, reach): (Vec3, f32)) -> Vec3 {
+fn within(goal: Vec3, center: Vec3, (shoulder, reach): (Vec3, f32)) -> Vec3 {
     if goal.distance(shoulder) <= reach {
         return goal;
     }
-    let (rho, apart) = (goal.distance(centre), shoulder - centre);
+    let (rho, apart) = (goal.distance(center), shoulder - center);
     let dist = apart.length();
     let Some(u) = apart.try_normalize() else {
         return goal;
     };
-    // The circle where the two spheres cross: on the plane `h` along `u` from the centre, `ring` round.
+    // The circle where the two spheres cross: on the plane `h` along `u` from the center, `ring` round.
     let h = (dist * dist + rho * rho - reach * reach) / (2.0 * dist);
     let ring = rho * rho - h * h;
     if ring <= 0.0 || h.abs() > rho {
-        return centre + u * rho;
+        return center + u * rho;
     }
-    let off = goal - centre;
+    let off = goal - center;
     let side = (off - u * off.dot(u))
         .try_normalize()
         .unwrap_or_else(|| u.any_orthonormal_vector());
-    centre + u * h + side * ring.sqrt()
+    center + u * h + side * ring.sqrt()
 }
 
 /// Where two hands meet, at `m + offsets[0]` and `m + offsets[1]`: the `m` nearest `start`, and `last` if given, with
-/// each hand within reach (from a shoulder, as far as an arm's length) and outside every sphere (a centre and a
+/// each hand within reach (from a shoulder, as far as an arm's length) and outside every sphere (a center and a
 /// radius). Short of that, as near to it as can be found.
 fn meet(start: Vec3, last: Option<Vec3>, offsets: [Vec3; 2], reach: [(Vec3, f32); 2], spheres: &[(Vec3, f32)]) -> Vec3 {
     // Met each in turn, a few times over: a reach is a ball the hand must be in, a sphere one it must be out of.

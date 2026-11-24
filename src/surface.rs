@@ -49,14 +49,14 @@ pub(crate) struct Balls {
 /// One bone's points in a ball round them, in its frame, and the smaller balls they are split in.
 struct Bunch {
     bone: usize,
-    centre: Vec3,
+    center: Vec3,
     radius: f32,
     balls: std::ops::Range<usize>,
 }
 
 /// A few of a bone's points on the skin, each with the way it faces, in its frame, and a ball round them.
 struct Ball {
-    centre: Vec3,
+    center: Vec3,
     radius: f32,
     at: Vec<Vec3>,
     normal: Vec<Vec3>,
@@ -67,8 +67,8 @@ fn ball(points: impl Iterator<Item = Vec3> + Clone) -> (Vec3, f32) {
     let (lo, hi) = points
         .clone()
         .fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| (lo.min(p), hi.max(p)));
-    let centre = (lo + hi) / 2.0;
-    (centre, points.map(|p| p.distance(centre)).fold(0.0, f32::max))
+    let center = (lo + hi) / 2.0;
+    (center, points.map(|p| p.distance(center)).fold(0.0, f32::max))
 }
 
 /// How much less than the nearest point's a point's weight in [`Surface::near`] can be and still count, as the most
@@ -197,12 +197,12 @@ impl Surface {
             balls: Vec::new(),
         };
         for (bone, points) in groups {
-            let (centre, radius) = ball(points.iter().map(|&i| self.at[i]));
+            let (center, radius) = ball(points.iter().map(|&i| self.at[i]));
             let start = out.balls.len();
             self.split(points, &mut out.balls);
             out.bunches.push(Bunch {
                 bone,
-                centre,
+                center,
                 radius,
                 balls: start..out.balls.len(),
             });
@@ -229,9 +229,9 @@ impl Surface {
             self.split(upper, balls);
             return;
         }
-        let (centre, radius) = ball(points.iter().map(|&i| self.at[i]));
+        let (center, radius) = ball(points.iter().map(|&i| self.at[i]));
         balls.push(Ball {
-            centre,
+            center,
             radius,
             at: points.iter().map(|&i| self.at[i]).collect(),
             normal: points.iter().map(|&i| self.normal[i]).collect(),
@@ -248,7 +248,7 @@ impl Surface {
         let (mut nearest, mut likeliest, mut low) = (f32::INFINITY, None, f32::INFINITY);
         for bunch in &balls.bunches {
             let w = &world[bunch.bone];
-            let (d, r) = (w.point(bunch.centre).distance(p), bunch.radius * w.scale());
+            let (d, r) = (w.point(bunch.center).distance(p), bunch.radius * w.scale());
             nearest = nearest.min(d + r);
             if d - r < low {
                 (low, likeliest) = (d - r, Some(bunch));
@@ -259,7 +259,7 @@ impl Surface {
             let scale = w.scale();
             let mut best = None;
             for ball in &balls.balls[bunch.balls.clone()] {
-                let d = w.point(ball.centre).distance(p) - ball.radius * scale;
+                let d = w.point(ball.center).distance(p) - ball.radius * scale;
                 if d < low {
                     (low, best) = (d, Some(ball));
                 }
@@ -274,12 +274,12 @@ impl Surface {
         for bunch in &balls.bunches {
             let w = &world[bunch.bone];
             let scale = w.scale();
-            if outside(w.point(bunch.centre).distance(p), bunch.radius * scale) {
+            if outside(w.point(bunch.center).distance(p), bunch.radius * scale) {
                 continue;
             }
             let turn = w.turn();
             for ball in &balls.balls[bunch.balls.clone()] {
-                if outside(w.point(ball.centre).distance(p), ball.radius * scale) {
+                if outside(w.point(ball.center).distance(p), ball.radius * scale) {
                     continue;
                 }
                 for (&at, &normal) in ball.at.iter().zip(&ball.normal) {
@@ -331,26 +331,26 @@ impl Surface {
         self.posed(world, |b| !off[b], &mut points);
         let on = under(skeleton, &[hand]);
         let fingers = self.balls(|b| on[b]);
-        let centre = world.get(hand)?.matrix.transform_point3(self.centre(hand)?);
-        self.clearance(&points, world, centre, &fingers).map(|(g, _)| g)
+        let center = world.get(hand)?.matrix.transform_point3(self.center(hand)?);
+        self.clearance(&points, world, center, &fingers).map(|(g, _)| g)
     }
 
-    /// How far out from the posed `points` a hand whose middle is at `centre` is, less how far its own points (`hand`,
+    /// How far out from the posed `points` a hand whose middle is at `center` is, less how far its own points (`hand`,
     /// posed by `world`) reach toward the skin; and the way the skin faces there.
     pub(crate) fn clearance<F: Frame>(
         &self,
         points: &[(Vec3, Vec3)],
         world: &[F],
-        centre: Vec3,
+        center: Vec3,
         hand: &Balls,
     ) -> Option<(f32, Vec3)> {
-        let (spot, facing) = self.near(points, centre)?;
+        let (spot, facing) = self.near(points, center)?;
         // How far toward the skin a ball's points can reach, at most, and do.
-        let most = |w: &F, at: Vec3, r: f32| (w.point(at) - centre).dot(-facing) + r * w.scale();
+        let most = |w: &F, at: Vec3, r: f32| (w.point(at) - center).dot(-facing) + r * w.scale();
         let farthest = |w: &F, ball: &Ball| {
             ball.at
                 .iter()
-                .map(|&at| (w.point(at) - centre).dot(-facing))
+                .map(|&at| (w.point(at) - center).dot(-facing))
                 .fold(f32::MIN, f32::max)
         };
         // The ball that could reach farthest first, then only those that could reach farther than its points do.
@@ -358,7 +358,7 @@ impl Surface {
         for bunch in &hand.bunches {
             let w = &world[bunch.bone];
             for ball in &hand.balls[bunch.balls.clone()] {
-                let m = most(w, ball.centre, ball.radius);
+                let m = most(w, ball.center, ball.radius);
                 if first.is_none_or(|f| m > f.0) {
                     first = Some((m, bunch.bone, ball));
                 }
@@ -367,20 +367,20 @@ impl Surface {
         let mut reach = first.map_or(0.0, |(_, b, ball)| farthest(&world[b], ball)).max(0.0);
         for bunch in &hand.bunches {
             let w = &world[bunch.bone];
-            if most(w, bunch.centre, bunch.radius) <= reach {
+            if most(w, bunch.center, bunch.radius) <= reach {
                 continue;
             }
             for ball in &hand.balls[bunch.balls.clone()] {
-                if most(w, ball.centre, ball.radius) > reach {
+                if most(w, ball.center, ball.radius) > reach {
                     reach = reach.max(farthest(w, ball));
                 }
             }
         }
-        Some(((centre - spot).dot(facing) - reach, facing))
+        Some(((center - spot).dot(facing) - reach, facing))
     }
 
-    /// Where the points bound to `bone` centre, in its rest frame: the middle of a hand, say, rather than its wrist.
-    pub(crate) fn centre(&self, bone: usize) -> Option<Vec3> {
+    /// Where the points bound to `bone` center, in its rest frame: the middle of a hand, say, rather than its wrist.
+    pub(crate) fn center(&self, bone: usize) -> Option<Vec3> {
         let (mut sum, mut count) = (Vec3::ZERO, 0usize);
         for (b, at) in self.bone.iter().zip(&self.at) {
             if *b == bone {

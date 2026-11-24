@@ -266,14 +266,14 @@ fn body_frame(
     floor: f32,
 ) -> Quat {
     let n = pos.len() as f32;
-    let centre = pos.iter().copied().sum::<Vec3>() / n;
+    let center = pos.iter().copied().sum::<Vec3>() / n;
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
-    let across = mirrored_limbs(pairs).unwrap_or_else(|| mirror_plane(pos, centre, height));
+    let across = mirrored_limbs(pairs).unwrap_or_else(|| mirror_plane(pos, center, height));
     let mut left_named = 0.0f32;
     for (p, name) in pos.iter().zip(names) {
         match name.side {
-            Side::Left => left_named += (*p - centre).dot(across),
-            Side::Right => left_named -= (*p - centre).dot(across),
+            Side::Left => left_named += (*p - center).dot(across),
+            Side::Right => left_named -= (*p - center).dot(across),
             Side::Middle => {}
         }
     }
@@ -393,12 +393,12 @@ fn girdles(pairs: &[Mirrored]) -> [Option<usize>; 2] {
 }
 
 /// The way across the plane the bones are most nearly mirrored in.
-fn mirror_plane(pos: &[Vec3], centre: Vec3, height: f32) -> Vec3 {
+fn mirror_plane(pos: &[Vec3], center: Vec3, height: f32) -> Vec3 {
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
     let mirror_error = |a: Vec3| -> f32 {
         pos.iter()
             .map(|p| {
-                let q = *p - 2.0 * (*p - centre).dot(a) * a;
+                let q = *p - 2.0 * (*p - center).dot(a) * a;
                 pos.iter().map(|o| o.distance_squared(q)).fold(f32::INFINITY, f32::min)
             })
             .sum()
@@ -417,7 +417,7 @@ fn mirror_plane(pos: &[Vec3], centre: Vec3, height: f32) -> Vec3 {
     // Refine from the mirrored pairs themselves: the average step from each bone to its mirror image.
     let mut sum = Vec3::ZERO;
     for p in pos {
-        let q = *p - 2.0 * (*p - centre).dot(across) * across;
+        let q = *p - 2.0 * (*p - center).dot(across) * across;
         let Some(o) = pos
             .iter()
             .min_by(|a, b| a.distance_squared(q).total_cmp(&b.distance_squared(q)))

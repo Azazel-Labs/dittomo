@@ -90,7 +90,7 @@ What it gets wrong:
   and are taken for one.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
-CI runs this on every push and fails below 90%. The rigs are fetched rather than committed; each keeps its own licence.
+CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather than committed; each keeps its own license.
 Engines' own humanoid matchers (Unity's Avatar, Godot's `BoneMap`, Unreal's IK Retargeter) aren't in the table: they need
 the engine running.
 

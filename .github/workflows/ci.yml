@@ -102,7 +102,7 @@ jobs:
           key: rigs-${{ hashFiles('dittomo/bench/rigs/fetch.sh') }}
       - run: sh bench/rigs/fetch.sh
         working-directory: dittomo
-      - run: cargo bench --features fs --bench rigs -- --min 90 --max-degrees 4 | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cargo bench --features fs --bench rigs -- --min 95 --max-degrees 3 | tee -a "$GITHUB_STEP_SUMMARY"
         shell: bash
         working-directory: dittomo
 

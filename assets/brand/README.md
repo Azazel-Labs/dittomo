@@ -41,5 +41,5 @@ The type on the cards is Segoe UI Variable Display, bold for headlines. The tagl
 `sh assets/brand/build.sh` rebuilds all of them. The logos come from `src/brand.py`, the cards from `src/*.html`, and
 the frames the cards show are real retargets, rendered by `examples/video.rs`.
 
-Keep clear space around the mark of at least one joint's width. Don't recolour the bones, set the wordmark in a font,
-or put the coloured mark on a busy photo; put the icon there instead.
+Keep clear space around the mark of at least one joint's width. Don't recolor the bones, set the wordmark in a font,
+or put the colored mark on a busy photo; put the icon there instead.

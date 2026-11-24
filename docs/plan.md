@@ -130,7 +130,7 @@ Phase 1 so far (November 2026):
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for
   IK) against unnamed rigs, and BrainStem (all bones `nodeN`, one arm without a hand). Neither was tuned for.
 - CI runs fmt, clippy, tests on Linux and Windows, builds and drives the wasm demo, runs the real-rig benchmark (failing
-  below 90% of joints found or above 4° of limb error), and benchmarks each pull request against its base.
+  below 95% of joints found or above 3° of limb error), and benchmarks each pull request against its base.
 - A browser demo (`demo/`) loads two files, shows the match and plays the clip with each fix toggled.
 
 Playback against three.js, measured back to back on the same rigs and clip (`bench/three`, run by CI): dittomo plays a
