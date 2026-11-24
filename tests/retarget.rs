@@ -1014,6 +1014,124 @@ fn ik_goals_at_the_hands_and_feet_play_nothing() {
 }
 
 #[test]
+fn an_upper_arm_after_a_stub_at_the_shoulder_plays_an_upper_arm_from_the_chest() {
+    // Three.js's expressive robot starts each arm with a stub, a tenth as long as its upper arm, out from the chest; the
+    // BrainStem robot's upper arm starts at its chest. Each stands about where the other's upper arm starts, and the stub
+    // is as far from the chest as BrainStem's upper arm: so BrainStem's upper arm played the stub, and stayed down as
+    // the robot raised its arms. Where each goes on to tells them apart.
+    let mut robot: Joints = vec![
+        joint("RootNode", None, [0.0, 0.0, 0.0]),
+        joint("Bone", Some("RootNode"), [0.0, -0.01, -0.2]),
+        joint("Body", Some("Bone"), [0.0, 1.44, 0.11]),
+        joint("Hips", Some("Body"), [0.0, 1.34, 0.0]),
+        joint("Abdomen", Some("Hips"), [0.0, 1.66, -0.08]),
+        joint("Torso", Some("Abdomen"), [0.0, 2.15, -0.08]),
+        joint("Neck", Some("Torso"), [0.0, 2.73, -0.02]),
+        joint("Head", Some("Neck"), [0.0, 3.04, -0.01]),
+    ];
+    let mut stem: Joints = vec![
+        joint("node0", None, [0.0, 0.0, 0.0]),
+        joint("node3", Some("node0"), [0.0, 0.91, 0.0]),
+        joint("node12", Some("node3"), [0.0, 1.02, -0.02]),
+        joint("node20", Some("node12"), [0.0, 1.55, -0.04]),
+    ];
+    for (side, s, n) in [("L", 1.0, 0), ("R", -1.0, 5)] {
+        let named = |part: &str| format!("{part}.{side}");
+        let chain = |j: &mut Joints, from: &str, links: &[(String, [f32; 3])]| {
+            let mut parent = from.to_owned();
+            for (name, [x, y, z]) in links {
+                j.push(joint(name.clone(), Some(&parent), [s * x, *y, *z]));
+                parent = name.clone();
+            }
+        };
+        chain(
+            &mut robot,
+            "Torso",
+            &[
+                (named("Shoulder"), [0.58, 2.44, -0.02]),
+                (named("UpperArm"), [0.67, 2.44, -0.02]),
+                (named("LowerArm"), [1.32, 2.43, 0.02]),
+            ],
+        );
+        for (palm, finger, y) in [
+            ("Palm1", "Index", 2.63),
+            ("Palm2", "Middle", 2.45),
+            ("Palm3", "Ring", 2.26),
+        ] {
+            let lower = named("LowerArm");
+            chain(
+                &mut robot,
+                &lower,
+                &[
+                    (named(palm), [2.69, 2.45, -0.03]),
+                    (named(&format!("{finger}1")), [3.0, y, 0.18]),
+                    (named(&format!("{finger}2")), [3.15, y, 0.3]),
+                ],
+            );
+        }
+        chain(
+            &mut robot,
+            "Hips",
+            &[
+                (named("UpperLeg"), [0.63, 1.54, -0.07]),
+                (named("LowerLeg"), [0.63, 0.94, 0.04]),
+            ],
+        );
+        chain(&mut robot, "Bone", &[(named("Foot"), [0.63, 0.02, -0.14])]);
+        let node = |i: usize| format!("node{}", i + n);
+        chain(
+            &mut stem,
+            "node12",
+            &[(node(13), [0.42, 1.36, -0.04]), (node(14), [0.6, 1.37, -0.04])],
+        );
+        // BrainStem's left hand holds three bones, its right forearm none.
+        if n == 0 {
+            for (i, y, z) in [(15, 1.35, 0.02), (16, 1.39, 0.02), (17, 1.37, -0.02)] {
+                chain(&mut stem, "node14", &[(node(i), [1.02, y, z])]);
+            }
+        }
+        let n4 = if n == 0 { 4 } else { 8 };
+        let leg = |i: usize| format!("node{}", n4 + i);
+        chain(
+            &mut stem,
+            "node3",
+            &[
+                (leg(0), [0.14, 0.88, 0.0]),
+                (leg(1), [0.12, 0.52, -0.03]),
+                (leg(2), [0.11, 0.12, -0.06]),
+                (leg(3), [0.11, 0.04, 0.04]),
+            ],
+        );
+    }
+    let (robot, stem) = (placed(&robot), placed(&stem));
+    let (left, right) = (["node13", "node14"], ["node18", "node19"]);
+    let map = Mapping::new(&robot, &stem);
+    assert_plays(
+        &robot,
+        &stem,
+        &map,
+        &[
+            ("UpperArm.L", left[0]),
+            ("LowerArm.L", left[1]),
+            ("UpperArm.R", right[0]),
+            ("LowerArm.R", right[1]),
+        ],
+    );
+    let map = Mapping::new(&stem, &robot);
+    assert_plays(
+        &stem,
+        &robot,
+        &map,
+        &[
+            (left[0], "UpperArm.L"),
+            (left[1], "LowerArm.L"),
+            (right[0], "UpperArm.R"),
+            (right[1], "LowerArm.R"),
+        ],
+    );
+}
+
+#[test]
 fn a_chest_just_above_the_hips_is_still_the_chest() {
     // As a robot's might be: one short bone from the hips up to where the arms and the neck hang, far below where a
     // chest stands on a person, and no names to go by. The arms hang from it, so it plays the chest, not the spine.

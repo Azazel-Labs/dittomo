@@ -320,11 +320,20 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     let bell = |d: f32, w: f32| (-(d / w) * (d / w)).exp();
     v += 0.4 * way(s.dir[a], t.dir[b]);
     v += 0.4 * way(s.inward[a], t.inward[b]);
-    let (la, lb) = (s.length[a], t.length[b]);
+    // How long it is, from its parent and on to its child where it has one: a stub at the shoulder is as far from the
+    // chest as one rig's upper arm, the upper arm after it hardly any way from it, but they go on very differently.
+    let long = |la: f32, lb: f32| match (la > 1e-4, lb > 1e-4) {
+        (true, true) => bell((la / lb).ln(), 0.4),
+        _ => 0.5,
+    };
+    let on = |sh: &Shape, x: usize| match sh.children[x].as_slice() {
+        &[c] => Some(sh.length[c]),
+        _ => None,
+    };
     v += 0.4
-        * match (la > 1e-4, lb > 1e-4) {
-            (true, true) => bell((la / lb).ln(), 0.4),
-            _ => 0.5,
+        * match (on(s, a), on(t, b)) {
+            (Some(oa), Some(ob)) => (long(s.length[a], t.length[b]) + long(oa, ob)) / 2.0,
+            _ => long(s.length[a], t.length[b]),
         };
     let mut placed = 0.4 * bell(s.at[a].y - t.at[b].y, 0.1);
     // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with nothing
@@ -342,8 +351,13 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     // wrist where its elbow does. How far along the limb holds, from the chest to where the hand begins. Within the
     // hand, past it, the fingers are told apart by where they are. The hand of an arm a hair shorter than the other is
     // where the hand begins too, as its twin is. A leg too: a long-necked animal's hips stand lower for its height than
-    // a short-necked one's, its legs as long for theirs.
+    // a short-necked one's, its legs as long for theirs. And how far along the next bone starts, where it has one: a
+    // stub at the shoulder starts about where an upper arm does, but ends near where it starts.
     let (xa, xb) = (s.along[a], t.along[b]);
+    let next = |sh: &Shape, x: usize| match sh.children[x].as_slice() {
+        &[c] => Some(sh.along[c]).filter(|y| y.is_finite()),
+        _ => None,
+    };
     let role = s.limb[a]
         .map(|(r, _)| r)
         .filter(|&r| t.limb[b].is_some_and(|(q, _)| q == r));
@@ -353,7 +367,11 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
         && (xa < 0.999 || xb < 0.999)
     {
         let alike = bell((s.span[r] / t.span[r]).ln(), 0.4);
-        alike * placed + (1.0 - alike) * 2.0 * bell(xa - xb, 0.2)
+        let far = match (next(s, a), next(t, b)) {
+            (Some(ya), Some(yb)) => (bell(xa - xb, 0.2) + bell(ya - yb, 0.2)) / 2.0,
+            _ => bell(xa - xb, 0.2),
+        };
+        alike * placed + (1.0 - alike) * 2.0 * far
     } else {
         placed
     };

@@ -95,7 +95,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 99.3% |
+| dittomo | 99.5% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
@@ -105,16 +105,16 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 | chest | 100% | 24% | | feet | 100% | 29% |
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
-| upper arms | 98% | 23% | | forearms | 99% | 23% |
+| upper arms | 100% | 23% | | forearms | 100% | 23% |
 | hands | 100% | 33% | | index fingers | 100% | 42% |
 
 What it gets wrong:
 
-- **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting a third of its
-  height out from the middle: 93% to 100% against the other rigs but 60% against RobotExpressive, a cartoon with long
-  arms for its height. With no collarbone, BrainStem's upper arms start where a collarbone ends, about as far along
-  the arm as the robot's elbow, and are taken for the robot's shoulders; the forearm with a hand on its end is found,
-  the one without is taken for an upper arm.
+- **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and no collarbones: 90% to 100%
+  against the other rigs, its arms and legs all found. Its head is one bone with nothing beyond it, and is taken for
+  the neck, or for the end bone atop another rig's head. Its upper arms start where a collarbone ends, a third of its
+  height out from the middle, and had been taken for RobotExpressive's shoulders, a stub as far out from the chest; told
+  apart by where each goes on to, against the robot went from 60% to 90%.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
 CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather
@@ -135,17 +135,17 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.1° | 0.2° | 2.9° | 99% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.0° | 0.1° | 2.6° | 99% |
-| World turns from rest copied onto the right bones | 20.8° | 9.6° | 64.6° | 60% |
+| dittomo | 0.9° | 0.2° | 2.4° | 99% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 0.9° | 0.2° | 2.4° | 100% |
+| World turns from rest copied onto the right bones | 15.2° | 6.9° | 56.0° | 72% |
 | Local rotations copied onto the right bones | 74.0° | 82.4° | 150.7° | 21% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
-both rigs when the bones between are in other ratios. The upper arms are the biggest gap between dittomo and the hand
-labels, from BrainStem's misses above. CI fails if the mean passes 4°.
+both rigs when the bones between are in other ratios. Setting the bones dittomo misses by hand no longer moves the
+mean. CI fails if the mean passes 4°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
-It's off by 0.6° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
+It's off by 0.5° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
 turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the target's
 own rest look and take only the turn away from it, as the spine below them does.
 
@@ -159,18 +159,18 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 | Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
 | none (`apply`) | 0.00388 | 0.0097 | 1.3° |
-| travel | 0.00099 | 0.0097 | 1.3° |
-| planted feet | 0.00327 | 0.0015 | 2.5° |
+| travel | 0.00118 | 0.0097 | 1.3° |
+| planted feet | 0.00333 | 0.0015 | 2.5° |
 | push-out | 0.00388 | 0.0097 | 1.3° |
-| all (`apply_with`) | 0.00003 | 0.0015 | 2.6° |
-| all, live (`Live`) | 0.00004 | 0.0015 | 2.7° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 2.6° |
+| all (`apply_with`) | 0.00004 | 0.0015 | 2.6° |
+| all, live (`Live`) | 0.00006 | 0.0016 | 2.8° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00006 | 0.0015 | 2.6° |
 
-Together they cut foot slide about 130 times and the height error 6.5 times. The degree they cost is the legs bending to
+Together they cut foot slide about a hundred times and the height error 6.5 times. The degree they cost is the legs bending to
 keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
-slide is cut about 100 times: a foot is held from the pose it lands, where the target's was the pose before, so it
+slide is cut about 65 times: a foot is held from the pose it lands, where the target's was the pose before, so it
 doesn't slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six poses late it
-is cut about 80 times, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on,
+is cut as much, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on,
 judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses,
 keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
 
