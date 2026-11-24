@@ -1,13 +1,16 @@
-//! Retargets a model file's clips onto another model and writes that model, with them, as a GLB.
+//! Retargets a model file's clips onto another model and writes that model, with them, as a GLB, or the clips as BVH.
 //!
 //! ```text
-//! dittomo SOURCE TARGET OUT.glb [--clip N|NAME]... [--fixes all|none] [--keep] [--pairs]
+//! dittomo SOURCE TARGET OUT.glb|OUT.vrm|OUT.bvh [--clip N|NAME]... [--fixes all|none] [--keep] [--fps N] [--pairs]
 //! ```
 //!
 //! Every clip of SOURCE is played on TARGET, or those named by `--clip` (by name, or by number from 0), each named as
 //! in SOURCE. TARGET's own clips are left out unless `--keep` is given. `--fixes none` plays the clips plainly, without
 //! feet kept planted, hands kept out of the body, and the rest; `--pairs` prints which bone of SOURCE each bone of
 //! TARGET follows.
+//!
+//! An OUT ending in `.bvh` gets TARGET's skeleton and a clip as BVH motion capture, `--fps` frames a second (by default
+//! the clip's own rate, up to 120); with more than one clip, each goes to a file of its own, named OUT-CLIP.bvh.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -16,7 +19,10 @@ use dittomo::load::{self, Model};
 use dittomo::{Fixes, Mapping};
 use polysmelt::document::Keep;
 
-const USAGE: &str = "usage: dittomo SOURCE TARGET OUT.glb [--clip N|NAME]... [--fixes all|none] [--keep] [--pairs]";
+const USAGE: &str = concat!(
+    "usage: dittomo SOURCE TARGET OUT.glb|OUT.vrm|OUT.bvh",
+    " [--clip N|NAME]... [--fixes all|none] [--keep] [--fps N] [--pairs]"
+);
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
@@ -30,7 +36,7 @@ fn main() -> ExitCode {
 
 fn run(args: Vec<String>) -> Result<(), String> {
     let mut files: Vec<PathBuf> = Vec::new();
-    let (mut picks, mut fixes, mut keep, mut pairs) = (Vec::new(), Fixes::ALL, false, false);
+    let (mut picks, mut fixes, mut keep, mut pairs, mut fps) = (Vec::new(), Fixes::ALL, false, false, None);
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -43,6 +49,16 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 }
             }
             "--keep" => keep = true,
+            "--fps" => {
+                let n: f32 = it.next().and_then(|n| n.parse().ok()).ok_or(USAGE)?;
+                if !(n.is_finite() && n > 0.0) {
+                    return Err(format!(
+                        "--fps needs a positive number of frames a second
+{USAGE}"
+                    ));
+                }
+                fps = Some(n);
+            }
             "--pairs" => pairs = true,
             "-h" | "--help" => {
                 println!("{USAGE}");
@@ -53,8 +69,13 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
     }
     let [source, target, out] = <[PathBuf; 3]>::try_from(files).map_err(|_| USAGE.to_string())?;
-    if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("gltf")) {
-        return Err("only GLB is written: name the output .glb (or .vrm)".into());
+    let is = |ext: &str| out.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
+    let bvh = is("bvh");
+    if is("gltf") {
+        return Err("glTF goes out as GLB: name the output .glb (or .vrm, or .bvh for the clips alone)".into());
+    }
+    if fps.is_some() && !bvh {
+        return Err("--fps is for BVH output, whose frames are evenly spaced; GLB keeps the clip's own times".into());
     }
     let read = |p: &Path, e: load::Error| format!("{}: {e}", p.display());
     let s = Model::load(&source).map_err(|e| read(&source, e))?;
@@ -93,6 +114,36 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
     }
 
+    if bvh {
+        let stem = out.with_extension("");
+        for &c in &clips {
+            let (name, clip) = &s.clips[c];
+            let name = name.clone().unwrap_or_else(|| format!("clip{c}"));
+            let played = mapping
+                .apply_touching(&s.skeleton, &t.skeleton, [&s.skin, &t.skin], clip, fixes)
+                .map_err(|e| format!("clip {name}: {e}"))?;
+            let text = dittomo::bvh::write(&t.skeleton, &played, fps.map(|n| 1.0 / n))
+                .map_err(|e| format!("clip {name}: {e}"))?;
+            let file = if clips.len() == 1 {
+                out.clone()
+            } else {
+                let safe: String = name
+                    .chars()
+                    .map(|c| {
+                        if c.is_alphanumeric() || "-_.".contains(c) {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                PathBuf::from(format!("{}-{safe}.bvh", stem.display()))
+            };
+            std::fs::write(&file, text).map_err(|e| format!("{}: {e}", file.display()))?;
+            eprintln!("played {name}: wrote {}", file.display());
+        }
+        return Ok(());
+    }
     if !keep {
         doc.prune(Keep {
             animations: false,

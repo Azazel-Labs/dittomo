@@ -3,8 +3,8 @@
 //! The page asks for a buffer, writes a model file's extension then its bytes into it, and calls [`load`] for the
 //! source (slot 0) or the target (slot 1). [`map`] matches the two and leaves a JSON report as the text; [`play`] plays
 //! a clip and leaves every bone's place in the world, frame by frame, for both skeletons; [`export`] writes the clip last
-//! played into the target's file, as a GLB to download. Results are read straight out of the module's memory, at the
-//! pointers the exports give.
+//! played into the target's file, as a GLB to download, or as BVH. Results are read straight out of the module's
+//! memory, at the pointers the exports give.
 
 use std::cell::RefCell;
 
@@ -28,7 +28,8 @@ struct State {
     target_file: Option<(String, Vec<u8>)>,
     /// The clip last played on the target, and its name.
     played: Option<(String, Clip)>,
-    glb: Vec<u8>,
+    /// What [`export`] wrote.
+    out: Vec<u8>,
 }
 
 thread_local! {
@@ -170,11 +171,28 @@ pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
     })
 }
 
-/// Writes the clip last played into the target's file in place of its own clips, as a GLB (meshes, materials and VRM
-/// extensions as they were) to read at [`glb`]. Its length in bytes, or 0 with the error as the text.
+/// Writes the clip last played on the target, to read at [`out`]: with `bvh` 0, into the target's file in place of its
+/// own clips, as a GLB (meshes, materials and VRM extensions as they were); with `bvh` 1, as BVH motion capture of the
+/// target's skeleton, which needs no file. Its length in bytes, or 0 with the error as the text.
 #[unsafe(no_mangle)]
-pub extern "C" fn export() -> u32 {
+pub extern "C" fn export(bvh: u32) -> u32 {
     with(|s| {
+        if bvh != 0 {
+            let (Some((_, clip)), Some(target)) = (&s.played, &s.models[1]) else {
+                s.text = "play a clip first".to_owned();
+                return 0;
+            };
+            return match dittomo::bvh::write(&target.skeleton, clip, None) {
+                Ok(text) => {
+                    s.out = text.into_bytes();
+                    s.out.len() as u32
+                }
+                Err(e) => {
+                    s.text = e.to_string();
+                    0
+                }
+            };
+        }
         let (Some((ext, bytes)), Some((name, clip)), Some(target)) = (&s.target_file, &s.played, &s.models[1]) else {
             s.text = "load a target model from a file and play a clip first".to_owned();
             return 0;
@@ -189,8 +207,8 @@ pub extern "C" fn export() -> u32 {
         });
         match written {
             Ok(glb) => {
-                s.glb = glb;
-                s.glb.len() as u32
+                s.out = glb;
+                s.out.len() as u32
             }
             Err(e) => {
                 s.text = e.to_string();
@@ -200,10 +218,10 @@ pub extern "C" fn export() -> u32 {
     })
 }
 
-/// The GLB [`export`] wrote.
+/// The file [`export`] wrote.
 #[unsafe(no_mangle)]
-pub extern "C" fn glb() -> *const u8 {
-    with(|s| s.glb.as_ptr())
+pub extern "C" fn out() -> *const u8 {
+    with(|s| s.out.as_ptr())
 }
 
 fn places(skeleton: &Skeleton, clip: &Clip) -> Vec<f32> {

@@ -278,10 +278,20 @@ with every fix, and writing the target with them in place of its own:
 
 ```sh
 dittomo walk.fbx avatar.vrm avatar_walk.glb [--clip NAME|N]... [--fixes all|none] [--keep] [--pairs]
+dittomo walk.fbx avatar.vrm avatar_walk.bvh [--clip NAME|N]... [--fixes all|none] [--fps N]
 ```
 
 `--keep` keeps the target's own clips too, and `--pairs` prints which source bone each target bone follows. The FBX
 samba onto seed-san's 132 bones takes 0.8 s, reading and writing included; Michelle's samba onto the soldier 0.08 s.
+
+An output ending in .bvh gets the target's skeleton and the clip as BVH motion capture instead, for MotionBuilder,
+Blender, Maya and the other tools that take mocap (`dittomo::bvh::write`, with no features needed). The hierarchy is the
+target's rest pose with every joint's axes lined up with the world's, so the file's rest pose is the character's own T-
+or A-pose whatever axes its bones had; each frame turns each joint from there, in Z, X, Y order, kept near the last
+frame's angles so none flips by a full turn. BVH frames are evenly spaced, so a clip whose times aren't is sampled, at
+its own middle spacing (no finer than 120 a second) or `--fps`. Blender 5.2 reads the samba written for seed-san back
+with every bone where dittomo puts it, and writing its 2,185 frames of 132 bones (4 MB) takes 80 ms. With more than one
+clip, each goes to a file of its own.
 
 ## Contact fixes
 
@@ -382,7 +392,8 @@ in two GLB, glTF, VRM, FBX or BVH files, or use the built-in sample. It shows bo
 quality, how long the match and the clip took, every target bone's match and score, and toggles for each fix. Download
 saves the target with the clip just played, through `write_clip`, as a GLB (a VRM stays a .vrm), with nothing sent
 anywhere: in Node, the samba FBX plays on seed-san with every fix in under a second and downloads in 0.2 s, and
-Michelle's samba on the soldier in 40 ms and 19 ms. The whole module is about 1.5 MB, file readers and writer included.
+Michelle's samba on the soldier in 40 ms and 19 ms. BVH saves the target's skeleton and the clip as motion capture,
+the built-in sample's too. The whole module is about 1.5 MB, file readers and writers included.
 
 ```sh
 sh demo/build.sh
@@ -397,4 +408,4 @@ The full plan, including the learned runtime this feeds and the open-source land
 - **The rest of the comparison benchmark**: R2ET's own test (its pairs aren't published as data). Bone-finding, limb
   directions, foot contact, playback against three.js and Babylon, and SAN's Mixamo test are done (above).
 - **Engine humanoid profiles** in the rig benchmark, by exporting what Unity's Avatar and Godot's `BoneMap` choose.
-- **FBX out**, for tools that read no glTF, once polysmelt writes FBX; clips go out as GLB (and VRM) for now.
+- **FBX out**, with the meshes, once polysmelt writes FBX; clips go out as GLB, VRM and BVH for now.

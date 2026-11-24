@@ -3,7 +3,7 @@
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"), save: $("save"),
+  err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"), save: $("save"), bvh: $("bvh"),
   travel: $("travel"), feet: $("feet"), push: $("push"), touch: $("touch"), hands: $("hands"), head: $("head"), sample: $("sample"), stats: $("stats"), pairs: $("pairs"),
 };
 
@@ -74,19 +74,22 @@ function play() {
   ui.scrub.max = frames - 1;
   ui.save.disabled = !targetFile;
   ui.save.title = targetFile ? "" : "Load a target model from a file to download it with the clip";
+  ui.bvh.disabled = false;
   stats();
 }
 
-// The target's file with the clip just played in place of its own, named after both; a VRM stays a .vrm.
-function save() {
-  const n = wasm.export();
+// The target's file with the clip just played in place of its own, named after both; a VRM stays a .vrm. Or, as BVH,
+// the target's skeleton and the clip alone.
+function save(bvh) {
+  const n = wasm.export(bvh ? 1 : 0);
   if (!n) return fail(text());
-  const glb = new Uint8Array(wasm.memory.buffer, wasm.glb(), n).slice();
-  const [, base, ext] = targetFile.match(/^(.*?)(?:\.([^.]*))?$/);
+  const bytes = new Uint8Array(wasm.memory.buffer, wasm.out(), n).slice();
+  const [, base, ext] = (targetFile ?? "mannequin").match(/^(.*?)(?:\.([^.]*))?$/);
   const clip = report.clips[+ui.clip.value]?.name ?? "rest";
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([glb], { type: "model/gltf-binary" }));
-  a.download = `${base}-${clip}`.replace(/[^\w.-]+/g, "-") + (ext?.toLowerCase() === "vrm" ? ".vrm" : ".glb");
+  a.href = URL.createObjectURL(new Blob([bytes], { type: bvh ? "text/plain" : "model/gltf-binary" }));
+  a.download = `${base}-${clip}`.replace(/[^\w.-]+/g, "-") +
+    (bvh ? ".bvh" : ext?.toLowerCase() === "vrm" ? ".vrm" : ".glb");
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
@@ -231,7 +234,8 @@ ui.playing.onclick = () => { playing = !playing; ui.playing.textContent = playin
 ui.scrub.oninput = () => { frame = +ui.scrub.value; clock = times ? times[frame] - times[0] : 0; };
 for (const el of [ui.clip, ui.travel, ui.feet, ui.push, ui.touch, ui.hands, ui.head]) el.onchange = play;
 ui.sample.onclick = sample;
-ui.save.onclick = save;
+ui.save.onclick = () => save(false);
+ui.bvh.onclick = () => save(true);
 
 let drag = null;
 ui.view.onpointerdown = (e) => { drag = [e.clientX, e.clientY, yaw, pitch]; ui.view.setPointerCapture(e.pointerId); };

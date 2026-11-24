@@ -394,6 +394,9 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
 - [x] **Clips written back:** `Model::write_clip` into the target's own document, thinned to the keys linear playback
       needs, out as GLB or VRM, from code, the `dittomo` command, or the demo's Download button (all in wasm, nothing
       uploaded). FBX out waits on a polysmelt FBX writer.
+- [x] **BVH out:** `bvh::write`, the target's rest pose with world-aligned joint axes and ZXY angles kept continuous,
+      sampled to even frames; from code, the `dittomo` command (`OUT.bvh`, `--fps`) or the demo. Blender reads it back
+      bone for bone.
 
 ### Phase 2: teacher
 

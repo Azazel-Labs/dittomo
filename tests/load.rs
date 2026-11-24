@@ -101,6 +101,52 @@ fn writes_a_clip_that_reads_back_the_same() {
 }
 
 #[test]
+fn writes_bvh_that_reads_back_the_same() {
+    let m = Model::load(&path()).unwrap();
+    // The file's poses a thirtieth of a second apart, which the BVH keeps pose for pose.
+    let clip = Clip {
+        times: (0..m.clips[0].1.poses.len()).map(|k| k as f32 / 30.0).collect(),
+        poses: m.clips[0].1.poses.clone(),
+    };
+    let text = dittomo::bvh::write(&m.skeleton, &clip, None).unwrap();
+    let back = Model::from_bytes(text.as_bytes(), "bvh").unwrap();
+    let played = &back.clips[0].1;
+    assert_eq!(played.poses.len(), clip.poses.len());
+    let ours: Vec<usize> = (m.skeleton.bones().iter())
+        .map(|b| back.skeleton.index_of(&b.name.replace(' ', "_")).expect("every bone"))
+        .collect();
+    let size = 2.0;
+    let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-4 * size;
+    // The rest pose is the skeleton's own, with every joint's axes the world's.
+    let (rest, back_rest) = (
+        m.skeleton.world(&m.skeleton.rest()),
+        back.skeleton.world(&back.skeleton.rest()),
+    );
+    for (b, &o) in ours.iter().enumerate() {
+        assert!(
+            near(rest[b].position(), back_rest[o].position()),
+            "{}",
+            m.skeleton.bones()[b].name
+        );
+        assert!(back_rest[o].rotation.angle_between(Quat::IDENTITY) < 1e-6);
+    }
+    // Each pose puts each bone in the same place, turned the same way from rest.
+    for (a, b) in clip.poses.iter().zip(&played.poses) {
+        let (wa, wb) = (m.skeleton.world(a), back.skeleton.world(b));
+        for (i, &o) in ours.iter().enumerate() {
+            assert!(
+                near(wa[i].position(), wb[o].position()),
+                "{} {}",
+                wa[i].position(),
+                wb[o].position()
+            );
+            let turn = wa[i].rotation * rest[i].rotation.inverse();
+            assert!(turn.angle_between(wb[o].rotation) < 1e-3, "{turn} {}", wb[o].rotation);
+        }
+    }
+}
+
+#[test]
 fn writes_only_what_moves() {
     let mut doc = load::document(&path()).unwrap();
     let m = Model::from_document(&doc).unwrap();

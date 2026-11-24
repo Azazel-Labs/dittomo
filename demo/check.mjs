@@ -1,5 +1,6 @@
 // Drives the built demo the way the page does, without a browser: the sample, the match, a clip with every fix,
-// then each model under ../tests/data through the buffer, and a clip played on one of them downloaded and read back.
+// the sample's clip as BVH read back, then each model under ../tests/data through the buffer, and a clip played on one
+// of them downloaded and read back.
 // Run after build.sh: node check.mjs
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -28,7 +29,7 @@ for (const [clip, fixes] of [[0, 0], [1, 15]]) {
   console.log(`clip ${clip}, fixes ${fixes}: ${frames} frames in ${(performance.now() - t).toFixed(1)} ms, travelled ${went.toFixed(0)}`);
 }
 
-check(!w.export(), "no download of the sample, which has no file");
+check(!w.export(0), "no download of the sample, which has no file");
 
 const load = (slot, extension, body) => {
   const ext = new TextEncoder().encode(extension);
@@ -38,6 +39,19 @@ const load = (slot, extension, body) => {
   into.set(body, ext.length);
   return w.load(slot, ext.length);
 };
+// The sample's clip as BVH, which needs no file, read back as the source and mapped onto the sample it came from.
+let t = performance.now();
+const bvhSize = w.export(1);
+check(bvhSize > 0, "BVH of the sample's clip");
+const bvh = new Uint8Array(w.memory.buffer, w.out(), bvhSize).slice();
+const bvhTook = performance.now() - t;
+check(new TextDecoder().decode(bvh.subarray(0, 9)) === "HIERARCHY", "a BVH");
+check(load(0, "bvh", bvh) && w.map(), "read the BVH back");
+const fromBvh = JSON.parse(text());
+check(fromBvh.quality > 0.9, `the BVH maps onto the sample it came from (${fromBvh.quality})`);
+console.log(`BVH of the sample's clip: ${bvhSize} bytes in ${bvhTook.toFixed(1)} ms, quality back ` +
+  `${fromBvh.quality.toFixed(2)}`);
+
 const data = join(here, "../tests/data");
 const models = readdirSync(data).filter((f) => [".fbx", ".glb", ".gltf"].includes(extname(f)));
 for (const name of models) {
@@ -51,10 +65,10 @@ check(load(0, extname(name).slice(1), body) && load(1, extname(name).slice(1), b
 check(w.map(), `map ${name} to itself`);
 const frames = w.play(0, 0);
 check(frames > 0, `play ${name}`);
-const t = performance.now();
-const size = w.export();
+t = performance.now();
+const size = w.export(0);
 check(size > 0, `download ${name}`);
-const glb = new Uint8Array(w.memory.buffer, w.glb(), size).slice();
+const glb = new Uint8Array(w.memory.buffer, w.out(), size).slice();
 check(new TextDecoder().decode(glb.subarray(0, 4)) === "glTF", "a GLB");
 const took = performance.now() - t;
 check(load(0, "glb", glb), "read the download back");
