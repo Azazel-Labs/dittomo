@@ -124,15 +124,15 @@ IK Retargeter) aren't in the table: they need the engine running.
 ### Playing real clips
 
 The same rigs' own 35 clips (Mixamo dances, walks, runs and gestures, RobotExpressive's 14, CesiumMan's and
-RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four) played on every other rig: 385 clip and rig pairs.
-Each labeled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each
-in its own body's frame. A foot is judged by where it points, the way it points across the floor at rest turned as it
-has turned from rest: every rig stands flat at rest, and how steeply an ankle comes down to the toes is anatomy. The
-trunk, hips to chest and chest to head, is judged by how it leans, tilted as it has tilted from rest, as every rig
-stands upright at rest; a collarbone the same way, straight out to its side tilted as it has tilted, as how one slopes
-up or back to the shoulder is anatomy too. The other rows are what a clip gets without a retargeter, even given the right bones: an
-engine's animation mixer plays a clip on another rig by copying each bone's local rotation, and a hand-written script
-commonly copies each bone's turn from rest in the world.
+RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four) played on every other rig: 385 clip and rig pairs. Each
+labeled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each in its
+own body's frame. A foot is judged by where it points, the way it points across the floor at rest turned as it has
+turned from rest: every rig stands flat at rest, and how steeply an ankle comes down to the toes is anatomy. The trunk,
+hips to chest and chest to head, is judged by how it leans, tilted as it has tilted from rest, as every rig stands
+upright at rest; a collarbone the same way, straight out to its side tilted as it has tilted, as how one slopes up or
+back to the shoulder is anatomy too. The other rows are what a clip gets without a retargeter, even given the right
+bones: an engine's animation mixer plays a clip on another rig by copying each bone's local rotation, and a hand-written
+script commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
@@ -142,11 +142,11 @@ commonly copies each bone's turn from rest in the world.
 | Local rotations copied onto the right bones | 73.9° | 81.9° | 150.2° | 20% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
-both rigs when the bones between are in other ratios. The collarbones are off by 4° as world turns copied are, by
-twist: a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the
-shoulder of one built at another slope. Keeping only the swing takes the error to under 2° here, but it is further
-from SAN's clips below (0.72 against 0.66 across skeletons), so dittomo keeps the whole turn. Setting the bones dittomo misses by hand no longer moves the
-mean. CI fails if the mean passes 4°.
+both rigs when the bones between are in other ratios. The collarbones are off by 4° as world turns copied are, by twist:
+a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the shoulder of one
+built at another slope. Keeping only the swing takes the error to under 2° here, but it is further from SAN's clips
+below (0.72 against 0.66 across skeletons), so dittomo keeps the whole turn. Setting the bones dittomo misses by hand no
+longer moves the mean. CI fails if the mean passes 3°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by 0.5° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
@@ -170,13 +170,13 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 | all, live (`Live`) | 0.00006 | 0.0016 | 3.2° |
 | all, live, 6 poses late (`Live::delayed`) | 0.00006 | 0.0015 | 3.0° |
 
-Together they cut foot slide about a hundred times and the height error 6.5 times. The degree they cost is the legs bending to
-keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
-slide is cut about 65 times: a foot is held from the pose it lands, where the target's was the pose before, so it
-doesn't slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six poses late it
-is cut as much, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on,
-judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses,
-keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
+Together they cut foot slide about a hundred times and the height error 6.5 times. The degree they cost is the legs
+bending to keep feet down where the target's stride and leg proportions differ from the source's. Played live, with
+nothing ahead, slide is cut about 65 times: a foot is held from the pose it lands, where the target's was the pose
+before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six
+poses late it is cut as much, with limbs as close as the whole clip's. A foot is planted from the first pose it stands
+on, judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held
+poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,572 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
@@ -427,11 +427,12 @@ shoulder, and a collarbone turned to line up with another rig's would lift or dr
 
 A target bone between two mapped ones takes its share of their turns by how far along it is, so a short spine bends a
 long one smoothly. One just above a limb's joint, as a collarbone split in two or a twist bone in the forearm, keeps the
-turn of the bone above and takes only its share of the twist about its own length: half the arm's raise would lift
-the shoulder, and half the wrist's bend would kink the forearm. A bone beside a mapped one, starting where it starts and pointing along it, turns with it, as
-VRoid's sleeve and roll helpers beside the upper arm need: left at rest, the sleeves stayed out in a T-pose as the arms
-came down. Other unmapped bones keep their rest pose under their parent. The topmost mapped bones, and any whose
-source moves rather than only turns, travel as their source does, scaled by how high each stands.
+turn of the bone above and takes only its share of the twist about its own length: half the arm's raise would lift the
+shoulder, and half the wrist's bend would kink the forearm. A bone beside a mapped one, starting where it starts and
+pointing along it, turns with it, as VRoid's sleeve and roll helpers beside the upper arm need: left at rest, the
+sleeves stayed out in a T-pose as the arms came down. Other unmapped bones keep their rest pose under their parent. The
+topmost mapped bones, and any whose source moves rather than only turns, travel as their source does, scaled by how high
+each stands.
 
 Some rigs hang a foot or paw from the root rather than from its leg, for IK to place it at the leg's end. Played as it
 is, it stays where it stood while the body walks off. A low bone hanging from the root (or a bone holding half the
