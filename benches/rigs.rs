@@ -12,10 +12,10 @@
 //!
 //! `bench/rigs/labels.txt` names, for each rig, the bone playing each of 23 joints of the body (hips, spine, chest,
 //! neck, head, and on each side the clavicle, upper arm, forearm, hand, index finger, thigh, shin, foot and toe),
-//! labelled by hand; a rig without one of them leaves it out.
+//! labeled by hand; a rig without one of them leaves it out.
 //! Each ordered pair of rigs is mapped, and a joint is found when the target's joint bone plays the source's.
 //!
-//! Then every clip of every rig is played on every other rig, and each labelled limb segment's direction (upper arm
+//! Then every clip of every rig is played on every other rig, and each labeled limb segment's direction (upper arm
 //! from shoulder to elbow, and so on) is compared with the source's, each in its own body's frame, against two ways
 //! of copying a clip onto the right bones without dittomo: copying each bone's local rotation, as an engine's
 //! animation mixer does when a clip is played on another rig by bone name, and copying each bone's turn from rest in
@@ -57,7 +57,7 @@ const JOINTS: [&str; 23] = [
 struct Rig {
     name: String,
     model: Model,
-    /// Each labelled joint's bone.
+    /// Each labeled joint's bone.
     labels: BTreeMap<String, usize>,
 }
 
@@ -241,7 +241,7 @@ fn main() {
     }
     let pct = |a: usize, b: usize| 100.0 * a as f64 / b.max(1) as f64;
     println!(
-        "\n{} rigs, {} ordered pairs, {asked} labelled joints",
+        "\n{} rigs, {} ordered pairs, {asked} labeled joints",
         rigs.len(),
         rigs.len() * (rigs.len() - 1)
     );
@@ -286,7 +286,7 @@ fn main() {
     }
 }
 
-/// Limb segments, from one labelled joint to the next, whose directions a retarget should copy.
+/// Limb segments, from one labeled joint to the next, whose directions a retarget should copy.
 const SEGMENTS: [(&str, &str); 16] = [
     ("hips", "chest"),
     ("chest", "head"),
@@ -363,14 +363,14 @@ fn looks(rig: &Rig, frame: &[Vec3; 3], pose: &[Transform]) -> Option<Vec3> {
     Some(Vec3::new(frame[0].dot(d), frame[1].dot(d), frame[2].dot(d)).normalize())
 }
 
-/// Every clip of every rig that has one played on every other rig: how far, in degrees, each labelled limb segment
+/// Every clip of every rig that has one played on every other rig: how far, in degrees, each labeled limb segment
 /// points from where the source's does, measured in each body's own frame. Gives dittomo's mean.
 fn motion(rigs: &[Rig], show: bool) -> f32 {
     let methods = [
         "dittomo",
-        "dittomo, labelled bones set by hand",
-        "world turns from rest copied onto the labelled bones",
-        "local rotations copied onto the labelled bones",
+        "dittomo, labeled bones set by hand",
+        "world turns from rest copied onto the labeled bones",
+        "local rotations copied onto the labeled bones",
     ];
     let mut errs: [Vec<f32>; 4] = Default::default();
     let mut per: BTreeMap<(usize, usize), [Vec<f32>; 4]> = BTreeMap::new();
@@ -392,7 +392,7 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
             let mut fixed = map.clone();
             for (joint, &tb) in &t.labels {
                 if let Some(&sb) = s.labels.get(joint) {
-                    // Whatever else plays the labelled source bone by now, not as first matched: that would undo a
+                    // Whatever else plays the labeled source bone by now, not as first matched: that would undo a
                     // label set before this one.
                     let others: Vec<usize> = (0..ts.len())
                         .filter(|&b| b != tb && fixed.source_of(b) == Some(sb))
@@ -403,7 +403,7 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
                     fixed.set(tb, Some(sb));
                 }
             }
-            // The labelled pairs, and the turn from the source body's frame to the target's.
+            // The labeled pairs, and the turn from the source body's frame to the target's.
             let pairs: Vec<(usize, usize)> = t
                 .labels
                 .iter()
@@ -432,7 +432,7 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
                     for &(tb, sb) in &pairs {
                         copied[tb].rotation = pose[sb].rotation;
                     }
-                    // Each labelled bone turned in the world as its source is turned from rest.
+                    // Each labeled bone turned in the world as its source is turned from rest.
                     let src = ss.world(pose);
                     let mut turned = ts.rest();
                     let mut world: Vec<Quat> = Vec::with_capacity(ts.len());
@@ -509,7 +509,7 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
     }
     println!(
         "
-| Segment | dittomo | labelled | world turns | local copied |
+| Segment | dittomo | labeled | world turns | local copied |
 | --- | ---: | ---: | ---: | ---: |"
     );
     for (k, (a, b)) in SEGMENTS.iter().enumerate() {
@@ -521,7 +521,7 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
     if show {
         println!(
             "
-Per pair, mean degrees (dittomo / labelled / world turns / local copied):"
+Per pair, mean degrees (dittomo / labeled / world turns / local copied):"
         );
         for ((s, t), pair) in &per {
             let m: Vec<String> = pair.iter().map(|v| format!("{:.1}", stats(v).0)).collect();

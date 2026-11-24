@@ -363,11 +363,11 @@ fn apart(at: &[Vec3], times: &[f32], height: f32, f: usize) -> bool {
 /// back, so planted feet stay put. A clip that already travels, or whose feet don't slide, comes back as it was.
 #[must_use]
 pub fn travel(skeleton: &Skeleton, clip: &Clip) -> Clip {
-    travelled(skeleton, &Shape::light(skeleton), clip).unwrap_or_else(|| clip.clone())
+    traveled(skeleton, &Shape::light(skeleton), clip).unwrap_or_else(|| clip.clone())
 }
 
 /// [`travel`], or nothing if the clip is to be left as it is.
-pub(crate) fn travelled(skeleton: &Skeleton, s: &Shape, clip: &Clip) -> Option<Clip> {
+pub(crate) fn traveled(skeleton: &Skeleton, s: &Shape, clip: &Clip) -> Option<Clip> {
     let legs = legs_of(skeleton, s);
     let n = clip.poses.len();
     if legs.is_empty() || n < 2 || clip.poses.iter().any(|p| p.len() != skeleton.len()) {
@@ -956,7 +956,7 @@ impl Ahead {
     }
 }
 
-/// The travel a clip walked in place implies ([`travelled`]), worked out as the poses come: each pose the body moves as
+/// The travel a clip walked in place implies ([`traveled`]), worked out as the poses come: each pose the body moves as
 /// far as the lowest foot slid back since the pose before, and on as it was going while no foot is down. Slides slower
 /// than a twentieth of the height a second are taken for a foot shuffling, not walking. Once the hips have wandered a
 /// tenth of the height from where they began, the clip travels on its own and the travel stops growing: a walk in place

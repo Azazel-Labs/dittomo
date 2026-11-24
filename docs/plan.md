@@ -100,7 +100,7 @@ Phase 1 so far (November 2026):
   names is weighed against each other once, not once per pair of bones, and a bone with one child pairs it without
   solving an assignment.
 - **Bone-finding on twelve real rigs** (Mixamo, Ready Player Me, VRM, Khronos samples, three.js and Babylon
-  characters; 132 ordered pairs, 2558 hand-labelled joints): dittomo finds 96.4% of joints; matching by exact name, as
+  characters; 132 ordered pairs, 2558 hand-labeled joints): dittomo finds 96.4% of joints; matching by exact name, as
   three.js and Babylon do, finds 30.3%. Testing on them found and fixed: VRM's `J_Bip_C_` names, a bare `Arm`/`Leg`
   against numbered `arm_joint_2`, rigs that stop at the base of the head (height now also comes from the shoulders),
   a palm bone holding two fingers, mirrored limbs with uneven bone counts, and bones left out though pinned by the pairs
@@ -109,7 +109,7 @@ Phase 1 so far (November 2026):
   bone with fingers beyond it, as how much body lies past it says nothing then; twist, roll and other helper bones and
   bones only marking where a chain ends (`HeadTop_End`, `Toe0Nub`) are told from joints by name; a bone left over that
   is the only child of a bone playing the only child of the other rig's (a hand at the end of each forearm) is paired
-  however unlike their rests; and Rigify's `f_index` reads as a finger. The bench's labelled run had let a later label
+  however unlike their rests; and Rigify's `f_index` reads as a finger. The bench's labeled run had let a later label
   undo an earlier one; fixed, it gives 1.3° rather than 2.1°. Then to 96.4%, the chest from 80% to 98%: the bones
   the arms and the legs hang from (the parents of the two biggest mirrored pairs) play each other however high they
   stand, and a bone limbs branch from doesn't play one along a chain, so a robot's chest just above its hips no longer

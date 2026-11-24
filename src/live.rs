@@ -175,7 +175,7 @@ impl Live {
         Ok(self)
     }
 
-    /// Forgets the poses so far: where feet are planted, how far a clip walked in place has travelled, where hands
+    /// Forgets the poses so far: where feet are planted, how far a clip walked in place has traveled, where hands
     /// met. For a cut, or a jump to another clip.
     pub fn reset(&mut self) {
         if let Some(t) = &mut self.travel {

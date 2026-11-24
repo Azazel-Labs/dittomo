@@ -136,12 +136,12 @@ impl Mapping {
         }
         clip.check(source.len())?;
         let (s, t) = (Shape::light(source), Shape::light(target));
-        let travelled = if fixes.travel {
-            contact::travelled(source, &s, clip)
+        let traveled = if fixes.travel {
+            contact::traveled(source, &s, clip)
         } else {
             None
         };
-        let clip = travelled.as_ref().unwrap_or(clip);
+        let clip = traveled.as_ref().unwrap_or(clip);
         let mut player = transfer::Player::of_shapes(self, source, target, &s, &t);
         let mut out = transfer::play_on(&mut player, target, clip)?;
         if fixes.feet {

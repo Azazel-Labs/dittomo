@@ -26,7 +26,7 @@ for (const [clip, fixes] of [[0, 0], [1, 15]]) {
   check(Number.isFinite(z(frames - 1)), "finite places");
   const went = z(frames - 1) - z(0);
   check(went > 100, `clip ${clip} with fixes ${fixes} travels (${went.toFixed(1)})`);
-  console.log(`clip ${clip}, fixes ${fixes}: ${frames} frames in ${(performance.now() - t).toFixed(1)} ms, travelled ${went.toFixed(0)}`);
+  console.log(`clip ${clip}, fixes ${fixes}: ${frames} frames in ${(performance.now() - t).toFixed(1)} ms, traveled ${went.toFixed(0)}`);
 }
 
 check(!w.export(0), "no download of the sample, which has no file");

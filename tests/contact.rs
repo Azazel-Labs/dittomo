@@ -346,10 +346,7 @@ fn a_clip_walked_in_place_gets_its_travel() {
     let walked = contact::travel(&sk, &in_place);
     let z = |c: &Clip| c.poses[frames - 1][0].translation.z - in_place.poses[frames - 1][0].translation.z;
     let (went, should) = (z(&walked), z(&common::gait(&sk, frames, false)));
-    assert!(
-        (went - should).abs() < 0.1 * should,
-        "travelled {went}, should {should}"
-    );
+    assert!((went - should).abs() < 0.1 * should, "traveled {went}, should {should}");
     // And its planted feet now stay put.
     let map = Mapping::new(&sk, &sk);
     let slid = skate(&map, &sk, &sk, &walked, &walked);
@@ -1149,7 +1146,7 @@ fn live_gives_a_clip_walked_in_place_its_travel() {
     eprintln!("live travel {went:.1}, walking {should:.1}");
     assert!(
         (went - should).abs() < 0.15 * should,
-        "travelled {went}, should {should}"
+        "traveled {went}, should {should}"
     );
     // A clip that travels on its own is left to.
     let walk = common::gait(&sk, frames, false);
@@ -1185,7 +1182,7 @@ fn live_travel_finds_the_ground_feet_walk_on_above_their_rest() {
     eprintln!("live travel {went:.1}, the whole clip's {:.1}", z(&whole));
     assert!(
         (went - z(&whole)).abs() < 0.1 * z(&whole).abs(),
-        "travelled {went}, the whole clip {}",
+        "traveled {went}, the whole clip {}",
         z(&whole)
     );
 }

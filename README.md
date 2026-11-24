@@ -64,7 +64,7 @@ cargo run --release --features fs --example video -- source.glb target.vrm out.m
 
 Twelve real characters from four ecosystems, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot,
 Michelle, Soldier and Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan,
-RiggedFigure and BrainStem, two VRM avatars, and Babylon's HVGirl. Each rig's body joints are labelled by hand
+RiggedFigure and BrainStem, two VRM avatars, and Babylon's HVGirl. Each rig's body joints are labeled by hand
 (`bench/rigs/labels.txt`); every one of the 132 ordered pairs is mapped, and a joint counts as found when the target's
 joint plays the source's. `cargo bench --features fs --bench rigs`:
 
@@ -100,7 +100,7 @@ the engine running.
 
 The same rigs' own 35 clips (Mixamo dances, walks, runs and gestures, RobotExpressive's 14, CesiumMan's and
 RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four) played on every other rig: 385 clip and rig pairs.
-Each labelled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each
+Each labeled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each
 in its own body's frame. A foot is judged by where it points, the way it points across the floor at rest turned as it
 has turned from rest: every rig stands flat at rest, and how steeply an ankle comes down to the toes is anatomy. The
 other rows are what a clip gets without a retargeter, even given the right bones: an
