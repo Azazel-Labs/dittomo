@@ -33,7 +33,8 @@
          border-top: 1px solid var(--line); }
   button, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
                    border-radius: 6px; padding: 4px 10px; }
-  button:hover { border-color: var(--accent); }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { color: var(--muted); }
   label { display: inline-flex; gap: 5px; align-items: center; }
   input[type=range] { flex: 1; min-width: 120px; }
   .side { display: flex; flex-direction: column; min-height: 0; max-height: calc(62vh + 190px); }
@@ -54,22 +55,24 @@
 <body>
 <header>
   <h1>dittomo</h1>
-  <p>Drop in two rigged models (glTF, GLB or FBX). The first one's clips play on the second, matched by shape alone.</p>
+  <p>Drop in two rigged models (GLB, glTF, VRM, FBX or BVH). The first one's clips play on the second, matched by shape
+    alone, and download with it as a GLB.</p>
 </header>
 <div class="err" id="err"></div>
 <main>
   <section class="card">
     <div class="drops">
       <label class="drop source" data-slot="0"><b>Source</b><span>Drop a file with clips, or click</span>
-        <input type="file" accept=".gltf,.glb,.fbx" hidden></label>
+        <input type="file" accept=".gltf,.glb,.vrm,.fbx,.bvh" hidden></label>
       <label class="drop target" data-slot="1"><b>Target</b><span>Drop the model to drive, or click</span>
-        <input type="file" accept=".gltf,.glb,.fbx" hidden></label>
+        <input type="file" accept=".gltf,.glb,.vrm,.fbx,.bvh" hidden></label>
     </div>
     <canvas id="view"></canvas>
     <div class="bar">
       <button id="playing">Pause</button>
       <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Frame">
       <select id="clip" aria-label="Clip"></select>
+      <button id="save" disabled>Download</button>
     </div>
     <div class="bar">
       <label><input type="checkbox" id="travel" checked> Travel for clips walked in place</label>

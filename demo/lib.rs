@@ -2,13 +2,15 @@
 //!
 //! The page asks for a buffer, writes a model file's extension then its bytes into it, and calls [`load`] for the
 //! source (slot 0) or the target (slot 1). [`map`] matches the two and leaves a JSON report as the text; [`play`] plays
-//! a clip and leaves every bone's place in the world, frame by frame, for both skeletons. Results are read straight out
-//! of the module's memory, at the pointers the exports give.
+//! a clip and leaves every bone's place in the world, frame by frame, for both skeletons; [`export`] writes the clip last
+//! played into the target's file, as a GLB to download. Results are read straight out of the module's memory, at the
+//! pointers the exports give.
 
 use std::cell::RefCell;
 
-use dittomo::load::Model;
+use dittomo::load::{self, Model};
 use dittomo::{Clip, Fixes, Mapping, Skeleton, Surface, contact};
+use polysmelt::document::Keep;
 
 #[path = "../benches/common/mod.rs"]
 #[allow(dead_code)]
@@ -22,6 +24,11 @@ struct State {
     text: String,
     times: Vec<f32>,
     places: [Vec<f32>; 2],
+    /// The target's file, its extension and bytes, to write clips into (none for the sample).
+    target_file: Option<(String, Vec<u8>)>,
+    /// The clip last played on the target, and its name.
+    played: Option<(String, Clip)>,
+    glb: Vec<u8>,
 }
 
 thread_local! {
@@ -51,9 +58,14 @@ pub extern "C" fn load(slot: u32, ext_len: usize) -> u32 {
         let ext = String::from_utf8_lossy(ext).into_owned();
         match Model::from_bytes(bytes, &ext) {
             Ok(model) => {
-                s.models[slot as usize & 1] = Some(model);
+                let slot = slot as usize & 1;
+                s.models[slot] = Some(model);
                 s.mapping = None;
-                s.buffer = Vec::new();
+                s.played = None;
+                let bytes = std::mem::take(&mut s.buffer).split_off(ext_len);
+                if slot == 1 {
+                    s.target_file = Some((ext, bytes));
+                }
                 1
             }
             Err(e) => {
@@ -86,6 +98,8 @@ pub extern "C" fn sample() {
     with(|s| {
         s.models = [Some(model(source, clips)), Some(model(common::mannequin(), Vec::new()))];
         s.mapping = None;
+        s.played = None;
+        s.target_file = None;
     });
 }
 
@@ -117,14 +131,14 @@ pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
             return 0;
         };
         let rest;
-        let from = match source.clips.get(clip as usize) {
-            Some((_, c)) => c,
+        let (name, from) = match source.clips.get(clip as usize) {
+            Some((name, c)) => (name.clone().unwrap_or_else(|| format!("clip {}", clip + 1)), c),
             None => {
                 rest = Clip {
                     times: vec![0.0],
                     poses: vec![source.skeleton.rest()],
                 };
-                &rest
+                ("rest".to_owned(), &rest)
             }
         };
         let fixes = Fixes {
@@ -150,8 +164,46 @@ pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
         };
         s.times.clone_from(&from.times);
         s.places = [places(&source.skeleton, &shown), places(&target.skeleton, &played)];
-        from.poses.len() as u32
+        let frames = from.poses.len() as u32;
+        s.played = Some((name, played));
+        frames
     })
+}
+
+/// Writes the clip last played into the target's file in place of its own clips, as a GLB (meshes, materials and VRM
+/// extensions as they were) to read at [`glb`]. Its length in bytes, or 0 with the error as the text.
+#[unsafe(no_mangle)]
+pub extern "C" fn export() -> u32 {
+    with(|s| {
+        let (Some((ext, bytes)), Some((name, clip)), Some(target)) = (&s.target_file, &s.played, &s.models[1]) else {
+            s.text = "load a target model from a file and play a clip first".to_owned();
+            return 0;
+        };
+        let written = load::document_from_bytes(bytes, ext).and_then(|mut doc| {
+            doc.prune(Keep {
+                animations: false,
+                ..Keep::ALL
+            });
+            target.write_clip(&mut doc, Some(name), clip)?;
+            Ok(doc.to_glb()?)
+        });
+        match written {
+            Ok(glb) => {
+                s.glb = glb;
+                s.glb.len() as u32
+            }
+            Err(e) => {
+                s.text = e.to_string();
+                0
+            }
+        }
+    })
+}
+
+/// The GLB [`export`] wrote.
+#[unsafe(no_mangle)]
+pub extern "C" fn glb() -> *const u8 {
+    with(|s| s.glb.as_ptr())
 }
 
 fn places(skeleton: &Skeleton, clip: &Clip) -> Vec<f32> {

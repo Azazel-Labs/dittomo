@@ -12,6 +12,8 @@ path = "lib.rs"
 
 [dependencies]
 dittomo = { path = "..", features = ["load"] }
+# Its documents, pruned of the target's own clips before one is written.
+polysmelt = { version = "0.14", default-features = false }
 
 [profile.release]
 opt-level = 3

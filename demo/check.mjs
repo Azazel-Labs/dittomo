@@ -1,5 +1,6 @@
 // Drives the built demo the way the page does, without a browser: the sample, the match, a clip with every fix,
-// then each model under ../tests/data through the buffer. Run after build.sh: node check.mjs
+// then each model under ../tests/data through the buffer, and a clip played on one of them downloaded and read back.
+// Run after build.sh: node check.mjs
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname } from "node:path";
@@ -27,14 +28,39 @@ for (const [clip, fixes] of [[0, 0], [1, 15]]) {
   console.log(`clip ${clip}, fixes ${fixes}: ${frames} frames in ${(performance.now() - t).toFixed(1)} ms, travelled ${went.toFixed(0)}`);
 }
 
-const data = join(here, "../tests/data");
-for (const name of readdirSync(data).filter((f) => [".fbx", ".glb", ".gltf"].includes(extname(f)))) {
-  const ext = new TextEncoder().encode(extname(name).slice(1));
-  const body = readFileSync(join(data, name));
-  const into = new Uint8Array(w.memory.buffer, w.buffer(ext.length + body.length), ext.length + body.length);
+check(!w.export(), "no download of the sample, which has no file");
+
+const load = (slot, extension, body) => {
+  const ext = new TextEncoder().encode(extension);
+  const at = w.buffer(ext.length + body.length); // first, as it may grow the memory
+  const into = new Uint8Array(w.memory.buffer, at, ext.length + body.length);
   into.set(ext);
   into.set(body, ext.length);
-  check(w.load(0, ext.length), `load ${name}`);
+  return w.load(slot, ext.length);
+};
+const data = join(here, "../tests/data");
+const models = readdirSync(data).filter((f) => [".fbx", ".glb", ".gltf"].includes(extname(f)));
+for (const name of models) {
+  check(load(0, extname(name).slice(1), readFileSync(join(data, name))), `load ${name}`);
   console.log(`read ${name}`);
 }
+
+// The first model's clip played on itself, downloaded, and read back with that clip alone.
+const name = models[0], body = readFileSync(join(data, name));
+check(load(0, extname(name).slice(1), body) && load(1, extname(name).slice(1), body), `load ${name} twice`);
+check(w.map(), `map ${name} to itself`);
+const frames = w.play(0, 0);
+check(frames > 0, `play ${name}`);
+const t = performance.now();
+const size = w.export();
+check(size > 0, `download ${name}`);
+const glb = new Uint8Array(w.memory.buffer, w.glb(), size).slice();
+check(new TextDecoder().decode(glb.subarray(0, 4)) === "glTF", "a GLB");
+const took = performance.now() - t;
+check(load(0, "glb", glb), "read the download back");
+check(w.map(), "map the download");
+const back = JSON.parse(text());
+check(back.clips.length === 1 && back.clips[0].frames <= frames, `one clip back (${JSON.stringify(back.clips)})`);
+console.log(`downloaded ${name} with its clip: ${size} bytes in ${took.toFixed(1)} ms, ${back.clips[0].frames} of ` +
+  `${frames} poses keyed`);
 console.log("ok");

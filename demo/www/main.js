@@ -3,7 +3,7 @@
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"),
+  err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"), save: $("save"),
   travel: $("travel"), feet: $("feet"), push: $("push"), touch: $("touch"), hands: $("hands"), head: $("head"), sample: $("sample"), stats: $("stats"), pairs: $("pairs"),
 };
 
@@ -13,6 +13,7 @@ let frames = 0, times = null, places = [null, null];
 let frame = 0, playing = true, clock = 0, last = 0;
 let yaw = -0.6, pitch = 0.18, hovered = -1;
 const names = ["", ""];
+let targetFile = null;   // the target's file name, when it came from one
 
 const text = () => new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, wasm.text(), wasm.text_len()));
 const fail = (m) => { ui.err.textContent = m; };
@@ -27,6 +28,7 @@ function sample() {
   wasm.sample();
   names[0] = "sample: 65 bones laid out as Mixamo's, walking";
   names[1] = "sample: 76-bone mannequin, A-pose, twist bones";
+  targetFile = null;
   remap();
 }
 
@@ -38,6 +40,7 @@ async function load(slot, file) {
   into.set(ext); into.set(body, ext.length);
   if (!wasm.load(slot, ext.length)) return fail(`${file.name}: ${text()}`);
   names[slot] = `${file.name}, ${(file.size / 1e6).toFixed(1)} MB`;
+  if (slot === 1) targetFile = file.name;
   remap();
 }
 
@@ -69,7 +72,23 @@ function play() {
   frame = Math.min(frame, frames - 1);
   clock = times[frame] - times[0];
   ui.scrub.max = frames - 1;
+  ui.save.disabled = !targetFile;
+  ui.save.title = targetFile ? "" : "Load a target model from a file to download it with the clip";
   stats();
+}
+
+// The target's file with the clip just played in place of its own, named after both; a VRM stays a .vrm.
+function save() {
+  const n = wasm.export();
+  if (!n) return fail(text());
+  const glb = new Uint8Array(wasm.memory.buffer, wasm.glb(), n).slice();
+  const [, base, ext] = targetFile.match(/^(.*?)(?:\.([^.]*))?$/);
+  const clip = report.clips[+ui.clip.value]?.name ?? "rest";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([glb], { type: "model/gltf-binary" }));
+  a.download = `${base}-${clip}`.replace(/[^\w.-]+/g, "-") + (ext?.toLowerCase() === "vrm" ? ".vrm" : ".glb");
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
 const bones = (w) => report[w ? "target" : "source"].bones;
@@ -212,6 +231,7 @@ ui.playing.onclick = () => { playing = !playing; ui.playing.textContent = playin
 ui.scrub.oninput = () => { frame = +ui.scrub.value; clock = times ? times[frame] - times[0] : 0; };
 for (const el of [ui.clip, ui.travel, ui.feet, ui.push, ui.touch, ui.hands, ui.head]) el.onchange = play;
 ui.sample.onclick = sample;
+ui.save.onclick = save;
 
 let drag = null;
 ui.view.onpointerdown = (e) => { drag = [e.clientX, e.clientY, yaw, pitch]; ui.view.setPointerCapture(e.pointerId); };

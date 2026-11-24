@@ -378,9 +378,11 @@ shoulders) and on a rig whose fingers hang below its knees.
 ## Browser demo
 
 [demo/](demo) runs dittomo in the browser as plain wasm, with no bindings generator and no JavaScript dependencies. Drop
-in two glTF, GLB or FBX files, or use the built-in sample. It shows both skeletons playing side by side, the quality, how
-long the match and the clip took, every target bone's match and score, and toggles for each fix. The whole module is
-about 1 MB, file readers included.
+in two GLB, glTF, VRM, FBX or BVH files, or use the built-in sample. It shows both skeletons playing side by side, the
+quality, how long the match and the clip took, every target bone's match and score, and toggles for each fix. Download
+saves the target with the clip just played, through `write_clip`, as a GLB (a VRM stays a .vrm), with nothing sent
+anywhere: in Node, the samba FBX plays on seed-san with every fix in under a second and downloads in 0.2 s, and
+Michelle's samba on the soldier in 40 ms and 19 ms. The whole module is about 1.5 MB, file readers and writer included.
 
 ```sh
 sh demo/build.sh
