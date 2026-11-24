@@ -198,8 +198,9 @@ every pull request against its base on the same runner and fails it if anything 
 
 ## Reading models
 
-With the `load` feature, `dittomo::load::Model` reads a skeleton and its clips from glTF, GLB (VRM avatars too) or FBX bytes
-(`Model::from_bytes(bytes, "fbx")`), FBX read directly with no Blender round trip. `fs` adds
+With the `load` feature, `dittomo::load::Model` reads a skeleton and its clips from glTF, GLB (VRM avatars too), FBX or
+BVH bytes (`Model::from_bytes(bytes, "fbx")`), FBX read directly with no Blender round trip and BVH motion capture (the
+CMU database's, say) with no conversion. `fs` adds
 `Model::load(path)`, and `usd` adds USD. Each skin's joints, and the nodes above them, become the skeleton; each
 animation is sampled at its keys into a `Clip`. `load` builds for wasm. The twelve benchmark rigs and their 35 clips
 read in about 0.14 s together on one core of a laptop. The eleven glTF and VRM rigs take under 50 ms between them (the

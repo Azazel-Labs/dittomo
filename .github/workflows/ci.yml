@@ -4,8 +4,8 @@ name: CI
 # on real rigs, and on pull requests a benchmark of the base and the change on the same runner that
 # fails if the change got slower.
 #
-# dittomo reads models through polysmelt, a path dependency beside it, so every job checks the two
-# out side by side.
+# dittomo reads models through polysmelt from crates.io. The bench job still checks polysmelt out
+# beside the base, as bases from before then read it as a path dependency.
 
 on:
   push:
@@ -38,10 +38,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: dittomo
-      - uses: actions/checkout@v4
-        with:
-          repository: Azazel-Labs/polysmelt
-          path: polysmelt
       - run: rustup toolchain install && rustup component add clippy
         working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
@@ -60,10 +56,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: dittomo
-      - uses: actions/checkout@v4
-        with:
-          repository: Azazel-Labs/polysmelt
-          path: polysmelt
       - run: rustup toolchain install
         working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
@@ -81,10 +73,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: dittomo
-      - uses: actions/checkout@v4
-        with:
-          repository: Azazel-Labs/polysmelt
-          path: polysmelt
       - run: rustup toolchain install && rustup target add wasm32-unknown-unknown && rustup component add clippy
         working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
@@ -103,10 +91,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: dittomo
-      - uses: actions/checkout@v4
-        with:
-          repository: Azazel-Labs/polysmelt
-          path: polysmelt
       - run: rustup toolchain install
         working-directory: dittomo
       - uses: Swatinem/rust-cache@v2
@@ -168,10 +152,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: dittomo
-      - uses: actions/checkout@v4
-        with:
-          repository: Azazel-Labs/polysmelt
-          path: polysmelt
       - run: rustup toolchain install
         working-directory: dittomo
       - uses: Swatinem/rust-cache@v2

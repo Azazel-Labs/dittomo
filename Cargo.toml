@@ -12,7 +12,7 @@ keywords = ["animation", "retargeting", "skeleton", "gltf", "gamedev"]
 categories = ["graphics", "game-development"]
 
 [features]
-# Skeletons and clips read from glTF, GLB and FBX in memory, through polysmelt (builds for wasm).
+# Skeletons and clips read from glTF, GLB, FBX and BVH in memory, through polysmelt (builds for wasm).
 load = ["dep:polysmelt"]
 # `load`, plus reading model files from disk.
 fs = ["load", "polysmelt/fs"]
@@ -21,7 +21,9 @@ usd = ["load", "polysmelt/usd"]
 
 [dependencies]
 glam = "0.34"
-polysmelt = { version = "0.13.2", path = "../polysmelt", default-features = false, features = ["gltf", "fbx"], optional = true }
+# To try a polysmelt fix before it's released, add `[patch.crates-io] polysmelt = { path = "../polysmelt" }`
+# with that checkout's version set to this one.
+polysmelt = { version = "0.14.0", default-features = false, features = ["gltf", "fbx", "bvh"], optional = true }
 
 [dev-dependencies]
 # Textures for the video example.

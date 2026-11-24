@@ -1,5 +1,5 @@
 //! Skeletons and clips read from model files, through [polysmelt]: glTF and GLB (VRM avatars too), FBX (Mixamo's
-//! downloads among them), and USD with polysmelt's `usd` feature.
+//! downloads among them), BVH motion capture, and USD with polysmelt's `usd` feature.
 //!
 //! The skeleton is every skin's joints and the nodes above them (an armature node, say, which
 //! may turn or scale the whole rig), each after its parent. A model without skins is taken
