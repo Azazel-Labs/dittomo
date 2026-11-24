@@ -348,8 +348,7 @@ impl Surface {
     }
 
     /// The skin nearest `p` among posed points, smoothed over a few spacings so it doesn't jump from point to point as
-    /// `p` moves: a spot on it and the way it faces there. How far out `p` is from it is `(p - spot).dot(facing)`,
-    /// below zero inside.
+    /// `p` moves: a spot on it and the way it faces there, from which [`Self::out_from`] tells how far out `p` is.
     pub(crate) fn near(&self, points: &[(Vec3, Vec3)], p: Vec3) -> Option<(Vec3, Vec3)> {
         let nearest = points
             .iter()
@@ -392,7 +391,7 @@ impl Surface {
     }
 
     /// How far out from the posed `points` a hand whose middle is at `center` is, less how far its own points (`hand`,
-    /// posed by `world`) reach toward the skin; and the way the skin faces there. `frames` is room to work in.
+    /// posed by `world`) reach toward the skin; and the way it is out ([`Self::out_from`]). `frames` is room to work in.
     pub(crate) fn clearance<F: Frame>(
         &self,
         points: &[(Vec3, Vec3)],
@@ -402,6 +401,7 @@ impl Surface {
         frames: &mut Vec<(Toward, f32)>,
     ) -> Option<(f32, Vec3)> {
         let (spot, facing) = self.near(points, center)?;
+        let (out, facing) = self.out_from(center - spot, facing);
         // How far toward the skin a bone's points reach past the middle, as `p.dot(l) + o` for a point `p` in its
         // frame, and how much it stretches lengths that way.
         let toward = |w: &F| {
@@ -441,7 +441,32 @@ impl Surface {
                 }
             }
         }
-        Some(((center - spot).dot(facing) - reach, facing))
+        Some((out - reach, facing))
+    }
+
+    /// How far out a point is from the skin, given the way from the nearest spot on it ([`Self::near`]) to the point
+    /// and the way the skin faces there, below zero inside; and the way it is out. Under skin sampled all round, the way
+    /// from the spot runs along the facing; running well off to the side of it, the point is past the edge of the skin
+    /// sampled (a sleeve left open where the arm is cut off, a face whose middle isn't known) rather than under it, and
+    /// is that far out from the edge, that way. In between, the two blend, so a point moving round the edge doesn't
+    /// jump.
+    fn out_from(&self, way: Vec3, facing: Vec3) -> (f32, Vec3) {
+        let depth = way.dot(facing);
+        let side = way - depth * facing;
+        // The smoothed spot is off the point's foot by up to about the smoothing's width even under the skin.
+        let aside = (side.length() - 2.0 * self.spacing).max(0.0);
+        let edge = depth.hypot(aside);
+        let from_edge = (depth * facing + aside * side.normalize_or_zero()).normalize_or(facing);
+        let trust = if depth >= 0.0 {
+            0.0
+        } else {
+            let x = (aside / -depth - 0.5).clamp(0.0, 1.0);
+            1.0 - x * x * (3.0 - 2.0 * x)
+        };
+        (
+            edge + trust * (depth - edge),
+            from_edge.lerp(facing, trust).normalize_or(facing),
+        )
     }
 
     /// Where the points bound to `bone` center, in its rest frame: the middle of a hand, say, rather than its wrist.

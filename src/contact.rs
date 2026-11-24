@@ -1929,11 +1929,8 @@ impl Touch {
             let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand, &mut self.frames) else {
                 continue;
             };
-            let mut want = now + w * (g * scale - now);
-            // Out of the skin, unless so deep the nearest skin is likely the far side.
-            if now > -far * t_height {
-                want = want.max(0.0);
-            }
+            // Never into the skin, however deep in it the hand has come.
+            let want = (now + w * (g * scale - now)).max(0.0);
             if (want - now).abs() > 1e-4 * t_height {
                 reach_in(target, played, tw, &arm.limb, end.position() + facing * (want - now));
                 place(target, played, &arm.below, tw);

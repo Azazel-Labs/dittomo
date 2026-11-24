@@ -668,6 +668,23 @@ fn a_surface_keeps_its_outside() {
 }
 
 #[test]
+fn a_hand_past_the_edge_of_the_skin_is_out_of_it() {
+    // The trunk is open at its top, where a neck would go on. A hand over the opening, nearer the axis than the trunk
+    // is wide, is under the plane of the skin's nearest points but in the air past their edge.
+    let sk = common::mixamo();
+    let s = skin(&sk, 10.0);
+    let arm = contact::arms(&sk)[0];
+    let x = at(&sk, &sk.rest(), arm.end).x.signum();
+    let uppers: Vec<usize> = contact::arms(&sk).iter().map(|a| a.upper).collect();
+    let mut pose = sk.rest();
+    contact::reach(&sk, &mut pose, &arm, Vec3::new(x * 5.0, 152.0, 0.0));
+    let hand = at(&sk, &pose, arm.end);
+    assert!(hand.y > 148.0 && hand.x.abs() < 8.0, "hand at {hand}");
+    let gap = s.gap(&sk, &sk.world(&pose), arm.end, &uppers).unwrap();
+    assert!(gap > 0.0, "gap {gap}");
+}
+
+#[test]
 fn a_hand_resting_on_a_thin_body_rests_on_a_thick_one() {
     let sk = common::mixamo();
     let map = Mapping::new(&sk, &sk);

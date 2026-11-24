@@ -174,18 +174,18 @@ is cut about 80 times, with limbs as close as the whole clip's. A foot is plante
 judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses,
 keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
 
-Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,626 of them with the
+Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,572 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
 over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0288 | 0.0660 | 9.8% |
-| all (`apply_touching`) | 0.0081 | 0.0174 | 1.3% |
-| all, live (`Live::touching`) | 0.0081 | 0.0174 | 1.4% |
+| all but touch (`apply_with`) | 0.0259 | 0.0611 | 6.9% |
+| all (`apply_touching`) | 0.0076 | 0.0168 | 0.4% |
+| all, live (`Live::touching`) | 0.0076 | 0.0168 | 0.5% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-3.6 times closer and hands end up inside the body a seventh as often.
+3.4 times closer and hands end up inside the body a seventeenth as often.
 
 ### Against the learned retargeters
 
@@ -365,9 +365,10 @@ tails are left out, and fingers hanging low aren't taken for feet.
   mesh). Each skin is thinned to points about 1/80 of the height apart, each bound to the bone that moves it most;
   a face wider than that, all of it moving with one bone (a box for a head), is filled in between its corners.
   Every frame, the gap from each hand to the skin of the rest of the body (arms left out) is measured on the source
-  and on the target, along the skin's smoothed outward facing. Where the source's hand is near its body, two-bone IK
-  moves the target's hand to the same gap over its own height, keeping its turn, and lets go smoothly as the source's
-  hand moves away.
+  and on the target, along the skin's smoothed outward facing; a hand off to the side of the skin nearest it, past
+  its edge (a sleeve left open where the arm is cut off), is out from that edge instead. Where the source's hand is
+  near its body, two-bone IK moves the target's hand to the same gap over its own height, keeping its turn, and lets
+  go smoothly as the source's hand moves away; a hand anywhere in the body, however deep, is brought out of it.
 
 ## How it maps
 
