@@ -770,8 +770,15 @@ pub(crate) struct Travel {
     s_height: f32,
     /// Each foot's height at rest.
     rest: Vec<f32>,
-    /// The lowest each foot has been, or stands at rest if lower.
+    /// Each foot's ground: the lowest it has been once it has lifted off that, else the floor once known, else the
+    /// lowest it has been, or stands at rest if lower.
     ground: Vec<f32>,
+    /// The lowest each foot has been, and whether it has since been well above it.
+    low: Vec<(f32, bool)>,
+    /// The lowest any foot has been, and whether a foot has since been well above it, so that it is known to be the
+    /// floor the feet walk on.
+    floor: f32,
+    known: bool,
     last: Vec<Option<Vec3>>,
     start: Option<Vec3>,
     velocity: Vec3,
@@ -791,6 +798,9 @@ impl Travel {
             s_height: s.height,
             rest: legs.iter().map(|l| s.rest[l.0].position().y).collect(),
             ground: legs.iter().map(|l| s.rest[l.0].position().y).collect(),
+            floor: f32::INFINITY,
+            known: false,
+            low: vec![(f32::INFINITY, false); legs.len()],
             last: vec![None; legs.len()],
             start: None,
             velocity: Vec3::ZERO,
@@ -803,6 +813,8 @@ impl Travel {
     /// Forgets the travel so far, as after a cut.
     pub(crate) fn reset(&mut self) {
         self.ground.clone_from(&self.rest);
+        (self.floor, self.known) = (f32::INFINITY, false);
+        self.low.fill((f32::INFINITY, false));
         self.last.fill(None);
         (self.start, self.velocity, self.moved, self.on) = (None, Vec3::ZERO, Vec3::ZERO, true);
     }
@@ -833,10 +845,35 @@ impl Travel {
         if flat(hips - start).length() > 0.1 * h {
             self.on = false;
         }
+        // Feet that walk on tiptoe never come down to where they stand at rest: once one foot is well above where the
+        // other came down to, that is the floor, till a foot comes down well below it; and once a foot is well above
+        // where it came down to, that is its own ground, as feet needn't stand equally high.
+        let (mut bottom, mut top) = (f32::INFINITY, f32::NEG_INFINITY);
+        for &(foot, _) in &self.legs {
+            let y = sw[foot].position().y;
+            (bottom, top) = (bottom.min(y), top.max(y));
+        }
+        if bottom < self.floor {
+            self.known &= self.floor - bottom < 0.01 * h;
+            self.floor = bottom;
+        }
+        self.known |= top - self.floor > 0.04 * h;
         let mut lowest: Option<(f32, Vec3)> = None;
         for (l, &(foot, _)) in self.legs.iter().enumerate() {
             let at = sw[foot].position();
-            self.ground[l] = self.ground[l].min(at.y);
+            let (own, lifted) = &mut self.low[l];
+            if at.y < *own {
+                *lifted &= *own - at.y < 0.01 * h;
+                *own = at.y;
+            }
+            *lifted |= at.y - *own > 0.04 * h;
+            self.ground[l] = if *lifted {
+                *own
+            } else if self.known {
+                self.floor
+            } else {
+                self.ground[l].min(at.y)
+            };
             let low = at.y - self.ground[l];
             if let Some(last) = self.last[l]
                 && low < 0.04 * h

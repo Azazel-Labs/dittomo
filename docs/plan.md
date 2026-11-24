@@ -64,6 +64,12 @@ Phase 1 so far (November 2026):
   busy machine with every fix on, under the 5 µs target, or 3.4 µs played six poses late, which plants feet as the
   whole clip does. Each fix used to place the source again; placing it once a frame for all of them, travel moving it
   on afterwards, took a fifth off.
+- Live travel for a clip walked in place took each foot's ground to be no higher than where it stands at rest, so feet
+  running on their toes were never down and the body ran on as it had been going. Now, once one foot is well above
+  where the other came down, that is the floor, and once a foot is well above where it came down, that is its own
+  ground. On the bench rigs' in-place runs live travel now matches the whole clip's exactly, the error in travel
+  against the whole clip's fell by two thirds, and live foot slide fell from 0.00024 to 0.00015 (six poses late,
+  0.00022 to 0.00012, against 0.00007 for the whole clip).
 - `Crowd` poses many characters through one `Player`, eight side by side, each part of their turns in its own array,
   so the chains of turns down the bones run for eight characters at once rather than each waiting on the one above,
   and the compiler does the arithmetic in vector registers: about half the time per character (1.8 to 0.89 µs on a

@@ -131,15 +131,15 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 | planted feet | 0.00318 | 0.0020 | 3.9° |
 | push-out | 0.00389 | 0.0093 | 3.0° |
 | all (`apply_with`) | 0.00007 | 0.0011 | 4.2° |
-| all, live (`Live`) | 0.00024 | 0.0011 | 4.4° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00022 | 0.0012 | 4.2° |
+| all, live (`Live`) | 0.00015 | 0.0011 | 4.4° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0012 | 4.2° |
 
 Together they cut foot slide 56 times and the height error 8.5 times. The degree they cost is the legs bending to keep
 feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
-slide is cut 16 times: a foot can only be held once it has landed, where the whole clip eases it toward where it will
-land. Six poses late, feet are planted as the whole clip plants them; most of the slide left is the travel of a clip
-walked in place, worked out from the poses so far. Given the whole clip's travel, slide six poses late is 0.00011. Push-out finds nothing to do here,
-as none of these clips put a hand through the body.
+slide is cut 26 times: a foot can only be held once it has landed, where the whole clip eases it toward where it will
+land. Six poses late, feet are planted as the whole clip plants them, and the travel of a clip walked in place, worked
+out from the poses so far, comes within 0.00001 of the whole clip's (0.00011 given it). Push-out finds nothing to do
+here, as none of these clips put a hand through the body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,671 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,

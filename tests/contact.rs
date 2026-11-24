@@ -984,6 +984,34 @@ fn live_gives_a_clip_walked_in_place_its_travel() {
 }
 
 #[test]
+fn live_travel_finds_the_ground_feet_walk_on_above_their_rest() {
+    // On tiptoe, say: the feet never come down to where they stand at rest, so the ground is where they come down to.
+    let sk = common::mixamo();
+    let frames = 90;
+    let mut raised = common::gait(&sk, frames, true);
+    let rest = sk.world(&sk.rest());
+    let ys = rest.iter().map(|p| p.position().y);
+    let height = ys.clone().fold(f32::MIN, f32::max) - ys.fold(f32::MAX, f32::min);
+    for pose in &mut raised.poses {
+        pose[0].translation.y += 0.06 * height;
+    }
+    let map = Mapping::new(&sk, &sk);
+    let travel = Fixes {
+        travel: true,
+        ..Fixes::NONE
+    };
+    let z = |c: &Clip| c.poses[frames - 1][0].translation.z - raised.poses[frames - 1][0].translation.z;
+    let whole = map.apply_with(&sk, &sk, &raised, travel).expect("plays");
+    let went = z(&live(&map, &sk, &sk, &raised, travel));
+    eprintln!("live travel {went:.1}, the whole clip's {:.1}", z(&whole));
+    assert!(
+        (went - z(&whole)).abs() < 0.1 * z(&whole).abs(),
+        "travelled {went}, the whole clip {}",
+        z(&whole)
+    );
+}
+
+#[test]
 fn live_claps_and_keeps_out_of_the_body_as_the_whole_clip_does() {
     let source = common::mixamo();
     let clip = claps(&source);
