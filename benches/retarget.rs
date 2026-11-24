@@ -158,9 +158,15 @@ fn main() {
             per: "frame",
         });
     }
-    // The same walks a pose at a time as they come, every fix a live player makes on.
-    for (name, clip) in [("walk", &gait), ("walk in place", &in_place)] {
-        let mut live = Live::new(&mapping, &mixamo, &mannequin, Fixes::ALL).expect("fits");
+    // The same walks a pose at a time as they come, every fix a live player makes on, then played six poses late.
+    for (name, clip, late) in [
+        ("walk", &gait, 0),
+        ("walk in place", &in_place, 0),
+        ("walk, 6 poses late", &gait, 6),
+    ] {
+        let mut live = Live::new(&mapping, &mixamo, &mannequin, Fixes::ALL)
+            .expect("fits")
+            .delayed(late);
         let mut out = mannequin.rest();
         let micros = time(budget, || {
             live.reset();

@@ -829,17 +829,23 @@ fn hands_stay_on_heads_big_and_small_covering_the_ears_and_on_top() {
 
 /// The clip played a pose at a time by a [`Live`], each `dt` after the last as the clip's times have it.
 fn live(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip, fixes: Fixes) -> Clip {
-    let mut live = Live::new(map, source, target, fixes).unwrap();
+    late(map, source, target, clip, fixes, 0)
+}
+
+/// The clip played by a [`Live`] `delay` poses late, its last pose played again until every pose has come out.
+fn late(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip, fixes: Fixes, delay: usize) -> Clip {
+    let mut live = Live::new(map, source, target, fixes).unwrap().delayed(delay);
+    assert_eq!(live.delay(), delay);
     let mut out = target.rest();
-    let poses = clip
-        .poses
-        .iter()
-        .enumerate()
-        .map(|(f, p)| {
-            let dt = if f == 0 { 0.0 } else { clip.times[f] - clip.times[f - 1] };
-            live.pose(dt, p, &mut out).unwrap();
+    let n = clip.poses.len();
+    let poses = (0..n + delay)
+        .map(|f| {
+            let g = f.min(n - 1);
+            let dt = if g == 0 { 0.0 } else { clip.times[g] - clip.times[g - 1] };
+            live.pose(dt, &clip.poses[g], &mut out).unwrap();
             out.clone()
         })
+        .skip(delay)
         .collect();
     Clip {
         times: clip.times.clone(),
@@ -889,6 +895,61 @@ fn live_keeps_planted_feet_still_with_nothing_ahead() {
         );
         assert!(online < 0.1 * before, "{before} -> {online}");
         assert!(online < 1e-4, "{online}");
+    }
+}
+
+#[test]
+fn live_played_late_plants_feet_as_the_whole_clip_does() {
+    let source = common::mixamo();
+    let walk = common::gait(&source, 90, false);
+    for (name, target) in [
+        ("long legs", long_legs(&source, 1.3)),
+        ("mannequin", common::mannequin()),
+    ] {
+        let map = Mapping::new(&source, &target);
+        let plain = map.apply(&source, &target, &walk).unwrap();
+        let whole = map.apply_with(&source, &target, &walk, feet_only()).unwrap();
+        let late = late(&map, &source, &target, &walk, feet_only(), 6);
+        let [before, offline, online] = [&plain, &whole, &late].map(|c| skate(&map, &source, &target, &walk, c));
+        eprintln!(
+            "{name}, skate per planted frame over height: {before:.5}, whole clip {offline:.5}, 6 late {online:.5}"
+        );
+        assert!(online < 0.1 * before, "{before} -> {online}");
+        assert!(online < 2.0 * offline + 1e-5, "{offline} -> {online}");
+    }
+}
+
+#[test]
+fn live_played_late_is_the_same_poses_late() {
+    let source = common::mixamo();
+    let target = long_legs(&source, 1.3);
+    let walk = common::gait(&source, 40, true);
+    let map = Mapping::new(&source, &target);
+    // With no feet to plant, playing late changes nothing but when each pose comes out.
+    let fixes = Fixes {
+        feet: false,
+        ..Fixes::ALL
+    };
+    let now = live(&map, &source, &target, &walk, fixes);
+    let then = late(&map, &source, &target, &walk, fixes, 4);
+    assert!(close(&now, &then) < 1e-6, "{}", close(&now, &then));
+    // Until a pose's turn comes, the first is played.
+    let mut live = Live::new(&map, &source, &target, fixes).unwrap().delayed(4);
+    let mut out = target.rest();
+    for p in &walk.poses[..4] {
+        live.pose(1.0 / 30.0, p, &mut out).unwrap();
+        assert!(
+            close(
+                &Clip {
+                    times: vec![0.0],
+                    poses: vec![out.clone()]
+                },
+                &Clip {
+                    times: vec![0.0],
+                    poses: vec![now.poses[0].clone()]
+                }
+            ) < 1e-6
+        );
     }
 }
 
@@ -956,6 +1017,18 @@ fn live_starts_over_when_reset() {
     let mut fresh = Live::new(&map, &source, &target, Fixes::ALL).unwrap();
     let mut want = target.rest();
     for p in &walk.poses[..10] {
+        live.pose(1.0 / 30.0, p, &mut out).unwrap();
+        fresh.pose(1.0 / 30.0, p, &mut want).unwrap();
+        assert_eq!(out, want);
+    }
+    // And played late.
+    let mut live = Live::new(&map, &source, &target, Fixes::ALL).unwrap().delayed(5);
+    for p in &walk.poses {
+        live.pose(1.0 / 30.0, p, &mut out).unwrap();
+    }
+    live.reset();
+    let mut fresh = Live::new(&map, &source, &target, Fixes::ALL).unwrap().delayed(5);
+    for p in &walk.poses[..12] {
         live.pose(1.0 / 30.0, p, &mut out).unwrap();
         fresh.pose(1.0 / 30.0, p, &mut want).unwrap();
         assert_eq!(out, want);

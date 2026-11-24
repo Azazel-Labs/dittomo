@@ -1,7 +1,7 @@
 //! Retargeting as the poses come, with the contact fixes made frame by frame from the poses so far: a character driven
 //! by motion capture streaming in, a networked player, another animation system's output.
 
-use crate::contact::{self, Body, Feet, Hands, OnHead, Scratch, Travel};
+use crate::contact::{self, Ahead, Body, Feet, Hands, OnHead, Scratch, Travel};
 use crate::shape::Shape;
 use crate::{Error, Fixes, Mapping, Player, Skeleton, Transform};
 
@@ -13,6 +13,10 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Transform};
 /// as soon as the source's is down and nearly still and lets go once it lifts, held where it was when it planted; a
 /// clip walked in place moves on as far as the planted foot slides back. Keeping hands at the skin's distance
 /// ([`Fixes::touch`]) is left out, as it needs skins and the whole clip's work.
+///
+/// A foot can be held only once it has landed, where the whole clip eases it toward where it will land, so planted
+/// feet slide more. [`Live::delayed`] plays each pose a few poses late, and plants feet with those few in sight as the
+/// whole clip does.
 ///
 /// ```
 /// # use dittomo::{Bone, Fixes, Live, Mapping, Skeleton, Transform, Vec3};
@@ -39,6 +43,12 @@ pub struct Live {
     /// The source's pose with its travel.
     walked: Vec<Transform>,
     scratch: Scratch,
+    /// If poses are played late, the feet planted with those ahead in sight.
+    ahead: Option<Ahead>,
+    /// If poses are played late, the last few: each the source's pose with its travel, and the target playing it.
+    kept: Vec<(Vec<Transform>, Vec<Transform>)>,
+    /// How many poses have come since the start or the last reset.
+    seen: usize,
 }
 
 impl Live {
@@ -74,7 +84,34 @@ impl Live {
             scratch: Scratch::new(source, target),
             source: source.clone(),
             target: target.clone(),
+            ahead: None,
+            kept: Vec::new(),
+            seen: 0,
         })
+    }
+
+    /// Plays each pose `poses` poses late, so that feet can be planted with those in sight: eased toward where they will
+    /// land before they do, held at the average of where they are while down, as [`Mapping::apply_with`] has them. Until
+    /// that many have come, the first pose is played. At 30 poses a second, 6 (a fifth of a second late) plant feet
+    /// nearly as the whole clip does.
+    #[must_use]
+    pub fn delayed(mut self, poses: usize) -> Self {
+        self.ahead = (poses > 0)
+            .then(|| self.feet.as_ref().map(|f| Ahead::new(f, poses)))
+            .flatten();
+        self.kept = if poses > 0 {
+            vec![(self.source.rest(), self.target.rest()); poses + 1]
+        } else {
+            Vec::new()
+        };
+        self.reset();
+        self
+    }
+
+    /// How many poses late each is played ([`Self::delayed`]).
+    #[must_use]
+    pub fn delay(&self) -> usize {
+        self.kept.len().saturating_sub(1)
     }
 
     /// Marks the source bones that move, not just turn, somewhere in this clip, as [`Player::moving_in`] does.
@@ -98,6 +135,10 @@ impl Live {
         if let Some(h) = &mut self.hands {
             h.reset();
         }
+        if let Some(a) = &mut self.ahead {
+            a.reset();
+        }
+        self.seen = 0;
     }
 
     /// Poses the target from a pose of the source `dt` seconds after the last, each transform relative to its parent,
@@ -116,6 +157,9 @@ impl Live {
                 });
             }
         }
+        if !self.kept.is_empty() {
+            return self.pose_late(dt, source, out);
+        }
         let rigs = [&self.source, &self.target];
         let from = match &mut self.travel {
             Some(t) => {
@@ -127,6 +171,38 @@ impl Live {
         self.player.pose(from, out)?;
         if let Some(f) = &mut self.feet {
             f.pose(rigs, dt, from, out, &mut self.scratch);
+        }
+        if let (Some(path), Some(body)) = (&self.push_out, &self.body) {
+            contact::push_pose(&self.target, body, path, out, &mut self.scratch);
+        }
+        if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
+            h.pose(rigs, body, from, out, &mut self.scratch);
+        }
+        if let Some(h) = &self.head {
+            h.pose(rigs, from, out, &mut self.scratch);
+        }
+        Ok(())
+    }
+
+    /// [`Self::pose`], played [`Self::delay`] poses late.
+    fn pose_late(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<(), Error> {
+        let rigs = [&self.source, &self.target];
+        let n = self.kept.len();
+        let (walked, played) = &mut self.kept[self.seen % n];
+        match &mut self.travel {
+            Some(t) => t.pose(&self.source, dt, source, walked, &mut self.scratch),
+            None => walked.copy_from_slice(source),
+        }
+        self.player.pose(walked, played)?;
+        if let Some(a) = &mut self.ahead {
+            a.see(rigs, dt, walked, played, &mut self.scratch);
+        }
+        let due = self.seen.saturating_sub(n - 1);
+        self.seen += 1;
+        let (from, played) = &self.kept[due % n];
+        out.copy_from_slice(played);
+        if let Some(a) = &mut self.ahead {
+            a.fix(&self.target, due, out, &mut self.scratch);
         }
         if let (Some(path), Some(body)) = (&self.push_out, &self.body) {
             contact::push_pose(&self.target, body, path, out, &mut self.scratch);

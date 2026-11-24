@@ -44,7 +44,9 @@ fn stream(source: &Skeleton, target: &Skeleton, poses: impl Iterator<Item = (f32
 
 Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as
 soon as the source's are down and nearly still, and a clip walked in place moves on as far as the planted foot slides
-back. Keeping hands at the skin's distance needs the whole clip and is left out.
+back. Keeping hands at the skin's distance needs the whole clip and is left out. `Live::delayed(6)` plays each pose six
+poses late, a fifth of a second at 30 a second, and plants feet with those six in sight as the whole clip does: eased
+in before they land, held where they stand on average.
 
 The videos are rendered by `examples/video.rs`: the source, dittomo's copy, and the same clip with each bone's rotation
 copied by name, side by side, skinned and drawn on the CPU and piped to `ffmpeg`.
@@ -129,10 +131,13 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 | push-out | 0.00389 | 0.0093 | 3.0° |
 | all (`apply_with`) | 0.00007 | 0.0011 | 4.2° |
 | all, live (`Live`) | 0.00025 | 0.0011 | 4.4° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00022 | 0.0012 | 4.2° |
 
-Together they cut foot slide 56 times and the height error 8.5 times. Played live, with nothing ahead, slide is cut 16
-times: a foot can only be held once it has landed, where the whole clip eases it toward where it will land. The degree they cost is the legs bending to keep
-feet down where the target's stride and leg proportions differ from the source's. Push-out finds nothing to do here,
+Together they cut foot slide 56 times and the height error 8.5 times. The degree they cost is the legs bending to keep
+feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
+slide is cut 16 times: a foot can only be held once it has landed, where the whole clip eases it toward where it will
+land. Six poses late, feet are planted as the whole clip plants them; most of the slide left is the travel of a clip
+walked in place, worked out from the poses so far. Given the whole clip's travel, slide six poses late is 0.00011. Push-out finds nothing to do here,
 as none of these clips put a hand through the body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,671 of them with the
@@ -193,8 +198,9 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 | The same walk done in place, travel worked out from the feet | 3.3 µs per frame |
 | Set up a `Player` for a pair of rigs | 40 µs |
 
-On a busier run, where a reused `Player` took 2.9 µs a frame and the walk with every fix 7.5 µs, `Live` played the same
-walk with every fix but touch in 7.0 µs a frame, and the walk done in place in 6.9 µs (the whole clip: 8.8 µs).
+On a busier run, where a reused `Player` took 2.9 µs a frame and the walk with every fix 6.7 µs, `Live` played the same
+walk with every fix but touch in 5.4 µs a frame, the walk done in place in 5.2 µs (the whole clip: 7.7 µs), and the
+walk six poses late in 7.3 µs.
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
 is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):

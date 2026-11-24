@@ -558,9 +558,15 @@ fn contact(rigs: &[Rig]) {
         ),
         ("all (`apply_with`)", Fixes::ALL),
     ];
-    // And every fix made frame by frame, from the poses so far.
-    const ROWS: usize = RUNS.len() + 1;
-    let names: Vec<&str> = RUNS.iter().map(|r| r.0).chain(["all, live (`Live`)"]).collect();
+    // And every fix made frame by frame, from the poses so far, then with a few poses ahead in sight.
+    const LATE: [usize; 2] = [0, 6];
+    const ROWS: usize = RUNS.len() + LATE.len();
+    let late = ["", ", 6 poses late"].map(|l| format!("all, live{l} (`Live`)"));
+    let names: Vec<&str> = RUNS
+        .iter()
+        .map(|r| r.0)
+        .chain(late.iter().map(String::as_str))
+        .collect();
     let feet = ["l_foot", "r_foot"];
     let (mut slid, mut off, mut planted) = ([0.0f64; ROWS], [0.0f64; ROWS], 0usize);
     let mut errs: [Vec<f32>; ROWS] = Default::default();
@@ -597,7 +603,7 @@ fn contact(rigs: &[Rig]) {
                     .iter()
                     .map(|(_, fixes)| map.apply_with(ss, ts, &clip, *fixes).expect("plays"))
                     .collect();
-                played.push(live(&map, ss, ts, &clip));
+                played.extend(LATE.map(|d| live(&map, ss, ts, &clip, d)));
                 let tgt: Vec<Vec<_>> = played
                     .iter()
                     .map(|c| c.poses.iter().map(|p| ts.world(p)).collect())
@@ -657,25 +663,27 @@ height off are per planted frame, over the target's height"
     }
 }
 
-/// Every clip played on every other rig with a skin, with all fixes but touch and with all of them. While a source hand
-/// is near its body (its gap to the skin under 3% of its height): how far the target's gap is from the source's, both
-/// over their heights. And over every frame: how often a target hand is in its body by more than 1% of its height when
-/// the source's isn't.
-/// The clip played a pose at a time by a [`Live`] making every fix it makes.
-fn live(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip) -> Clip {
-    let mut live = Live::new(map, source, target, Fixes::ALL).expect("fits");
+/// The clip played a pose at a time by a [`Live`] making every fix it makes, `delay` poses late. The last pose is played
+/// again until every pose has come out.
+fn live(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip, delay: usize) -> Clip {
+    let mut live = Live::new(map, source, target, Fixes::ALL).expect("fits").delayed(delay);
     live.moving_in(clip).expect("poses the source");
     let mut out = target.rest();
-    let mut last = clip.times.first().copied().unwrap_or(0.0);
-    let poses = clip
-        .times
-        .iter()
-        .zip(&clip.poses)
-        .map(|(&t, p)| {
-            live.pose(t - last, p, &mut out).expect("plays");
-            last = t;
+    let n = clip.poses.len();
+    let dt = |f: usize| {
+        if f == 0 {
+            0.0
+        } else {
+            clip.times[f.min(n - 1)] - clip.times[f.min(n - 1) - 1]
+        }
+    };
+    let poses = (0..n + delay)
+        .map(|f| {
+            let dt = if f < n { dt(f) } else { dt(n - 1) };
+            live.pose(dt, &clip.poses[f.min(n - 1)], &mut out).expect("plays");
             out.clone()
         })
+        .skip(delay)
         .collect();
     Clip {
         times: clip.times.clone(),
@@ -683,6 +691,10 @@ fn live(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip) -> Cli
     }
 }
 
+/// Every clip played on every other rig with a skin, with all fixes but touch and with all of them. While a source hand
+/// is near its body (its gap to the skin under 3% of its height): how far the target's gap is from the source's, both
+/// over their heights. And over every frame: how often a target hand is in its body by more than 1% of its height when
+/// the source's isn't.
 fn touching(rigs: &[Rig]) {
     const RUNS: [(&str, Fixes); 2] = [
         (

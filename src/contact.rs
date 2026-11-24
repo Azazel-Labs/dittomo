@@ -281,19 +281,27 @@ fn contacts(at: &[Vec3], times: &[f32], rest_y: f32, height: f32) -> Vec<bool> {
     if ground > rest_y + 0.1 * height {
         return vec![false; n];
     }
+    let mut out = Vec::with_capacity(n);
+    detect(at, times, ground, height, &mut out);
+    out
+}
+
+/// Into `out`, for each place a foot is at, whether it is planted: within a twenty-fifth of the height of `ground` and
+/// moving under a quarter of the height a second, with one-pose gaps filled and one-pose plants dropped.
+fn detect(at: &[Vec3], times: &[f32], ground: f32, height: f32, out: &mut Vec<bool>) {
+    let n = at.len();
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
-    let mut out: Vec<bool> = (0..n)
-        .map(|f| {
-            let (i, j) = (f.saturating_sub(1), (f + 1).min(n - 1));
-            let dt = times[j] - times[i];
-            let speed = if dt > 0.0 {
-                flat(at[j] - at[i]).length() / dt
-            } else {
-                0.0
-            };
-            at[f].y - ground < 0.04 * height && speed < 0.25 * height
-        })
-        .collect();
+    out.clear();
+    out.extend((0..n).map(|f| {
+        let (i, j) = (f.saturating_sub(1), (f + 1).min(n - 1));
+        let dt = times[j] - times[i];
+        let speed = if dt > 0.0 {
+            flat(at[j] - at[i]).length() / dt
+        } else {
+            0.0
+        };
+        at[f].y - ground < 0.04 * height && speed < 0.25 * height
+    }));
     // Fill one-frame gaps, then drop one-frame plants.
     for f in 1..n.saturating_sub(1) {
         if !out[f] && out[f - 1] && out[f + 1] {
@@ -307,7 +315,6 @@ fn contacts(at: &[Vec3], times: &[f32], rest_y: f32, height: f32) -> Vec<bool> {
             out[f] = false;
         }
     }
-    out
 }
 
 /// A clip walked in place, given the travel its feet imply: each frame the body moves as far as the lowest foot slid
@@ -596,10 +603,176 @@ impl Feet {
     }
 }
 
+/// Feet kept still while the source's are planted, as [`plant`] keeps them over a whole clip, but from the poses so
+/// far and a few ahead: each pose is fixed once the `delay` poses after it have come. Whether a foot is planted is
+/// judged as over a whole clip, over the poses kept; it is held at the average of where it is over the part of its
+/// contact in sight when that contact begins, and eased toward it from as many poses before as [`plant`] would, or as
+/// many as are in sight.
+pub(crate) struct Ahead {
+    feet: Vec<Foot>,
+    s_path: Vec<usize>,
+    t_path: Vec<usize>,
+    k: f32,
+    s_height: f32,
+    delay: usize,
+    /// For each pose kept (the `delay` ahead of the one fixed, it and the two before it), by its number modulo how
+    /// many are kept: when it came, and where each foot is in the source and in the target before any fix.
+    times: Vec<f32>,
+    s_at: Vec<Vec3>,
+    t_at: Vec<Vec3>,
+    /// Each foot's contact the poses fixed are in or have just left: where it is held, and the pose it ended at.
+    held: Vec<Option<(Vec3, Option<usize>)>>,
+    seen: usize,
+    clock: f32,
+    w_at: Vec<Vec3>,
+    w_times: Vec<f32>,
+    w_down: Vec<bool>,
+}
+
+impl Ahead {
+    /// [`Feet`]'s feet, fixed `delay` poses late.
+    pub(crate) fn new(feet: &Feet, delay: usize) -> Self {
+        let kept = delay + 3;
+        let n = feet.feet.len();
+        let mut ahead = Self {
+            feet: feet.feet.clone(),
+            s_path: feet.s_path.clone(),
+            t_path: feet.t_path.clone(),
+            k: feet.k,
+            s_height: feet.s_height,
+            delay,
+            times: vec![0.0; kept],
+            s_at: vec![Vec3::ZERO; kept * n],
+            t_at: vec![Vec3::ZERO; kept * n],
+            held: vec![None; n],
+            seen: 0,
+            clock: 0.0,
+            w_at: Vec::with_capacity(kept),
+            w_times: Vec::with_capacity(kept),
+            w_down: Vec::with_capacity(kept),
+        };
+        ahead.reset();
+        ahead
+    }
+
+    /// Forgets every contact, as after a cut.
+    pub(crate) fn reset(&mut self) {
+        for f in &mut self.feet {
+            f.ground = f.s_rest_y;
+        }
+        self.held.fill(None);
+        (self.seen, self.clock) = (0, 0.0);
+    }
+
+    /// Takes in the next pose of the source, `dt` seconds after the one before, and the target playing it.
+    pub(crate) fn see(
+        &mut self,
+        [source, target]: [&Skeleton; 2],
+        dt: f32,
+        pose: &[Transform],
+        played: &[Transform],
+        scratch: &mut Scratch,
+    ) {
+        let (n, kept) = (self.feet.len(), self.times.len());
+        let slot = self.seen % kept;
+        if self.seen > 0 {
+            self.clock += dt.max(0.0);
+        }
+        self.times[slot] = self.clock;
+        let Scratch { sw, tw, .. } = scratch;
+        place(source, pose, &self.s_path, sw);
+        place(target, played, &self.t_path, tw);
+        for (i, f) in self.feet.iter_mut().enumerate() {
+            let at = sw[f.source].position();
+            f.ground = f.ground.min(at.y);
+            self.s_at[slot * n + i] = at;
+            self.t_at[slot * n + i] = tw[f.leg.end].position();
+        }
+        self.seen += 1;
+    }
+
+    /// Fixes `played`, the target playing pose number `o` of those seen, the `delay`th before the last.
+    pub(crate) fn fix(&mut self, target: &Skeleton, o: usize, played: &mut [Transform], scratch: &mut Scratch) {
+        let (n, kept, h) = (self.feet.len(), self.times.len(), self.s_height);
+        let Some(last) = self.seen.checked_sub(1) else {
+            return;
+        };
+        let first = o.saturating_sub(2);
+        let slot = |f: usize| f % kept;
+        let span = self.times[slot(last)] - self.times[slot(first)];
+        let ramp = if last > first && span > 0.0 {
+            ((0.12 * (last - first) as f32 / span).round() as usize).clamp(1, 10)
+        } else {
+            4
+        }
+        .min(self.delay);
+        let at_o = o - first;
+        let tw = &mut scratch.tw;
+        let mut placed = false;
+        for (i, f) in self.feet.iter().enumerate() {
+            self.w_at.clear();
+            self.w_times.clear();
+            for g in first..=last {
+                self.w_at.push(self.s_at[slot(g) * n + i]);
+                self.w_times.push(self.times[slot(g)]);
+            }
+            detect(&self.w_at, &self.w_times, f.ground, h, &mut self.w_down);
+            let down = &self.w_down;
+            let t_at = &self.t_at;
+            // The average of where the target's foot is over the contact from pose `j` (of those kept) on, in sight.
+            let lock_from = |j: usize| {
+                let (sum, count) = (j..down.len())
+                    .take_while(|&w| down[w])
+                    .fold((Vec3::ZERO, 0.0), |(s, c), w| {
+                        (s + t_at[slot(first + w) * n + i], c + 1.0)
+                    });
+                sum / count
+            };
+            let mut near: Option<(usize, Vec3)> = None;
+            if down[at_o] {
+                let lock = match self.held[i] {
+                    Some((lock, None)) => lock,
+                    _ => lock_from(at_o),
+                };
+                self.held[i] = Some((lock, None));
+                near = Some((0, lock));
+            } else {
+                if let Some((lock, None)) = self.held[i] {
+                    self.held[i] = Some((lock, Some(o)));
+                }
+                if let Some((lock, Some(end))) = self.held[i] {
+                    near = Some((o + 1 - end, lock));
+                }
+                if let Some(j) = (at_o + 1..down.len()).find(|&w| down[w]) {
+                    let d = j - at_o;
+                    if near.is_none_or(|(e, _)| d < e) {
+                        near = Some((d, lock_from(j)));
+                    }
+                }
+            }
+            let Some((d, lock)) = near else { continue };
+            if d > ramp {
+                continue;
+            }
+            let x = 1.0 - d as f32 / (ramp + 1) as f32;
+            let w = x * x * (3.0 - 2.0 * x);
+            if !placed {
+                place(target, played, &self.t_path, tw);
+                placed = true;
+            }
+            let y = f.t_rest_y + (self.s_at[slot(o) * n + i].y - f.s_rest_y) * self.k;
+            let free = tw[f.leg.end].position();
+            // Legs hang apart, so reaching one leaves the other placed as it was.
+            reach_in(target, played, tw, &f.leg, free.lerp(Vec3::new(lock.x, y, lock.z), w));
+        }
+    }
+}
+
 /// The travel a clip walked in place implies ([`travelled`]), worked out as the poses come: each pose the body moves as
 /// far as the lowest foot slid back since the pose before, and on as it was going while no foot is down. Slides slower
 /// than a twentieth of the height a second are taken for a foot shuffling, not walking. Once the hips have wandered a
-/// fifth of the height from where they began, the clip travels on its own and the travel stops growing.
+/// tenth of the height from where they began, the clip travels on its own and the travel stops growing: a walk in place
+/// sways less, and a dance in place that sways more mustn't drift off far before it does.
 pub(crate) struct Travel {
     /// Each leg's foot and upper bone, in the source.
     legs: Vec<(usize, usize)>,
@@ -660,7 +833,7 @@ impl Travel {
         place(source, pose, &self.path, sw);
         let hips = self.legs.iter().map(|&(_, u)| sw[u].position()).sum::<Vec3>() / self.legs.len() as f32;
         let start = *self.start.get_or_insert(hips);
-        if flat(hips - start).length() > 0.2 * h {
+        if flat(hips - start).length() > 0.1 * h {
             self.on = false;
         }
         let mut lowest: Option<(f32, Vec3)> = None;
