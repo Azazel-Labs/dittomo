@@ -42,7 +42,7 @@ pub(crate) struct Shape {
     /// Which limb each bone is in, the arms (0) or the legs (1), and whether on the body's left.
     pub limb: Vec<Option<(usize, bool)>>,
     /// How far along its arm each bone in one is: the way to it from the chest, over the way to where the hand begins
-    /// (the fingers' roots, or the arm's end). Not a number for a bone in no arm, or in the hand.
+    /// (the fingers' roots, or the arm's end), so 1 or more in the hand. Not a number for a bone in no arm.
     pub along: Vec<f32>,
     /// How long the arms are, from the chest to where the hand begins, over the height: the longer of the two.
     pub span: f32,
@@ -286,14 +286,11 @@ impl Shape {
             })
             .collect();
         let parents: Vec<Option<usize>> = skeleton.bones().iter().map(|b| b.parent).collect();
-        let hand: Vec<f32> = (0..n)
+        // For each bone limbs hang from, how many do and how far off the nearest starts.
+        let hand: Vec<Option<(usize, f32)>> = (0..n)
             .map(|i| {
-                let first = children[i].iter().filter(|&&c| joints[c] >= 2).map(|&c| length[c]);
-                if forks[i] {
-                    first.fold(f32::INFINITY, f32::min)
-                } else {
-                    f32::NAN
-                }
+                let limbs = children[i].iter().filter(|&&c| joints[c] >= 2).map(|&c| length[c]);
+                forks[i].then(|| limbs.fold((0, f32::INFINITY), |(k, m), l| (k + 1, m.min(l))))
             })
             .collect();
         let (along, span) = along_arms(limbs[0], &parents, &length, &main, &hand);
@@ -328,7 +325,7 @@ fn along_arms(
     parents: &[Option<usize>],
     length: &[f32],
     main: &[Option<usize>],
-    hand: &[f32],
+    hand: &[Option<(usize, f32)>],
 ) -> (Vec<f32>, f32) {
     let n = parents.len();
     let Some(arms) = arms else {
@@ -348,38 +345,34 @@ fn along_arms(
         }
         way[i] = way[p] + length[i];
     }
-    // Where the hand begins: down the biggest children, at the last bone limbs of more than one bone hang from, where
-    // the nearest starts (a hand's fingers, or a robot's palms hung from its forearm: not cloth hung from a shoulder),
-    // or else at the end.
+    // Where the hand begins: down the biggest children, at the bone the most limbs of more than one bone hang from,
+    // where the nearest starts (a hand's fingers, a robot's palms hung from its forearm, not cloth hung from a shoulder
+    // or a thumb from a palm), or else at the end.
     let mut ends = [0.0f32; 2];
-    let mut hands = [usize::MAX; 2];
     for k in 0..2 {
-        let (mut b, mut fork) = (arms[k], None);
+        let (mut b, mut fork) = (arms[k], None::<(usize, f32)>);
         loop {
-            if hand[b].is_finite() {
-                fork = Some(b);
+            if let Some((count, near)) = hand[b]
+                && fork.is_none_or(|(most, _)| count >= most)
+            {
+                fork = Some((count, way[b] + near));
             }
             match main[b] {
                 Some(c) => b = c,
                 None => break,
             }
         }
-        ends[k] = fork.map_or(way[b], |f| way[f] + hand[f]);
-        hands[k] = fork.unwrap_or(usize::MAX);
+        ends[k] = fork.map_or(way[b], |f| f.1);
     }
     // One arm may stop short, as a rig's whose other hand holds something: the two are measured as the longer.
     let end = ends[0].max(ends[1]);
-    // The bones of the hand, past where it begins, are left out: a hand's fingers are told apart by where they are.
     let mut along = vec![f32::NAN; n];
-    for i in 0..n {
-        let Some(k) = arms.iter().position(|&r| r == root[i]) else {
-            continue;
-        };
-        let Some(p) = parents[i] else { continue };
-        if (i != arms[k] && along[p].is_nan()) || p == hands[k] || end <= 0.0 {
-            continue;
+    if end > 0.0 {
+        for i in 0..n {
+            if arms.contains(&root[i]) {
+                along[i] = way[i] / end;
+            }
         }
-        along[i] = way[i] / end;
     }
     (along, end)
 }

@@ -70,7 +70,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 98.9% |
+| dittomo | 99.2% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
@@ -80,15 +80,15 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 | chest | 100% | 24% | | feet | 100% | 29% |
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
-| upper arms | 98% / 95% | 23% | | forearms | 98% / 95% | 23% |
+| upper arms | 98% | 23% | | forearms | 98% | 23% |
 | hands | 100% | 33% | | index fingers | 100% | 42% |
 
 What it gets wrong:
 
 - **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting a third of its
-  height out from the middle: 87% to 100% against the Mixamo rigs, and half its joints against RobotExpressive, a
-  cartoon with long arms for its height. With no collarbone, BrainStem's upper arms start where a collarbone
-  ends, about as far along the arm as the robot's elbow, and each of its arm bones is taken for the one before it.
+  height out from the middle: 93% to 100% against the other rigs but half against RobotExpressive, a cartoon with long
+  arms for its height. With no collarbone, BrainStem's upper arms start where a collarbone ends, about as far along
+  the arm as the robot's elbow, and each of its arm bones is taken for the one before it on the robot.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
 CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather than committed; each keeps its own license.
@@ -132,13 +132,13 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00388 | 0.0097 | 1.5° |
-| travel | 0.00099 | 0.0097 | 1.5° |
-| planted feet | 0.00312 | 0.0022 | 2.5° |
-| push-out | 0.00388 | 0.0097 | 1.5° |
-| all (`apply_with`) | 0.00003 | 0.0015 | 2.7° |
-| all, live (`Live`) | 0.00004 | 0.0015 | 2.9° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 2.7° |
+| none (`apply`) | 0.00388 | 0.0097 | 1.3° |
+| travel | 0.00099 | 0.0097 | 1.3° |
+| planted feet | 0.00312 | 0.0022 | 2.3° |
+| push-out | 0.00388 | 0.0097 | 1.3° |
+| all (`apply_with`) | 0.00003 | 0.0015 | 2.6° |
+| all, live (`Live`) | 0.00004 | 0.0015 | 2.7° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 2.6° |
 
 Together they cut foot slide about 130 times and the height error 6.5 times. The degree they cost is the legs bending to
 keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
