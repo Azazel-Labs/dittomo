@@ -1055,6 +1055,135 @@ fn a_chest_just_above_the_hips_is_still_the_chest() {
 }
 
 #[test]
+fn wide_hips_with_legs_that_stop_at_the_knee_still_start_the_legs() {
+    // A toy robot's legs hang from far out at the sides of its hips and stop at the knee, its feet hanging from the
+    // root for IK, and its hands reach far forward; a slim figure's legs hang from close in and go on to the toes. By
+    // length and reach the figure's shin looks more like the robot's thigh than the figure's thigh does; but the legs
+    // start where they hang from the hips. (Both laid out as glTF's CesiumMan and RobotExpressive are.)
+    let rig = |j: &[(&str, Option<&str>, [f32; 3])]| placed(&j.iter().map(|&(n, p, at)| joint(n, p, at)).collect());
+    let figure = rig(&[
+        ("Z_UP", None, [0.0, 0.0, 0.0]),
+        ("Skeleton_torso_joint_1", Some("Z_UP"), [0.004, 0.571, 0.0]),
+        (
+            "Skeleton_torso_joint_2",
+            Some("Skeleton_torso_joint_1"),
+            [0.004, 0.692, 0.009],
+        ),
+        ("torso_joint_3", Some("Skeleton_torso_joint_2"), [0.004, 0.903, -0.004]),
+        ("Skeleton_neck_joint_1", Some("torso_joint_3"), [0.004, 0.956, 0.005]),
+        (
+            "Skeleton_neck_joint_2",
+            Some("Skeleton_neck_joint_1"),
+            [0.004, 1.0, 0.007],
+        ),
+        (
+            "Skeleton_arm_joint_L__4_",
+            Some("torso_joint_3"),
+            [0.081, 0.903, -0.004],
+        ),
+        (
+            "Skeleton_arm_joint_L__3_",
+            Some("Skeleton_arm_joint_L__4_"),
+            [0.262, 0.811, -0.013],
+        ),
+        (
+            "Skeleton_arm_joint_L__2_",
+            Some("Skeleton_arm_joint_L__3_"),
+            [0.382, 0.735, 0.056],
+        ),
+        ("Skeleton_arm_joint_R", Some("torso_joint_3"), [-0.072, 0.903, -0.004]),
+        (
+            "Skeleton_arm_joint_R__2_",
+            Some("Skeleton_arm_joint_R"),
+            [-0.253, 0.811, -0.013],
+        ),
+        (
+            "Skeleton_arm_joint_R__3_",
+            Some("Skeleton_arm_joint_R__2_"),
+            [-0.374, 0.735, 0.056],
+        ),
+        ("leg_joint_L_1", Some("Skeleton_torso_joint_1"), [0.061, 0.516, 0.02]),
+        ("leg_joint_L_2", Some("leg_joint_L_1"), [0.069, 0.296, 0.057]),
+        ("leg_joint_L_3", Some("leg_joint_L_2"), [0.07, 0.072, -0.004]),
+        ("leg_joint_L_5", Some("leg_joint_L_3"), [0.071, 0.018, 0.023]),
+        ("leg_joint_R_1", Some("Skeleton_torso_joint_1"), [-0.053, 0.516, 0.02]),
+        ("leg_joint_R_2", Some("leg_joint_R_1"), [-0.061, 0.296, 0.057]),
+        ("leg_joint_R_3", Some("leg_joint_R_2"), [-0.062, 0.072, -0.004]),
+        ("leg_joint_R_5", Some("leg_joint_R_3"), [-0.063, 0.018, 0.023]),
+    ]);
+    let robot = rig(&[
+        ("RootNode", None, [0.0, 0.002, 0.0]),
+        ("Bone", Some("RootNode"), [-0.001, 0.0, -0.066]),
+        ("Foot.L", Some("Bone"), [0.213, 0.01, -0.046]),
+        ("Body", Some("Bone"), [0.001, 0.463, 0.038]),
+        ("Hips", Some("Body"), [0.0, 0.431, 0.0]),
+        ("Abdomen", Some("Hips"), [0.0, 0.538, -0.026]),
+        ("Torso", Some("Abdomen"), [0.0, 0.701, -0.027]),
+        ("Neck", Some("Torso"), [0.0, 0.896, -0.006]),
+        ("Head", Some("Neck"), [-0.006, 1.0, -0.004]),
+        ("Shoulder.L", Some("Torso"), [0.196, 0.799, -0.006]),
+        ("UpperArm.L", Some("Shoulder.L"), [0.207, 0.773, -0.006]),
+        ("LowerArm.L", Some("UpperArm.L"), [0.302, 0.577, -0.044]),
+        ("Palm2.L", Some("LowerArm.L"), [0.457, 0.305, 0.293]),
+        ("Middle1.L", Some("Palm2.L"), [0.418, 0.227, 0.381]),
+        ("Middle2.L", Some("Middle1.L"), [0.354, 0.219, 0.382]),
+        ("Thumb.L", Some("LowerArm.L"), [0.414, 0.369, 0.313]),
+        ("Thumb2.L", Some("Thumb.L"), [0.373, 0.379, 0.331]),
+        ("Palm1.L", Some("LowerArm.L"), [0.457, 0.305, 0.293]),
+        ("Index.L", Some("Palm1.L"), [0.416, 0.270, 0.424]),
+        ("Index2.L", Some("Index.L"), [0.353, 0.265, 0.424]),
+        ("Palm3.L", Some("LowerArm.L"), [0.457, 0.305, 0.293]),
+        ("Ring1.L", Some("Palm3.L"), [0.422, 0.176, 0.343]),
+        ("Ring2.L", Some("Ring1.L"), [0.358, 0.171, 0.342]),
+        ("Shoulder.R", Some("Torso"), [-0.214, 0.799, -0.006]),
+        ("UpperArm.R", Some("Shoulder.R"), [-0.229, 0.768, -0.006]),
+        ("LowerArm.R", Some("UpperArm.R"), [-0.314, 0.596, 0.022]),
+        ("Palm2.R", Some("LowerArm.R"), [-0.433, 0.257, 0.314]),
+        ("Middle1.R", Some("Palm2.R"), [-0.387, 0.159, 0.376]),
+        ("Middle2.R", Some("Middle1.R"), [-0.325, 0.145, 0.364]),
+        ("Thumb.R", Some("LowerArm.R"), [-0.384, 0.313, 0.340]),
+        ("Thumb2.R", Some("Thumb.R"), [-0.356, 0.333, 0.371]),
+        ("Palm1.R", Some("LowerArm.R"), [-0.433, 0.257, 0.314]),
+        ("Index.R", Some("Palm1.R"), [-0.375, 0.192, 0.426]),
+        ("Index2.R", Some("Index.R"), [-0.313, 0.180, 0.424]),
+        ("Palm3.R", Some("LowerArm.R"), [-0.433, 0.257, 0.314]),
+        ("Ring1.R", Some("Palm3.R"), [-0.400, 0.118, 0.328]),
+        ("Ring2.R", Some("Ring1.R"), [-0.339, 0.111, 0.312]),
+        ("UpperLeg.L", Some("Body"), [0.212, 0.496, -0.023]),
+        ("LowerLeg.L", Some("UpperLeg.L"), [0.227, 0.306, 0.053]),
+        ("UpperLeg.R", Some("Body"), [-0.216, 0.496, -0.023]),
+        ("LowerLeg.R", Some("UpperLeg.R"), [-0.24, 0.306, 0.051]),
+        ("Foot.R", Some("Bone"), [-0.215, 0.01, -0.046]),
+        ("PoleTarget.L", Some("Bone"), [0.306, 0.356, 0.509]),
+        ("PoleTarget.R", Some("Bone"), [-0.371, 0.356, 0.509]),
+    ]);
+    for (from, to, pairs) in [
+        (
+            &figure,
+            &robot,
+            [
+                ("leg_joint_L_1", "UpperLeg.L"),
+                ("leg_joint_L_2", "LowerLeg.L"),
+                ("leg_joint_R_1", "UpperLeg.R"),
+                ("leg_joint_R_2", "LowerLeg.R"),
+            ],
+        ),
+        (
+            &robot,
+            &figure,
+            [
+                ("UpperLeg.L", "leg_joint_L_1"),
+                ("LowerLeg.L", "leg_joint_L_2"),
+                ("UpperLeg.R", "leg_joint_R_1"),
+                ("LowerLeg.R", "leg_joint_R_2"),
+            ],
+        ),
+    ] {
+        assert_plays(from, to, &Mapping::new(from, to), &pairs);
+    }
+}
+
+#[test]
 fn a_nameless_rig_stopping_at_the_base_of_the_head_with_one_hand_missing() {
     // No names to go by, no bone at the top of the head, and a right arm that stops at the forearm: the height comes
     // from the shoulders, and the arms are still a pair.

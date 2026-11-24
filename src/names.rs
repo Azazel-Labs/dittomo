@@ -28,6 +28,9 @@ const NOISE: &[&str] = &[
     "joint",
     "bone",
     "bn",
+    // What a glTF exporter calls what has no name (`node12`), and what some put before every bone.
+    "node",
+    "skeleton",
     "j",
     "b",
     "cc",

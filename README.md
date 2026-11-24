@@ -70,25 +70,27 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 96.4% |
+| dittomo | 97.3% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
 | --- | ---: | ---: | --- | --- | ---: | ---: |
-| hips | 100% | 38% | | thighs | 97% | 24% |
-| spine | 95% | 38% | | shins | 97% | 24% |
+| hips | 100% | 38% | | thighs | 100% | 24% |
+| spine | 96% | 38% | | shins | 100% | 24% |
 | chest | 98% | 24% | | feet | 100% | 29% |
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
-| upper arms | 92% / 88% | 23% | | forearms | 92% / 88% | 23% |
-| hands | 100% | 33% | | index fingers | 94% | 42% |
+| upper arms | 92% / 88% | 23% | | forearms | 94% / 88% | 23% |
+| hands | 100% | 33% | | index fingers | 94% / 97% | 42% |
 
 What it gets wrong:
 
 - **RobotExpressive**, a cartoon whose legs start a fifth of its height out from the middle and whose feet hang from the
-  root for IK: a third of its joints are found against CesiumMan and RiggedFigure, whose names say nothing either.
+  root for IK: two thirds of its joints are found against CesiumMan and RiggedFigure. Their arms start at the shoulder,
+  with no collarbone, and the robot's has no hand bone, so each of their arm bones is taken for the one before it on the
+  robot.
 - **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting far out from
-  the middle: 67% to 100% against the Mixamo rigs. With no collarbone, its upper arms start where a collarbone ends
+  the middle: 73% to 100% against the Mixamo rigs. With no collarbone, its upper arms start where a collarbone ends
   and are taken for one.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
@@ -110,7 +112,7 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.1° | 0.2° | 4.3° | 98% |
+| dittomo | 1.8° | 0.2° | 4.0° | 98% |
 | dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.1° | 0.2° | 3.0° | 99% |
 | World turns from rest copied onto the right bones | 20.8° | 9.6° | 64.6° | 60% |
 | Local rotations copied onto the right bones | 74.0° | 82.4° | 150.7° | 21% |
@@ -120,7 +122,7 @@ both rigs when the bones between are in other ratios. The upper arms are the big
 labels, from BrainStem's and RobotExpressive's misses above. CI fails if the mean passes 4°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
-It's off by 1.1° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
+It's off by 0.6° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
 turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the target's
 own rest look and take only the turn away from it, as the spine below them does.
 
@@ -133,13 +135,13 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00388 | 0.0097 | 2.2° |
-| travel | 0.00099 | 0.0097 | 2.2° |
-| planted feet | 0.00312 | 0.0022 | 3.2° |
-| push-out | 0.00388 | 0.0097 | 2.2° |
-| all (`apply_with`) | 0.00003 | 0.0015 | 3.5° |
-| all, live (`Live`) | 0.00004 | 0.0015 | 3.6° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 3.5° |
+| none (`apply`) | 0.00388 | 0.0097 | 2.0° |
+| travel | 0.00099 | 0.0097 | 2.0° |
+| planted feet | 0.00312 | 0.0022 | 3.0° |
+| push-out | 0.00388 | 0.0097 | 2.0° |
+| all (`apply_with`) | 0.00003 | 0.0015 | 3.2° |
+| all, live (`Live`) | 0.00004 | 0.0015 | 3.4° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 3.2° |
 
 Together they cut foot slide about 130 times and the height error 6.5 times. The degree they cost is the legs bending to
 keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
@@ -155,9 +157,9 @@ over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0282 | 0.0652 | 7.3% |
-| all (`apply_touching`) | 0.0089 | 0.0196 | 1.3% |
-| all, live (`Live::touching`) | 0.0089 | 0.0196 | 1.3% |
+| all but touch (`apply_with`) | 0.0282 | 0.0648 | 8.0% |
+| all (`apply_touching`) | 0.0088 | 0.0194 | 1.3% |
+| all, live (`Live::touching`) | 0.0087 | 0.0194 | 1.3% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
 3.2 times closer and hands end up inside the body a sixth as often.

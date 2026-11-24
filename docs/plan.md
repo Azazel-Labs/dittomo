@@ -99,21 +99,26 @@ Phase 1 so far (November 2026):
 - Mapping takes 0.5 ms for a 65-bone rig onto itself and 0.9 ms onto a 76-bone mannequin: each word of the bones'
   names is weighed against each other once, not once per pair of bones, and a bone with one child pairs it without
   solving an assignment.
-- **Bone-finding on twelve real rigs** (Mixamo, Ready Player Me, VRM, Khronos samples, three.js and Babylon
-  characters; 132 ordered pairs, 2558 hand-labeled joints): dittomo finds 96.4% of joints; matching by exact name, as
-  three.js and Babylon do, finds 30.3%. Testing on them found and fixed: VRM's `J_Bip_C_` names, a bare `Arm`/`Leg`
-  against numbered `arm_joint_2`, rigs that stop at the base of the head (height now also comes from the shoulders),
-  a palm bone holding two fingers, mirrored limbs with uneven bone counts, and bones left out though pinned by the pairs
-  around them. polysmelt's skin reader had an accessor-offset bug that the VRMs exposed. Later fixes took it from
-  92.7% to 95.0%: a bone with nothing beyond it (a hand on a rig that stops at the wrist) no longer counts against a
-  bone with fingers beyond it, as how much body lies past it says nothing then; twist, roll and other helper bones and
-  bones only marking where a chain ends (`HeadTop_End`, `Toe0Nub`) are told from joints by name; a bone left over that
-  is the only child of a bone playing the only child of the other rig's (a hand at the end of each forearm) is paired
-  however unlike their rests; and Rigify's `f_index` reads as a finger. The bench's labeled run had let a later label
-  undo an earlier one; fixed, it gives 1.3° rather than 2.1°. Then to 96.4%, the chest from 80% to 98%: the bones
-  the arms and the legs hang from (the parents of the two biggest mirrored pairs) play each other however high they
-  stand, and a bone limbs branch from doesn't play one along a chain, so a robot's chest just above its hips no longer
-  plays a lower spine bone.
+- **Bone-finding on twelve real rigs** (Mixamo, Ready Player Me, VRM, Khronos samples, three.js and Babylon characters;
+  132 ordered pairs, 2558 hand-labeled joints): dittomo finds 97.3% of joints; matching by exact name, as three.js and
+  Babylon do, finds 30.3%. Testing on them found and fixed: VRM's `J_Bip_C_` names, a bare `Arm`/`Leg` against numbered
+  `arm_joint_2`, rigs that stop at the base of the head (height now also comes from the shoulders), a palm bone holding
+  two fingers, mirrored limbs with uneven bone counts, and bones left out though pinned by the pairs around them.
+  polysmelt's skin reader had an accessor-offset bug that the VRMs exposed. Later fixes took it from 92.7% to 95.0%: a
+  bone with nothing beyond it (a hand on a rig that stops at the wrist) no longer counts against a bone with fingers
+  beyond it, as how much body lies past it says nothing then; twist, roll and other helper bones and bones only marking
+  where a chain ends (`HeadTop_End`, `Toe0Nub`) are told from joints by name; a bone left over that is the only child of
+  a bone playing the only child of the other rig's (a hand at the end of each forearm) is paired however unlike their
+  rests; and Rigify's `f_index` reads as a finger. The bench's labeled run had let a later label undo an earlier one;
+  fixed, it gives 1.3° rather than 2.1°. Then to 96.4%, the chest from 80% to 98%: the bones the arms and the legs hang
+  from (the parents of the two biggest mirrored pairs) play each other however high they stand, and a bone limbs branch
+  from doesn't play one along a chain, so a robot's chest just above its hips no longer plays a lower spine bone. Then
+  to 97.3%: the bones the legs start from play each other however wide the hips (a toy robot's shin had played a slim
+  figure's thigh, its length and reach being more like one; the thighs and shins from 97% to 100%); a bone in one limb
+  plays a bone in the same limb on the same side (forearms 92% to 94%); and `node` and `skeleton` are noise words, as a
+  glTF exporter names what has no name `node12`, so a rig named so no longer counts every name as unlike. Limbs go from
+  2.1° to 1.8°, gaze from 1.1° to 0.6°; the hands reach into the body without touch a little more often (7.3% to 8.0%),
+  and with it no more often.
 - **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 2.3°
   from the source's on average (median 0.2°, 90th percentile 5.1°). Copying world turns from rest onto the right bones
   gives 22°, and copying local rotations, as an animation mixer does with a clip from another rig, 75°. Measuring this
@@ -267,7 +272,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 96.4% of joints found on 12 real rigs (exact names: 30.3%); limbs within 2.3° of the source's on their 35 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 97.3% of joints found on 12 real rigs (exact names: 30.3%); limbs within 1.8° of the source's on their 35 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their

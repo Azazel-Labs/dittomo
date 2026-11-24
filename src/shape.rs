@@ -37,6 +37,10 @@ pub(crate) struct Shape {
     /// The bones the arms and the legs hang from, as a chest and hips: the parents of the two biggest pairs of limbs
     /// that mirror each other, the higher pair being the arms.
     pub girdles: [Option<usize>; 2],
+    /// The two bones the arms start from, hanging from the chest, then the two the legs start from.
+    pub limbs: [Option<[usize; 2]>; 2],
+    /// Which limb each bone is in, the arms (0) or the legs (1), and whether on the body's left.
+    pub limb: Vec<Option<(usize, bool)>>,
     pub names: Vec<Name>,
 }
 
@@ -76,6 +80,8 @@ impl Shape {
                 beyond: Vec::new(),
                 forks: Vec::new(),
                 girdles: [None; 2],
+                limbs: [None; 2],
+                limb: Vec::new(),
                 names,
             };
         }
@@ -161,6 +167,8 @@ impl Shape {
                 beyond: Vec::new(),
                 forks: Vec::new(),
                 girdles: [None; 2],
+                limbs: [None; 2],
+                limb: Vec::new(),
                 names,
             };
         }
@@ -172,7 +180,7 @@ impl Shape {
         }
         let pairs = mirrored(&pos, &children, &under, height);
         let height = stature(&pairs, height, floor);
-        let girdles = girdles(&pairs);
+        let (girdles, limbs) = girdles(&pairs);
         let from_middle = along(middle);
         let reach: Vec<f32> = from_middle
             .iter()
@@ -196,7 +204,16 @@ impl Shape {
         };
         let origin = Vec3::new(pos[hub].x, floor, pos[hub].z);
         let back = frame.inverse();
-        let at = pos.iter().map(|p| back * (*p - origin) / height).collect();
+        let at: Vec<Vec3> = pos.iter().map(|p| back * (*p - origin) / height).collect();
+        let mut limb = vec![None; n];
+        for i in 0..n {
+            limb[i] = skeleton.bones()[i].parent.and_then(|p| limb[p]);
+            for (r, pair) in limbs.iter().enumerate() {
+                if pair.is_some_and(|two| two.contains(&i)) {
+                    limb[i] = Some((r, at[i].x > 0.0));
+                }
+            }
+        }
         let dir: Vec<Vec3> = (0..n)
             .map(|i| {
                 // To its biggest child: an average of children can cancel out, as a pelvis's spine and legs do.
@@ -256,6 +273,8 @@ impl Shape {
             beyond,
             forks,
             girdles,
+            limbs,
+            limb,
             names,
         }
     }
@@ -317,6 +336,8 @@ fn body_frame(
 /// parent. Fingers, side by side in front of the hand, don't count.
 struct Mirrored {
     parent: usize,
+    /// The two.
+    bones: [usize; 2],
     /// The way from one to the other, flat.
     apart: Vec3,
     /// The bones below the two.
@@ -348,6 +369,7 @@ fn mirrored(pos: &[Vec3], children: &[Vec<usize>], under: &[usize], height: f32)
                 }
                 out.push(Mirrored {
                     parent: p,
+                    bones: [i, j],
                     apart: apart.normalize(),
                     weight: under[i] + under[j],
                     y: (pos[i].y + pos[j].y) / 2.0,
@@ -388,16 +410,19 @@ fn stature(pairs: &[Mirrored], height: f32, floor: f32) -> f32 {
 }
 
 /// The bones the arms and the legs hang from: the parents of the two biggest mirrored pairs, if they differ, the
-/// higher pair being the arms.
-fn girdles(pairs: &[Mirrored]) -> [Option<usize>; 2] {
+/// higher pair being the arms; and the two pairs.
+fn girdles(pairs: &[Mirrored]) -> ([Option<usize>; 2], [Option<[usize; 2]>; 2]) {
     let mut big: Vec<&Mirrored> = pairs.iter().collect();
     big.sort_by_key(|m| std::cmp::Reverse(m.weight));
     match big.as_slice() {
         [a, b, ..] if a.parent != b.parent => {
             let (arms, legs) = if a.y > b.y { (a, b) } else { (b, a) };
-            [Some(arms.parent), Some(legs.parent)]
+            (
+                [Some(arms.parent), Some(legs.parent)],
+                [Some(arms.bones), Some(legs.bones)],
+            )
         }
-        _ => [None; 2],
+        _ => ([None; 2], [None; 2]),
     }
 }
 

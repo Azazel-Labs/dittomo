@@ -264,6 +264,18 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
         (Some(_), None) | (None, Some(_)) if s.girdles[0].is_some() && t.girdles[0].is_some() => v -= 0.6,
         _ => {}
     }
+    // And the legs start right there, however wide the hips, where an arm may start at a collarbone or not.
+    if let (Some(x), Some(y)) = (s.limbs[1], t.limbs[1]) {
+        v += match (x.contains(&a), y.contains(&b)) {
+            (true, true) => 0.4,
+            (false, false) => 0.0,
+            _ => -0.4,
+        };
+    }
+    // A bone in one limb plays a bone in the same limb on the same side, however differently the two hang at rest.
+    if let (Some(x), Some(y)) = (s.limb[a], t.limb[b]) {
+        v += if x == y { 0.5 } else { -0.5 };
+    }
     // Limbs branch where they branch, however high: a bone two limbs hang from plays one, not a bone along a chain.
     // A bone with nothing beyond it might be either, on a rig that stops there.
     if s.forks[a] && t.forks[b] {
