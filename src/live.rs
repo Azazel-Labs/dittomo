@@ -9,8 +9,10 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 /// Plays poses of one skeleton on another as they come, a frame at a time, without allocating, and fixes each up as
 /// [`Mapping::apply_with`] fixes a clip, but from the poses so far, with nothing ahead to look at.
 ///
-/// Arms are kept out of the body, hands brought together, kept on the head and, given skins ([`Live::touching`]), kept
-/// at the skin's distance just as the whole clip has them, as those fixes look only at the pose in hand. Planted feet
+/// Arms are kept out of the body, hands brought together and, given skins ([`Live::touching`]), kept at the skin's
+/// distance just as the whole clip has them, as those fixes look only at the pose in hand. Hands are kept on the head as
+/// the whole clip has them too, but eased on as the source's get there, where the whole clip eases them on ahead, so a
+/// hand darting to the head gets there a little late. Planted feet
 /// and travel are worked out as the poses come: a foot plants as soon as the source's is down and nearly still and lets
 /// go once it lifts, held where it was when it planted. A clip walked in place is planted on the travel its feet imply,
 /// as far as the planted foot slides back, then kept in place unless [`Fixes::travel`] moves it on.
@@ -202,7 +204,7 @@ impl Live {
     }
 
     /// Forgets the poses so far: where feet are planted, how far a clip walked in place has traveled, where hands
-    /// met. For a cut, or a jump to another clip.
+    /// met and where they were on the head. For a cut, or a jump to another clip.
     pub fn reset(&mut self) {
         if let Some(t) = &mut self.travel {
             t.reset();
@@ -211,6 +213,9 @@ impl Live {
             f.reset();
         }
         if let Some(h) = &mut self.hands {
+            h.reset();
+        }
+        if let Some(h) = &mut self.head {
             h.reset();
         }
         if let Some(a) = &mut self.ahead {
@@ -308,8 +313,8 @@ impl Live {
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
             h.placed(&self.target, body, out, &mut self.scratch);
         }
-        if let Some(h) = &self.head {
-            h.placed(&self.target, out, &mut self.scratch);
+        if let Some(h) = &mut self.head {
+            h.placed(&self.target, dt, out, &mut self.scratch);
         }
         if let Some(t) = &mut self.touch {
             t.placed(&self.target, out, &mut self.scratch);
@@ -361,8 +366,8 @@ impl Live {
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
             h.placed(&self.target, body, out, &mut self.scratch);
         }
-        if let Some(h) = &self.head {
-            h.placed(&self.target, out, &mut self.scratch);
+        if let Some(h) = &mut self.head {
+            h.placed(&self.target, dt, out, &mut self.scratch);
         }
         if let Some(t) = &mut self.touch {
             t.placed(&self.target, out, &mut self.scratch);

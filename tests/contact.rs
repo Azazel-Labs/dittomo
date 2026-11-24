@@ -185,6 +185,71 @@ fn planted_feet_stay_still_on_the_mannequin() {
     assert!(after < 1e-3, "{after}");
 }
 
+/// The left foot shuffling forward: standing a little under a second, then stepping a twelfth of the height ahead in
+/// four poses, a little off the floor, twice; the right foot standing. At 30 poses a second.
+fn shuffles(sk: &Skeleton) -> Clip {
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let leg = contact::legs(sk)
+        .into_iter()
+        .find(|l| world[l.end].position().x > 0.0)
+        .unwrap();
+    let (foot, h) = (world[leg.end].position(), height(sk));
+    let smooth = |x: f32| {
+        let t = x.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let poses = (0..90)
+        .map(|f| {
+            // How many steps are done, a fraction while one is under way.
+            let steps = [25.0, 55.0]
+                .iter()
+                .map(|&s| smooth((f as f32 - s + 0.5) / 4.0))
+                .sum::<f32>();
+            let lift = steps.fract() * (1.0 - steps.fract()) * 4.0;
+            let mut pose = rest.clone();
+            contact::reach(
+                sk,
+                &mut pose,
+                &leg,
+                foot + Vec3::new(0.0, 0.03 * h * lift, h / 12.0 * steps),
+            );
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..90).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn a_foot_shuffling_forward_is_planted_at_each_stand_without_jumping_between() {
+    let source = common::mixamo();
+    let clip = shuffles(&source);
+    for target in [long_legs(&source, 1.3), long_legs(&source, 0.8), common::mannequin()] {
+        let map = Mapping::new(&source, &target);
+        let h = height(&target);
+        // How far a foot is, at most, from where it would be were it moving steadily from the pose before to the next.
+        let kink = |c: &Clip| {
+            contact::legs(&target)
+                .iter()
+                .flat_map(|leg| {
+                    let at: Vec<Vec3> = c.poses.iter().map(|p| at(&target, p, leg.end) / h).collect();
+                    (1..at.len() - 1).map(move |f| at[f].distance((at[f - 1] + at[f + 1]) / 2.0))
+                })
+                .fold(0.0f32, f32::max)
+        };
+        let plain = map.apply(&source, &target, &clip).unwrap();
+        let fixed = map.apply_with(&source, &target, &clip, feet_only()).unwrap();
+        let (was, now) = (kink(&plain), kink(&fixed));
+        let after = skate(&map, &source, &target, &clip, &fixed);
+        eprintln!("shuffle: foot kinks {was:.4} -> {now:.4} of the height, skate {after:.5}");
+        assert!(now < was + 0.005, "a foot kinks {now} of the height, {was} unfixed");
+        assert!(after < 1e-3, "{after}");
+    }
+}
+
 /// The same rig with each ankle `by` lower and its toes where they were, so the foot comes down to them less steeply.
 fn low_ankles(sk: &Skeleton, by: f32) -> Skeleton {
     let mut world: Vec<Vec3> = sk.world(&sk.rest()).iter().map(dittomo::Placed::position).collect();
@@ -1273,7 +1338,6 @@ fn live_claps_and_keeps_out_of_the_body_as_the_whole_clip_does() {
     let fixes = Fixes {
         push_out: true,
         hands: true,
-        head: true,
         ..Fixes::NONE
     };
     for by in [0.6, 1.5] {
@@ -1377,5 +1441,100 @@ fn live_starts_over_when_reset() {
         live.pose(1.0 / 30.0, p, &mut out).unwrap();
         fresh.pose(1.0 / 30.0, p, &mut want).unwrap();
         assert_eq!(out, want);
+    }
+}
+
+/// Hands darting from the sides to the ears in a fifth of a second, held there a second and back down; then swept up
+/// past the ears and on without stopping. At 30 poses a second.
+fn darts_to_ears(sk: &Skeleton) -> Clip {
+    let frames = 130;
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let (head, center, r) = head_ball(sk);
+    let smooth = |x: f32| {
+        let t = x.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let poses = (0..frames)
+        .map(|f| {
+            let t = f as f32 / 30.0;
+            let mut pose = rest.clone();
+            for arm in contact::arms(sk) {
+                let from = world[arm.end].position();
+                let ear = world[head]
+                    .matrix
+                    .transform_point3(center + Vec3::new(from.x.signum() * 1.15, -0.3, -0.1) * r);
+                let u = if t < 2.5 {
+                    smooth((t - 0.5) / 0.2) - smooth((t - 1.7) / 0.2)
+                } else {
+                    2.0 * ((t - 3.0) / 0.4).clamp(0.0, 1.0)
+                };
+                contact::reach(sk, &mut pose, &arm, from.lerp(ear, u));
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn a_hand_darting_to_the_head_is_eased_onto_it_and_one_sweeping_past_is_left_alone() {
+    let source = common::mixamo();
+    let clip = darts_to_ears(&source);
+    let head = Fixes {
+        head: true,
+        ..Fixes::NONE
+    };
+    for by in [1.6, 0.7] {
+        let target = big_head(&source, by, 1.0);
+        let map = Mapping::new(&source, &target);
+        let h = {
+            let ys: Vec<f32> = target.world(&target.rest()).iter().map(|p| p.position().y).collect();
+            ys.iter().fold(f32::MIN, |a, &b| a.max(b)) - ys.iter().fold(f32::MAX, |a, &b| a.min(b))
+        };
+        let arms = contact::arms(&target);
+        let wrists = |c: &Clip| -> Vec<Vec<Vec3>> {
+            c.poses
+                .iter()
+                .map(|p| {
+                    let w = target.world(p);
+                    arms.iter().map(|a| w[a.end].position() / h).collect()
+                })
+                .collect()
+        };
+        // How far a wrist is, at most, from where it would be were it moving steadily from the pose before to the next.
+        let kink = |w: &[Vec<Vec3>]| {
+            (1..w.len() - 1)
+                .flat_map(|f| (0..arms.len()).map(move |a| w[f][a].distance((w[f - 1][a] + w[f + 1][a]) / 2.0)))
+                .fold(0.0f32, f32::max)
+        };
+        let plain = wrists(&map.apply(&source, &target, &clip).unwrap());
+        for (name, played) in [
+            ("whole clip", map.apply_with(&source, &target, &clip, head).unwrap()),
+            ("live", live(&map, &source, &target, &clip, head)),
+        ] {
+            let got = wrists(&played);
+            let moved = (0..got.len())
+                .flat_map(|f| (0..arms.len()).map(move |a| (f, a)))
+                .map(|(f, a)| got[f][a].distance(plain[f][a]))
+                .fold(0.0f32, f32::max);
+            let swept = (75..got.len())
+                .flat_map(|f| (0..arms.len()).map(move |a| (f, a)))
+                .map(|(f, a)| got[f][a].distance(plain[f][a]))
+                .fold(0.0f32, f32::max);
+            let (was, now) = (kink(&plain), kink(&got[..72]));
+            eprintln!(
+                "head {by}, {name}: wrists moved up to {moved:.3} of the height, {swept:.5} sweeping past; kinks {was:.4} -> {now:.4}"
+            );
+            assert!(moved > 0.02, "head {by}, {name}: the hands were not put on the head");
+            assert!(swept < 1e-4, "head {by}, {name}: a hand sweeping past moved {swept}");
+            assert!(
+                now < was + 0.004,
+                "head {by}, {name}: a wrist kinks {now} of the height, {was} unfixed"
+            );
+        }
     }
 }

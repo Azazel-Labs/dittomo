@@ -409,8 +409,8 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       downloads twelve rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
       `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching, then plays every rig's clips
       on every other and scores limb directions against copying rotations and foot contact with each fix. SAN's
-      Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`): dittomo scores 1.48 intra-structural
-      and 0.67 cross-structural against SAN's published 2.76 and 2.25, untrained (README, Against the learned
+      Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`): dittomo scores 1.42 intra-structural
+      and 0.66 cross-structural against SAN's published 2.76 and 2.25, untrained (README, Against the learned
       retargeters). R2ET's test pairs exist only in its code, and Godot, Unity and Unreal are still to come.
 - [ ] **Measure where dittomo stands** on every row of the Goal table. Mapping accuracy is measured on real rigs;
       per-frame cost and mapping time on made-up rigs (see Where things stand); limb directions and foot contact on real

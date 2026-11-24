@@ -601,12 +601,21 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             .map(|p| track(target, out, p.target).iter().map(|v| v.y).collect())
             .collect();
         for f in 0..n {
-            let (d, r) = runs
-                .iter()
-                .enumerate()
-                .map(|(r, &(a, b))| (if f < a { a - f } else { (f + 1).saturating_sub(b) }, r))
-                .min()
-                .unwrap_or((usize::MAX, 0));
+            // Held where the run it is in holds it; between two runs, held at a point easing from where the one before
+            // held it to where the one after does, so a foot that lifts and plants again within a ramp's length never
+            // jumps from one hold to the next halfway.
+            let next = runs.partition_point(|&(a, _)| a <= f);
+            let (d, held) = match (next.checked_sub(1), (next < runs.len()).then_some(next)) {
+                (Some(p), _) if f < runs[p].1 => (0, locks[p]),
+                (Some(p), Some(q)) => {
+                    let ((_, end), (start, _)) = (runs[p], runs[q]);
+                    let u = (f + 1 - end) as f32 / (start - end + 1) as f32;
+                    ((f + 1 - end).min(start - f), locks[p].lerp(locks[q], smooth(u)))
+                }
+                (Some(p), None) => (f + 1 - runs[p].1, locks[p]),
+                (None, Some(q)) => (runs[q].0 - f, locks[q]),
+                (None, None) => (usize::MAX, Vec3::ZERO),
+            };
             // Never deeper under where it stands at rest than the source's foot comes under its own, scaled: legs
             // bent more or less at rest, played at the source's angles, can reach below the floor.
             let low = floor(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
@@ -620,7 +629,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
                 let x = 1.0 - d as f32 / (ramp + 1) as f32;
                 let w = x * x * (3.0 - 2.0 * x);
                 let y = height(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
-                free.lerp(Vec3::new(locks[r].x, y, locks[r].z), w)
+                free.lerp(Vec3::new(held.x, y, held.z), w)
             };
             let pose = &mut out.poses[f];
             place(target, pose, &path, &mut world);
@@ -2209,9 +2218,14 @@ fn played(map: &Mapping, s_body: &Body, t_body: &Body) -> Vec<(Limb, usize)> {
 /// out of the head's turn from rest, turned into the target's frame, scaled from one head to the other and turned with
 /// the target's head, so the hand lands on the same place on a head of any size, even one that sits differently on its
 /// neck. Within one and a half head radii of the middle of the source's head the hand is put there; past two it is left
-/// alone; in between, the two blend. A hand that can't get there (short arms, a big head) goes as near as it can over
-/// the head's surface, not into it, and the elbow swings round the line from shoulder to hand till the arm is no deeper
-/// in the head than the source's. Reached with two-bone IK, so the hand keeps its turn.
+/// alone; in between, the two blend. A hand sweeping past the head is not on it: one moving over fifteen head radii a
+/// second against the head lets go, and past thirty is left alone. A hand that can't get there (short arms, a big head)
+/// goes as near as it can over the head's surface, not into it, and the elbow swings round the line from shoulder to
+/// hand till the arm is no deeper in the head than the source's. Reached with two-bone IK, so the hand keeps its turn.
+///
+/// A hand darting to the head would jump onto it, so each is eased on over a quarter of a second at least, ahead of the
+/// source's, and off as slowly after it lets go; while easing, the hand moves a share of the way from where it would be
+/// to where it lands on the head, so it arrives along its own path, on time.
 pub(crate) fn on_head(
     map: &Mapping,
     rigs: [(&Skeleton, &Shape); 2],
@@ -2219,15 +2233,50 @@ pub(crate) fn on_head(
     from: &Clip,
     out: &mut Clip,
 ) {
-    let Some(fix) = OnHead::new(map, rigs, [s_body, t_body]) else {
+    let Some(mut fix) = OnHead::new(map, rigs, [s_body, t_body]) else {
         return;
     };
     let [(source, _), (target, _)] = rigs;
     let mut scratch = Scratch::new(source, target);
-    for (pose, played) in from.poses.iter().zip(&mut out.poses) {
-        fix.pose([source, target], pose, played, &mut scratch);
+    let dt = |f: usize| f.checked_sub(1).map_or(0.0, |e| from.times[f] - from.times[e]);
+    let (k, n) = (fix.arms.len(), from.poses.len());
+    let mut raw = Vec::with_capacity(n * k);
+    for (f, (pose, played)) in from.poses.iter().zip(&out.poses).enumerate() {
+        place(source, pose, &fix.s_path, &mut scratch.sw);
+        fix.weigh(dt(f), &scratch.sw);
+        fix.aim(target, played, &mut scratch);
+        raw.extend_from_slice(&fix.on);
+    }
+    // Each hand eased onto the head ahead of the source's and off after it, over `ONTO` at least, never less than the
+    // source's is on its own head; while easing, aimed where it goes in the pose it is eased toward.
+    let mut w: Vec<f32> = raw.iter().map(|o| o.0).collect();
+    let mut toward: Vec<usize> = (0..n * k).collect();
+    let mut ease = |p: usize, q: usize, step: f32| {
+        if w[p] - step > w[q] {
+            (w[q], toward[q]) = (w[p] - step, toward[p]);
+        }
+    };
+    for f in 1..n {
+        for i in 0..k {
+            ease((f - 1) * k + i, f * k + i, dt(f) / ONTO);
+        }
+    }
+    for f in (1..n).rev() {
+        for i in 0..k {
+            ease(f * k + i, (f - 1) * k + i, dt(f) / ONTO);
+        }
+    }
+    for (f, (pose, played)) in from.poses.iter().zip(&mut out.poses).enumerate() {
+        place(source, pose, &fix.s_path, &mut scratch.sw);
+        fix.on.clear();
+        fix.on
+            .extend((f * k..(f + 1) * k).map(|q| (smooth(w[q]), raw[toward[q]].1)));
+        fix.put(target, played, &mut scratch);
     }
 }
+
+/// How long, in seconds, a hand takes at least to be put on the head, and to be taken off.
+const ONTO: f32 = 0.25;
 
 /// [`on_head`], made ready for two rigs, then run a pose at a time.
 pub(crate) struct OnHead {
@@ -2240,6 +2289,13 @@ pub(crate) struct OnHead {
     rests: [Quat; 2],
     s_path: Vec<usize>,
     t_path: Vec<usize>,
+    /// Where each source hand was last pose, from the middle of the head, in the head's frame.
+    last: Vec<Option<Vec3>>,
+    /// How far onto the head each target hand was put last pose, before easing in and out, and where it was aimed.
+    eased: Vec<(f32, Vec3)>,
+    /// How far onto the head each target hand goes this pose, and where to: from where it is to where it goes on the
+    /// head, in the target head's frame.
+    on: Vec<(f32, Vec3)>,
 }
 
 impl OnHead {
@@ -2264,8 +2320,17 @@ impl OnHead {
                 arms.iter().flat_map(|a| [a.1, a.2.upper, a.2.lower]).chain([sh.bone]),
             ),
             t_path: paths(target, arms.iter().map(|a| a.0.end).chain([th.bone])),
+            last: vec![None; arms.len()],
+            eased: vec![(0.0, Vec3::ZERO); arms.len()],
+            on: Vec::with_capacity(arms.len()),
             arms,
         })
+    }
+
+    /// Forgets where the hands were, as after a cut.
+    pub(crate) fn reset(&mut self) {
+        self.last.fill(None);
+        self.eased.fill((0.0, Vec3::ZERO));
     }
 
     /// The source bones to place ([`place_source`]) before [`Self::placed`].
@@ -2273,28 +2338,81 @@ impl OnHead {
         &self.s_path
     }
 
-    pub(crate) fn pose(
-        &self,
-        [source, target]: [&Skeleton; 2],
-        pose: &[Transform],
-        played: &mut [Transform],
-        scratch: &mut Scratch,
-    ) {
-        place(source, pose, &self.s_path, &mut scratch.sw);
-        self.placed(target, played, scratch);
+    /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]), `dt` seconds
+    /// after the pose before. Each hand is put on the head over `ONTO` at least, so it gets there late when the
+    /// source's darts there, and taken off as slowly, aimed where it was last put.
+    pub(crate) fn placed(&mut self, target: &Skeleton, dt: f32, played: &mut [Transform], scratch: &mut Scratch) {
+        let step = if dt > 0.0 { dt / ONTO } else { 0.0 };
+        self.weigh(dt, &scratch.sw);
+        self.aim(target, played, scratch);
+        for ((was, aimed), (on, aim)) in self.eased.iter_mut().zip(&mut self.on) {
+            let w = on.clamp(*was - step, *was + step);
+            if *on >= w {
+                *aimed = *aim;
+            }
+            (*was, *on, *aim) = (w, smooth(w), *aimed);
+        }
+        self.put(target, played, scratch);
     }
 
-    /// [`Self::pose`], with the source's pose placed in `scratch` ([`Self::s_path`]).
-    pub(crate) fn placed(&self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch) {
-        let (near, far) = (1.5, 2.0);
+    /// Sets how far onto the head each source hand is ([`Self::on`]), placed in `sw` `dt` seconds after the pose
+    /// before: within `near` head radii of the middle of its head fully, past `far` not at all; and moving against the
+    /// head under `slow` head radii a second fully, over `fast` (sweeping past) not at all.
+    fn weigh(&mut self, dt: f32, sw: &[At]) {
+        let (near, far, slow, fast) = (1.5, 2.0, 15.0, 30.0);
+        let (sh, s_rest) = (self.heads[0], self.rests[0]);
+        let (sc, s_turn) = (sh.center(sw), sw[sh.bone].rotation * s_rest);
+        self.on.clear();
+        self.on
+            .extend(self.arms.iter().zip(&mut self.last).map(|(&(_, a, _), last)| {
+                let d = sw[a].position() - sc;
+                let local = s_turn.inverse() * d;
+                let speed = last
+                    .filter(|_| dt > 0.0)
+                    .map_or(0.0, |l| local.distance(l) / dt / sh.radius);
+                *last = Some(local);
+                let w = (1.0 - smooth((d.length() / sh.radius - near) / (far - near)))
+                    * (1.0 - smooth((speed - slow) / (fast - slow)));
+                (w, Vec3::ZERO)
+            }));
+    }
+
+    /// Sets where each target hand on the head at all ([`Self::on`]) goes: the way from where it is in `played` to the
+    /// place on its head where the source's hand is on theirs, in the target head's frame. The source's pose is placed
+    /// in `scratch`.
+    fn aim(&mut self, target: &Skeleton, played: &[Transform], scratch: &mut Scratch) {
         let ([sh, th], [s_rest, t_rest]) = (self.heads, self.rests);
         let Scratch { sw, tw, .. } = scratch;
         let (sc, s_turn) = (sh.center(sw), sw[sh.bone].rotation * s_rest);
         let mut placed = false;
-        for &(limb, a, sl) in &self.arms {
-            let d = sw[a].position() - sc;
-            let x = ((d.length() / sh.radius - near) / (far - near)).clamp(0.0, 1.0);
-            let w = 1.0 - x * x * (3.0 - 2.0 * x);
+        for (&(limb, a, _), (w, aim)) in self.arms.iter().zip(&mut self.on) {
+            if *w <= 0.0 {
+                continue;
+            }
+            if !placed {
+                place(target, played, &self.t_path, tw);
+                placed = true;
+            }
+            let local = s_turn.inverse() * (sw[a].position() - sc);
+            let (t_turn, center) = (tw[th.bone].rotation * t_rest, th.center(tw));
+            let goal = center + t_turn * (self.turn * local) * self.scale;
+            let (sa, sb, hand) = (
+                tw[limb.upper].position(),
+                tw[limb.lower].position(),
+                tw[limb.end].position(),
+            );
+            let goal = within(goal, center, (sa, 0.999 * (sa.distance(sb) + sb.distance(hand))));
+            *aim = t_turn.inverse() * (goal - hand);
+        }
+    }
+
+    /// Moves each target hand [`Self::on`] of the way it is aimed, the source's pose placed in `scratch`.
+    fn put(&self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch) {
+        let ([sh, th], t_rest) = (self.heads, self.rests[1]);
+        let Scratch { sw, tw, .. } = scratch;
+        let sc = sh.center(sw);
+        let mut placed = false;
+        for (&(limb, a, sl), &(w, aim)) in self.arms.iter().zip(&self.on) {
             if w <= 0.0 {
                 continue;
             }
@@ -2304,14 +2422,7 @@ impl OnHead {
                 placed = true;
             }
             let (t_turn, center) = (tw[th.bone].rotation * t_rest, th.center(tw));
-            let goal = center + t_turn * (self.turn * (s_turn.inverse() * d)) * self.scale;
-            let (sa, sb, sc) = (
-                tw[limb.upper].position(),
-                tw[limb.lower].position(),
-                tw[limb.end].position(),
-            );
-            let goal = within(goal, center, (sa, 0.999 * (sa.distance(sb) + sb.distance(sc))));
-            reach_in(target, played, tw, &limb, sc.lerp(goal, w));
+            reach_in(target, played, tw, &limb, tw[limb.end].position() + t_turn * aim * w);
             // The arm no deeper in the head than the source's is in theirs.
             let deep = |p: [Vec3; 3], c: Vec3| off_line(c, p[0], p[1]).min(off_line(c, p[1], p[2]));
             let s_arm = [sl.upper, sl.lower, a].map(|b| sw[b].position());

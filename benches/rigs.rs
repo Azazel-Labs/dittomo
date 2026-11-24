@@ -560,7 +560,10 @@ fn height(s: &Skeleton) -> f32 {
 /// its sole is from the height it should be at, both over the target's height. The sole is whichever of the foot and
 /// toe joints is lowest against where the source's are, each counted from where it stands at rest and the source's
 /// scaled: a foot flat stands on its ankle's height, one rolled onto its toes on its toes', and ankles stand higher
-/// over the toes on some rigs than on others. And what each fix costs in limb directions.
+/// over the toes on some rigs than on others. And what each fix costs in limb directions, and how often it makes a
+/// joint pop: of the frames of each joint both rigs label, the share where the joint, about the hips and over height,
+/// is further from where it would be moving steadily from the frame before to the frame after than the source's by over
+/// 1% of the height, as a fix taking hold or letting go in a frame jerks the joints it moves.
 fn contact(rigs: &[Rig]) {
     const RUNS: [(&str, Fixes); 5] = [
         ("none (`apply`)", Fixes::NONE),
@@ -599,6 +602,7 @@ fn contact(rigs: &[Rig]) {
     let feet = ["l_foot", "r_foot"];
     let (mut slid, mut off, mut planted) = ([0.0f64; ROWS], [0.0f64; ROWS], 0usize);
     let mut errs: [Vec<f32>; ROWS] = Default::default();
+    let (mut pops, mut joint_frames) = ([0usize; ROWS], 0usize);
     for s in rigs {
         let (Some(fs), true) = (body(s), feet.iter().all(|f| s.labels.contains_key(*f))) else {
             continue;
@@ -668,6 +672,29 @@ fn contact(rigs: &[Rig]) {
                         }
                     }
                 }
+                if let (Some(&sh), Some(&th)) = (s.labels.get("hips"), t.labels.get("hips")) {
+                    let joints: Vec<(usize, usize)> = s
+                        .labels
+                        .iter()
+                        .filter_map(|(k, &a)| Some((a, *t.labels.get(k)?)))
+                        .collect();
+                    let raw: Vec<_> = clip.poses[..n].iter().map(|p| ss.world(p)).collect();
+                    let times = &clip.times;
+                    let kink = |w: &[Vec<dittomo::Placed>], f: usize, j: usize, hip: usize, h: f32| {
+                        let at = |f: usize| (w[f][j].position() - w[f][hip].position()) / h;
+                        let (d0, d1) = (times[f] - times[f - 1], times[f + 1] - times[f]);
+                        at(f).distance(at(f - 1).lerp(at(f + 1), d0 / (d0 + d1)))
+                    };
+                    for f in (1..n - 1).filter(|&f| times[f - 1] < times[f] && times[f] < times[f + 1]) {
+                        for &(a, b) in &joints {
+                            let want = kink(&raw, f, a, sh, hs);
+                            joint_frames += 1;
+                            for (m, w) in tgt.iter().enumerate() {
+                                pops[m] += usize::from(kink(w, f, b, th, ht) - want > 0.01);
+                            }
+                        }
+                    }
+                }
                 for (f, pose) in clip.poses.iter().enumerate() {
                     let want = angles(s, &fs, pose);
                     for (m, c) in played.iter().enumerate() {
@@ -689,15 +716,16 @@ fn contact(rigs: &[Rig]) {
 height off are per planted frame, over the target's height"
     );
     println!(
-        "| Fixes | Foot slide | Sole height off | Limb directions, mean |
-| --- | ---: | ---: | ---: |"
+        "| Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
+| --- | ---: | ---: | ---: | ---: |"
     );
     for (m, name) in names.iter().enumerate() {
         println!(
-            "| {name} | {:.5} | {:.4} | {:.1}° |",
+            "| {name} | {:.5} | {:.4} | {:.1}° | {:.2}% |",
             slid[m] / planted.max(1) as f64,
             off[m] / planted.max(1) as f64,
-            mean(&errs[m])
+            mean(&errs[m]),
+            100.0 * pops[m] as f64 / joint_frames.max(1) as f64
         );
     }
 }

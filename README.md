@@ -45,12 +45,13 @@ fn stream(source: &Skeleton, target: &Skeleton, poses: impl Iterator<Item = (f32
 }
 ```
 
-Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as soon
-as the source's are down and nearly still, held where they were shown the pose before so they don't slide as they
-settle; a clip walked in place is planted on the travel its feet imply, then kept in place. `Live::touching`, given both
-rigs' skins, keeps hands at the skin's distance too, just as the whole clip does. `Live::delayed(6)` plays each pose six
-poses late, a fifth of a second at 30 a second, and plants feet with those six in sight as the whole clip does: eased in
-before they land, held where they stand on average.
+Arms kept out of the body and hands together come out just as the whole clip's do; hands go on the head as the whole
+clip's do, but are eased on as the source's get there, not ahead. Feet plant as soon as the source's are down and nearly
+still, held where they were shown the pose before so they don't slide as they settle; a clip walked in place is planted
+on the travel its feet imply, then kept in place. `Live::touching`, given both rigs' skins, keeps hands at the skin's
+distance too, just as the whole clip does. `Live::delayed(6)` plays each pose six poses late, a fifth of a second at 30
+a second, and plants feet with those six in sight as the whole clip does: eased in before they land, held where they
+stand on average.
 
 The videos are rendered by `examples/video.rs`: the source, dittomo's copy, and the same clip with each bone's rotation
 copied by name, side by side, skinned and drawn on the CPU and piped to `ffmpeg`.
@@ -158,17 +159,19 @@ planted (within 5% of its height of the lowest it gets, moving under a tenth of 
 the target's foot moves each such frame; sole height off is how far its sole is from where the source's is, scaled; both
 are over the target's height. The sole is whichever of the foot and toe joints is lowest against the source's, each
 counted from where it stands at rest: a flat foot stands on its ankle's height and one rolled onto its toes on its
-toes'. Clips walked in place are judged on the travel their feet imply.
+toes'. Clips walked in place are judged on the travel their feet imply. Pops count how often a fix jerks a joint: of the
+frames of every joint both rigs label, the share where the joint, about the hips, is further from where it would be
+moving steadily from the frame before to the one after than the source's is, by over 1% of the height.
 
-| Fixes | Foot slide | Sole height off | Limb directions, mean |
-| --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00388 | 0.0097 | 1.7° |
-| travel | 0.00118 | 0.0097 | 1.7° |
-| planted feet | 0.00333 | 0.0015 | 2.9° |
-| push-out | 0.00388 | 0.0097 | 1.7° |
-| all (`apply_with`) | 0.00004 | 0.0015 | 3.0° |
-| all, live (`Live`) | 0.00006 | 0.0016 | 3.2° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00006 | 0.0015 | 3.0° |
+| Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
+| --- | ---: | ---: | ---: | ---: |
+| none (`apply`) | 0.00388 | 0.0097 | 1.7° | 0.03% |
+| travel | 0.00118 | 0.0097 | 1.7° | 0.03% |
+| planted feet | 0.00333 | 0.0015 | 2.8° | 0.48% |
+| push-out | 0.00388 | 0.0097 | 1.7° | 0.03% |
+| all (`apply_with`) | 0.00004 | 0.0015 | 3.0° | 0.57% |
+| all, live (`Live`) | 0.00006 | 0.0016 | 3.2° | 0.84% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00006 | 0.0015 | 3.0° | 1.20% |
 
 Together they cut foot slide about a hundred times and the height error 6.5 times. The degree they cost is the legs
 bending to keep feet down where the target's stride and leg proportions differ from the source's. Played live, with
@@ -366,7 +369,8 @@ tails are left out, and fingers hanging low aren't taken for feet.
   follow as the head turns. The head's size comes from its skin with `apply_touching`, else from the bone at its top,
   where there is one. A hand that can't get there (short arms on a big head) goes as near as it can over the head's
   surface, not into it, and the elbow swings round the line from shoulder to hand till the arm is no deeper in the head
-  than the source's.
+  than the source's. A hand darting to the head is eased on over a quarter of a second, ahead of the source's, moving a
+  share of the way to where it lands so it arrives along its own path; one sweeping past the head is left alone.
 - **Touch** (`Mapping::apply_touching`, given each rig's `Surface`; `load::Model` reads it as `skin` from the skinned
   mesh). Each skin is thinned to points about 1/80 of the height apart, each bound to the bone that moves it most;
   a face wider than that, all of it moving with one bone (a box for a head), is filled in between its corners.
