@@ -136,7 +136,7 @@ jobs:
           key: animals-${{ hashFiles('dittomo/bench/animals/fetch.sh') }}
       - run: sh bench/animals/fetch.sh
         working-directory: dittomo
-      - run: cargo bench --features fs --bench animals -- --min 100 --max-posture 1 --max-floor 1 --max-body 3.5 | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cargo bench --features fs --bench animals -- --min 100 --max-posture 1 --max-floor 1 --max-body 2 | tee -a "$GITHUB_STEP_SUMMARY"
         shell: bash
         working-directory: dittomo
 

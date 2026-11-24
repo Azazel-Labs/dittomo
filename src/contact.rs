@@ -1464,14 +1464,15 @@ pub(crate) fn push_pose(target: &Skeleton, body: &Body, path: &[usize], pose: &m
 ///
 /// Feet placed after ([`Feet`], [`plant`]) may bend a knee back under the floor: [`Self::knees`] then swings the leg
 /// about the line from its hip to its foot, the least that brings the knee and the bones down to the foot over it, so
-/// the foot stays where it was put.
+/// the foot stays where it was put, or failing that turns it about its hip.
 pub(crate) struct Floor {
     /// Each bone's source bone.
     sources: Vec<Option<usize>>,
     /// For each bone lifted this way, the bones lifted with it: itself, and those hanging from it if more than one.
     lifted: Vec<Vec<usize>>,
-    /// Each leg, the bones from the root to its foot, and those between its hip and its foot.
-    legs: Vec<(Limb, Vec<usize>, Vec<usize>)>,
+    /// Each leg, the bones from the root to its foot, those between its hip and its foot, and the axis it bends about
+    /// at rest in the frame of the bone it hangs from.
+    legs: Vec<(Limb, Vec<usize>, Vec<usize>, Vec3)>,
     /// The target's bones to place, and the source's ([`place_source`]).
     t_path: Vec<usize>,
     s_path: Vec<usize>,
@@ -1496,7 +1497,7 @@ impl Floor {
                 _ => Vec::new(),
             })
             .collect();
-        let legs: Vec<(Limb, Vec<usize>, Vec<usize>)> = legs_of(target, t)
+        let legs: Vec<(Limb, Vec<usize>, Vec<usize>, Vec3)> = legs_of(target, t)
             .into_iter()
             .map(|leg| {
                 let mut between = Vec::new();
@@ -1505,7 +1506,9 @@ impl Floor {
                     between.push(x);
                     b = parent(x);
                 }
-                (leg, paths(target, [leg.end]), between)
+                let hung = parent(leg.upper).map_or(Quat::IDENTITY, |p| t.rest[p].rotation);
+                let bend = hung.inverse() * t.rest[leg.upper].rotation * leg.bend;
+                (leg, paths(target, [leg.end]), between, bend)
             })
             .collect();
         let ends: Vec<usize> = lifted.iter().flatten().copied().collect();
@@ -1566,30 +1569,65 @@ impl Floor {
     }
 
     /// Swings each leg of `pose` whose knee, or a bone between it and the foot, is under the floor about the line from
-    /// its hip to its foot, the least that brings them all over it, or as near as the leg allows.
+    /// its hip to its foot, the least that brings them all over it, so the foot stays where it was put. A leg folded
+    /// too far for that, its foot nearer the hip than it can bend to reach, or that would have to turn its knee out
+    /// to the side, turns about its hip instead, in the plane it bends in at rest, as a crouching animal rests on its
+    /// hocks: the foot comes up with it, never down. Failing both, whichever leaves the lowest of them highest.
     pub(crate) fn knees(&self, target: &Skeleton, pose: &mut [Transform], scratch: &mut Scratch) {
+        use std::f32::consts::FRAC_PI_4;
         let Scratch { tw, waves, edges, .. } = scratch;
         let low = self.floors[1];
         let parent = |b: usize| target.bones()[b].parent;
-        for (leg, path, between) in &self.legs {
+        for (leg, path, between, bend) in &self.legs {
             place(target, pose, path, tw);
-            if between.iter().all(|&b| tw[b].position().y >= low) {
+            let lowest = |tw: &[At]| {
+                between
+                    .iter()
+                    .map(|&b| tw[b].position().y)
+                    .fold(f32::INFINITY, f32::min)
+            };
+            let (a, c) = (tw[leg.upper].position(), tw[leg.end].position());
+            let slack = 1e-4 * (c - a).length();
+            let mut best = lowest(tw);
+            if best >= low - slack {
                 continue;
             }
-            let (a, c) = (tw[leg.upper].position(), tw[leg.end].position());
-            let Some(axis) = (c - a).try_normalize() else {
-                continue;
-            };
-            let points = between.iter().map(|&b| (tw[b].position(), low));
-            let Some(angle) = least_turn(a, axis, points, 1e-5 * (c - a).length(), waves, edges) else {
-                continue;
-            };
-            let turn = Quat::from_axis_angle(axis, angle);
-            let world_rot = |b: Option<usize>| b.map_or(Quat::IDENTITY, |p| tw[p].rotation);
-            pose[leg.upper].rotation =
-                (world_rot(parent(leg.upper)).inverse() * turn * tw[leg.upper].rotation).normalize();
-            // The foot keeps its turn, as it does where it was put.
-            pose[leg.end].rotation = ((turn * world_rot(parent(leg.end))).inverse() * tw[leg.end].rotation).normalize();
+            let kept = [pose[leg.upper].rotation, pose[leg.end].rotation];
+            let mut chosen = kept;
+            // About the foot, splaying the knee out a little; about the hip; about the foot, however far.
+            for (about_foot, most) in [(true, FRAC_PI_4), (false, f32::INFINITY), (true, f32::INFINITY)] {
+                [pose[leg.upper].rotation, pose[leg.end].rotation] = kept;
+                place(target, pose, path, tw);
+                let world_rot = |b: Option<usize>| b.map_or(Quat::IDENTITY, |p| tw[p].rotation);
+                let axis = if about_foot {
+                    c - a
+                } else {
+                    world_rot(parent(leg.upper)) * *bend
+                };
+                let Some(axis) = axis.try_normalize() else {
+                    continue;
+                };
+                let foot = (!about_foot).then(|| (c, low.min(c.y)));
+                let points = between.iter().map(|&b| (tw[b].position(), low)).chain(foot);
+                let Some(angle) = least_turn(a, axis, points, slack, waves, edges).filter(|t| t.abs() <= most) else {
+                    continue;
+                };
+                let turn = Quat::from_axis_angle(axis, angle);
+                pose[leg.upper].rotation =
+                    (world_rot(parent(leg.upper)).inverse() * turn * tw[leg.upper].rotation).normalize();
+                // The foot keeps its turn, as it does where it was put.
+                pose[leg.end].rotation =
+                    ((turn * world_rot(parent(leg.end))).inverse() * tw[leg.end].rotation).normalize();
+                place(target, pose, path, tw);
+                let now = lowest(tw);
+                if now > best {
+                    (best, chosen) = (now, [pose[leg.upper].rotation, pose[leg.end].rotation]);
+                }
+                if now >= low - slack {
+                    break;
+                }
+            }
+            [pose[leg.upper].rotation, pose[leg.end].rotation] = chosen;
         }
     }
 }

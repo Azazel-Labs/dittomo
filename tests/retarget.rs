@@ -1061,6 +1061,11 @@ fn fox() -> Skeleton {
 
 /// The fox, its right forepaw raised a little, its right foreleg that much shorter.
 fn fox_with_right_hand_up(up: f32) -> Skeleton {
+    placed(&fox_joints(up))
+}
+
+/// [`fox_with_right_hand_up`]'s joints.
+fn fox_joints(up: f32) -> Joints {
     let mut j: Joints = vec![
         joint("b_Root_00", None, [0.0, 0.0, 0.0]),
         joint("b_Hip_01", Some("b_Root_00"), [0.0, 0.707, -0.44]),
@@ -1094,7 +1099,7 @@ fn fox_with_right_hand_up(up: f32) -> Skeleton {
             }
         }
     }
-    placed(&j)
+    j
 }
 
 #[test]
@@ -1128,6 +1133,79 @@ fn a_tail_lying_down_lies_on_the_floor() {
     });
     assert!(tip_y.abs() < 1e-4, "the tail's tip at {tip_y}");
     assert!((hip_y - 0.147).abs() < 1e-4, "the hips at {hip_y}");
+}
+
+#[test]
+fn a_crouch_deeper_than_a_leg_folds_rests_on_its_hocks() {
+    // A dog whose hind legs fold tight (short above the hock, long below) crouches with its hips low and its paws planted
+    // under them, played on a husky's build, long above the hock: its legs can't fold that far, and folded flat, the
+    // hocks point through the floor. Swinging about hip to paw can't lift a leg folded flat, so it turns about its hip,
+    // as it bends, laying the hock on the floor behind; the paw comes up a little.
+    let hock_held = |sk: Skeleton| {
+        let w = sk.world(&sk.rest());
+        let mut bones = sk.bones().to_vec();
+        for side in ["L", "R"] {
+            let (ik, hock) = (
+                sk.index_of(&format!("IKBackLeg.{side}")),
+                sk.index_of(&format!("BackLowerLeg.{side}")),
+            );
+            let (ik, hock) = (ik.unwrap(), hock.unwrap());
+            bones[ik].parent = Some(hock);
+            bones[ik].rest.translation = w[ik].position() - w[hock].position();
+        }
+        bones
+    };
+    let target = Skeleton::new(hock_held(dog("Neck3"))).unwrap();
+    let mut bones = hock_held(dog("Neck3"));
+    for b in 0..bones.len() {
+        if bones[b].name.starts_with("BackLowerLeg") {
+            let up = Vec3::new(0.0, 0.15, 0.2);
+            bones[b].rest.translation += up;
+            let paw = (0..bones.len()).find(|&c| bones[c].parent == Some(b)).unwrap();
+            bones[paw].rest.translation -= up;
+        }
+    }
+    let source = Skeleton::new(bones).unwrap();
+    let down = 0.17;
+    let mut pose = source.rest();
+    pose[source.index_of("Body").unwrap()].translation.y -= down;
+    let rest = source.world(&source.rest());
+    for side in ["L", "R"] {
+        let at = |n: &str| source.index_of(&format!("{n}.{side}")).unwrap();
+        let limb = dittomo::contact::Limb {
+            upper: at("BackUpperLeg"),
+            lower: at("BackLowerLeg"),
+            end: at("IKBackLeg"),
+            bend: Vec3::X,
+        };
+        let (hip, paw) = (rest[limb.upper].position(), rest[limb.end].position());
+        dittomo::contact::reach(&source, &mut pose, &limb, Vec3::new(paw.x, paw.y, hip.z));
+    }
+    let hock = source.index_of("BackLowerLeg.L").unwrap();
+    assert!(source.world(&pose)[hock].position().y > 0.3, "the source's hock is up");
+    let clip = Clip {
+        times: (0..30).map(|i| i as f32 / 30.0).collect(),
+        poses: vec![pose; 30],
+    };
+    let map = Mapping::new(&source, &target);
+    let played = |fixes: Fixes| {
+        let out = map.apply_with(&source, &target, &clip, fixes).unwrap();
+        let world = target.world(&out.poses[15]);
+        let at = |n: &str| world[target.index_of(n).unwrap()].position();
+        (at("BackLowerLeg.L"), at("IKBackLeg.L"))
+    };
+    let (sunk, _) = played(Fixes {
+        floor: false,
+        ..Fixes::ALL
+    });
+    assert!(sunk.y < -0.1, "the hock at {sunk} unfixed");
+    let (hock, paw) = played(Fixes::ALL);
+    assert!(hock.y.abs() < 1e-3, "the hock at {hock}");
+    assert!(
+        (hock.x - 0.127).abs() < 0.02 && hock.z < -0.35,
+        "the hock behind, beside the hip: {hock}"
+    );
+    assert!(paw.y > 0.045 && paw.y < 0.1, "the paw at {paw}");
 }
 
 #[test]

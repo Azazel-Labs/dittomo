@@ -434,8 +434,11 @@ them through it: a longer tail, a lower belly, a bone playing nothing. With `Fix
 the floor than the bone it plays comes under the source's, scaled. A bone that would turns the bone it hangs from just
 enough to lay it along the ground, keeping its heading, and the next bone down from that, as an animator lays a tail; a
 head lifts with its ears. A knee that planted feet bend back under the floor swings the leg about the line from hip to
-foot, so the foot stays put. Over every Quaternius and Fox clip played on each other animal, the worst bone under the
-floor past the source's went from 11% of the target's height to under 3%.
+foot, so the foot stays put. A leg that can't fold as far as the source's, its paw planted nearer the hip than it can
+reach, folds flat with its hock pointing down, and no swing about hip to foot lifts it: it turns about the hip instead,
+as it bends, and rests on its hock as a crouching dog does, its paw coming up a little. Over every Quaternius and Fox
+clip played on each other animal, the worst bone under the floor past the source's went from 11% of the target's height
+to 1.2%.
 
 ## Tested on
 
