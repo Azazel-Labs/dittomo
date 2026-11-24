@@ -1296,6 +1296,37 @@ fn paws_held_from_the_root_go_with_their_legs() {
 }
 
 #[test]
+fn hips_with_the_legs_above_them_play_hips_with_the_legs_below_untwisted() {
+    // The fox's hips start its spine, tail and legs all above them, the husky's its legs below. Fitting the one's
+    // directions to the other's turned the husky's hips half round, legs swapped, and rolled them as the fox's hips
+    // swayed. They turn from rest as the fox's do.
+    let (fox, dog) = (fox(), dog("Neck3"));
+    let map = Mapping::new(&fox, &dog);
+    let (hip, back) = (fox.index_of("b_Hip_01").unwrap(), dog.index_of("Back").unwrap());
+    assert_eq!(map.source_of(back), Some(hip));
+    let n = 12;
+    let clip = Clip {
+        times: (0..n).map(|f| f as f32 / 12.0).collect(),
+        poses: (0..n)
+            .map(|f| {
+                let t = f as f32 * 0.5;
+                let mut pose = fox.rest();
+                pose[hip].rotation = Quat::from_rotation_z(0.2 * t.sin()) * Quat::from_rotation_x(0.1 * t.cos());
+                pose
+            })
+            .collect(),
+    };
+    let out = map.apply(&fox, &dog, &clip).expect("plays");
+    let (fox_rest, dog_rest) = (fox.world(&fox.rest()), dog.world(&dog.rest()));
+    for (f, pose) in out.poses.iter().enumerate() {
+        let swayed = fox.world(&clip.poses[f])[hip].rotation * fox_rest[hip].rotation.inverse();
+        let played = dog.world(pose)[back].rotation * dog_rest[back].rotation.inverse();
+        let off = swayed.angle_between(played).to_degrees();
+        assert!(off < 1.0, "frame {f}: the husky's hips {off}° from the fox's sway");
+    }
+}
+
+#[test]
 fn a_head_with_the_ears_beside_it_plays_one_with_the_ears_on_it() {
     // The Quaternius husky hangs its ears from the neck beside the head, and the horse from the head. The match keeps
     // what's under a bone under its partner, so it paired the eight ear bones and left the heads out.

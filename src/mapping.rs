@@ -8,7 +8,7 @@
 //! mapping of Zhang, 1996, which pairs up subtrees with the Hungarian method and so stays fast whatever the order of
 //! children.)
 
-use glam::Quat;
+use glam::{Quat, Vec3};
 
 use crate::assign::assign;
 use crate::contact::{self, Fixes};
@@ -35,6 +35,7 @@ pub struct Mapping {
     sources: usize,
     quality: f32,
     turn: Quat,
+    left: Vec3,
 }
 
 impl Mapping {
@@ -59,6 +60,7 @@ impl Mapping {
             sources: source.len(),
             quality: 0.0,
             turn: t.frame * s.frame.inverse(),
+            left: t.frame * Vec3::X,
         };
         mapping.quality = mapping.weigh(&t);
         // Back to the rigs' own orders.
@@ -115,6 +117,11 @@ impl Mapping {
     #[must_use]
     pub fn turn(&self) -> Quat {
         self.turn
+    }
+
+    /// The target body's left, in the world.
+    pub(crate) fn left(&self) -> Vec3 {
+        self.left
     }
 
     /// Make a target bone play another source bone, or none. For a bone the match got wrong; a pair that breaks the

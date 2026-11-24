@@ -362,7 +362,10 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// pose (arms down or out), so they are matched by direction. The spine, hips to chest, is matched rest to rest as
 /// well: every rig stands upright at rest, and how far its chest sits ahead of its hips or behind, or where the legs
 /// and arms hang from them, is anatomy too (one rig's back curves, another's hip joints sit behind its pelvis bone), so
-/// fitting those would tip the pelvis or hunch the chest of a target standing as the source stands.
+/// fitting those would tip the pelvis or hunch the chest of a target standing as the source stands. So is any bone on
+/// the body's middle in both, as a tail or a pelvis bone the spine doesn't reach: its children fan out every way, and
+/// one rig's hips with the legs starting above them and another's with them below fit best with a half turn, legs
+/// swapped and the hips twisted.
 fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Vec<(usize, usize, f32)>) {
     let n = t.children.len();
     let (s_neck, t_neck) = (contact::above_chest(source, s), contact::above_chest(target, t));
@@ -370,6 +373,14 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
     let (s_feet, t_feet) = (feet(source, s), feet(target, t));
     let turn = map.turn();
     let mapped = |b: usize| map.source_of(b);
+    let left = map.left();
+    // Whether a bone is on the body's middle, as far across it as the middle bone.
+    let middle = |shape: &Shape, b: usize, left: Vec3| {
+        (shape.rest[b].position() - shape.rest[shape.middle].position())
+            .dot(left)
+            .abs()
+            < 0.01 * shape.height
+    };
     // The first mapped bones down each path from every bone, and how many bones are under each.
     let mut under = vec![1usize; n];
     for i in (0..n).rev() {
@@ -446,6 +457,8 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
                     })
             }
             [] => above(b).and_then(|p| fixes[p]).unwrap_or(Quat::IDENTITY),
+            // As a fox's hips, its legs starting above them, onto a husky's, its legs starting below.
+            _ if middle(s, a, turn.inverse() * left) && middle(t, b, left) => Quat::IDENTITY,
             [(u, v)] => Quat::from_rotation_arc(u.normalize(), v.normalize()),
             [(u1, v1), rest @ ..] => {
                 let second = rest.iter().find(|(u2, v2)| {
