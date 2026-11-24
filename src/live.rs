@@ -1,18 +1,18 @@
 //! Retargeting as the poses come, with the contact fixes made frame by frame from the poses so far: a character driven
 //! by motion capture streaming in, a networked player, another animation system's output.
 
-use crate::contact::{self, Ahead, Body, Feet, Hands, OnHead, Scratch, Travel};
+use crate::contact::{self, Ahead, Body, Feet, Hands, OnHead, Scratch, Touch, Travel};
 use crate::shape::Shape;
-use crate::{Error, Fixes, Mapping, Player, Skeleton, Transform};
+use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 
 /// Plays poses of one skeleton on another as they come, a frame at a time, without allocating, and fixes each up as
 /// [`Mapping::apply_with`] fixes a clip, but from the poses so far, with nothing ahead to look at.
 ///
-/// Arms are kept out of the body, hands brought together and kept on the head just as the whole clip has them, as
-/// those fixes look only at the pose in hand. Planted feet and travel are worked out as the poses come: a foot plants
-/// as soon as the source's is down and nearly still and lets go once it lifts, held where it was when it planted; a
-/// clip walked in place moves on as far as the planted foot slides back. Keeping hands at the skin's distance
-/// ([`Fixes::touch`]) is left out, as it needs skins and the whole clip's work.
+/// Arms are kept out of the body, hands brought together, kept on the head and, given skins ([`Live::touching`]), kept
+/// at the skin's distance just as the whole clip has them, as those fixes look only at the pose in hand. Planted feet
+/// and travel are worked out as the poses come: a foot plants as soon as the source's is down and nearly still and lets
+/// go once it lifts, held where it was when it planted; a clip walked in place moves on as far as the planted foot
+/// slides back.
 ///
 /// A foot can be held only once it has landed, where the whole clip eases it toward where it will land, so planted
 /// feet slide more. [`Live::delayed`] plays each pose a few poses late, and plants feet with those few in sight as the
@@ -40,6 +40,7 @@ pub struct Live {
     push_out: Option<Vec<usize>>,
     hands: Option<Hands>,
     head: Option<OnHead>,
+    touch: Option<Touch>,
     /// The source's pose with its travel.
     walked: Vec<Transform>,
     /// The source bones placed once for every fix looking at the pose as it comes, and, if poses are played late,
@@ -56,24 +57,48 @@ pub struct Live {
 }
 
 impl Live {
-    /// A live player for this mapping between these skeletons, making these fixes (all but touch).
+    /// A live player for this mapping between these skeletons, making these fixes (all but touch, which needs skins:
+    /// see [`Live::touching`]).
     ///
     /// # Errors
     /// [`Error::NotTheirMapping`] if the mapping was made for skeletons of other sizes.
     pub fn new(map: &Mapping, source: &Skeleton, target: &Skeleton, fixes: Fixes) -> Result<Self, Error> {
+        Self::touching(map, source, target, [&Surface::default(), &Surface::default()], fixes)
+    }
+
+    /// [`Live::new`], knowing each rig's skin (source's first), as [`Mapping::apply_touching`] does: a hand as near its
+    /// skin as to touch it keeps the same gap to the target's. An empty [`Surface`] leaves that fix out.
+    ///
+    /// # Errors
+    /// [`Error::NotTheirMapping`] if the mapping was made for skeletons of other sizes.
+    pub fn touching(
+        map: &Mapping,
+        source: &Skeleton,
+        target: &Skeleton,
+        skins: [&Surface; 2],
+        fixes: Fixes,
+    ) -> Result<Self, Error> {
         if source.len() != map.sources() || target.len() != map.pairs().len() {
             return Err(Error::NotTheirMapping);
         }
         let (s, t) = (Shape::light(source), Shape::light(target));
         let rigs = [(source, &s), (target, &t)];
         let player = Player::of_shapes(map, source, target, &s, &t);
-        let both = fixes.hands || fixes.head;
-        let t_body = (fixes.push_out || both).then(|| contact::body(target, &t)).flatten();
-        let s_body = both.then(|| contact::body(source, &s)).flatten();
-        let (mut hands, mut head) = (None, None);
+        let both = fixes.touch || fixes.hands || fixes.head;
+        let mut t_body = (fixes.push_out || both).then(|| contact::body(target, &t)).flatten();
+        let mut s_body = both.then(|| contact::body(source, &s)).flatten();
+        // With skins, each head is as big as its skin shows, not as its bones suggest.
+        for (body, shape, skin) in [(&mut s_body, &s, skins[0]), (&mut t_body, &t, skins[1])] {
+            if let Some(b) = body {
+                b.fit_head(shape, skin);
+            }
+        }
+        let (mut hands, mut head, mut touch) = (None, None, None);
         if let (Some(sb), Some(tb)) = (&s_body, &t_body) {
             hands = fixes.hands.then(|| Hands::new(map, rigs, [sb, tb])).flatten();
             head = fixes.head.then(|| OnHead::new(map, rigs, [sb, tb])).flatten();
+            let skinned = [(source, &s, skins[0]), (target, &t, skins[1])];
+            touch = fixes.touch.then(|| Touch::new(map, skinned, [sb, tb])).flatten();
         }
         let push_out = t_body.as_ref().filter(|_| fixes.push_out).map(|b| b.path(target));
         let mut live = Self {
@@ -84,6 +109,7 @@ impl Live {
             body: t_body,
             hands,
             head,
+            touch,
             walked: source.rest(),
             s_now: Vec::new(),
             s_due: Vec::new(),
@@ -105,12 +131,13 @@ impl Live {
         let feet = self.feet.as_ref().map_or(empty, Feet::s_path);
         let hands = self.hands.as_ref().map_or(empty, Hands::s_path);
         let head = self.head.as_ref().map_or(empty, OnHead::s_path);
+        let touch = self.touch.as_ref().map_or(empty, Touch::s_path);
         if self.kept.is_empty() {
-            self.s_now = contact::union(&[travel, feet, hands, head]);
+            self.s_now = contact::union(&[travel, feet, hands, head, touch]);
             self.s_due = Vec::new();
         } else {
             self.s_now = contact::union(&[travel, feet]);
-            self.s_due = contact::union(&[hands, head]);
+            self.s_due = contact::union(&[hands, head, touch]);
         }
     }
 
@@ -215,6 +242,9 @@ impl Live {
         if let Some(h) = &self.head {
             h.placed(&self.target, out, &mut self.scratch);
         }
+        if let Some(t) = &mut self.touch {
+            t.placed(&self.target, out, &mut self.scratch);
+        }
         Ok(())
     }
 
@@ -251,6 +281,9 @@ impl Live {
         }
         if let Some(h) = &self.head {
             h.placed(&self.target, out, &mut self.scratch);
+        }
+        if let Some(t) = &mut self.touch {
+            t.placed(&self.target, out, &mut self.scratch);
         }
         Ok(())
     }

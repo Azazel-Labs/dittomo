@@ -1003,6 +1003,68 @@ fn live_claps_and_keeps_out_of_the_body_as_the_whole_clip_does() {
 }
 
 #[test]
+fn live_keeps_hands_at_the_skins_distance_as_the_whole_clip_does() {
+    let sk = common::mixamo();
+    let map = Mapping::new(&sk, &sk);
+    let (thin, thick) = (skin(&sk, 10.0), skin(&sk, 16.0));
+    let arm = contact::arms(&sk)[0];
+    let x = at(&sk, &sk.rest(), arm.end).x.signum();
+    // The hand lowered from held out onto the thin body's hip, and lifted off again.
+    let mut on_hip = sk.rest();
+    contact::reach(&sk, &mut on_hip, &arm, Vec3::new(x * 11.5, 105.0, 0.0));
+    let n = 24;
+    let poses: Vec<Vec<Transform>> = (0..n)
+        .map(|f| {
+            let t = 1.0 - (2.0 * f as f32 / (n - 1) as f32 - 1.0).abs();
+            sk.rest()
+                .iter()
+                .zip(&on_hip)
+                .map(|(a, b)| Transform {
+                    rotation: a.rotation.slerp(b.rotation, t),
+                    ..*a
+                })
+                .collect()
+        })
+        .collect();
+    let clip = Clip {
+        times: (0..n).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    };
+    let fixes = Fixes {
+        push_out: true,
+        hands: true,
+        head: true,
+        touch: true,
+        ..Fixes::NONE
+    };
+    let whole = map.apply_touching(&sk, &sk, [&thin, &thick], &clip, fixes).unwrap();
+    assert_ne!(
+        whole,
+        map.apply_with(&sk, &sk, &clip, fixes).unwrap(),
+        "touch moves the hand"
+    );
+    for delay in [0, 3] {
+        let mut live = Live::touching(&map, &sk, &sk, [&thin, &thick], fixes)
+            .unwrap()
+            .delayed(delay);
+        let mut out = sk.rest();
+        let played: Vec<Vec<Transform>> = (0..n + delay)
+            .map(|f| {
+                live.pose(1.0 / 30.0, &clip.poses[f.min(n - 1)], &mut out).unwrap();
+                out.clone()
+            })
+            .skip(delay)
+            .collect();
+        let played = Clip {
+            times: clip.times.clone(),
+            poses: played,
+        };
+        let off = close(&whole, &played);
+        assert!(off < 1e-4, "{delay} late: {off}");
+    }
+}
+
+#[test]
 fn live_starts_over_when_reset() {
     let source = common::mixamo();
     let target = long_legs(&source, 1.3);

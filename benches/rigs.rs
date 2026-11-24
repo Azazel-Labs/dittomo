@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use dittomo::load::Model;
-use dittomo::{Clip, Fixes, Live, Mapping, Quat, Skeleton, Transform, Vec3};
+use dittomo::{Clip, Fixes, Live, Mapping, Quat, Skeleton, Surface, Transform, Vec3};
 use glam::Mat3;
 
 const JOINTS: [&str; 23] = [
@@ -666,7 +666,21 @@ height off are per planted frame, over the target's height"
 /// The clip played a pose at a time by a [`Live`] making every fix it makes, `delay` poses late. The last pose is played
 /// again until every pose has come out.
 fn live(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip, delay: usize) -> Clip {
-    let mut live = Live::new(map, source, target, Fixes::ALL).expect("fits").delayed(delay);
+    let empty = Surface::default();
+    live_touching(map, [source, target], [&empty, &empty], clip, delay)
+}
+
+/// [`live`], knowing each rig's skin.
+fn live_touching(
+    map: &Mapping,
+    [source, target]: [&Skeleton; 2],
+    skins: [&Surface; 2],
+    clip: &Clip,
+    delay: usize,
+) -> Clip {
+    let mut live = Live::touching(map, source, target, skins, Fixes::ALL)
+        .expect("fits")
+        .delayed(delay);
     live.moving_in(clip).expect("poses the source");
     let mut out = target.rest();
     let n = clip.poses.len();
@@ -691,12 +705,13 @@ fn live(map: &Mapping, source: &Skeleton, target: &Skeleton, clip: &Clip, delay:
     }
 }
 
-/// Every clip played on every other rig with a skin, with all fixes but touch and with all of them. While a source hand
+/// Every clip played on every other rig with a skin, with all fixes but touch and with all of them, the whole clip at
+/// once and live. While a source hand
 /// is near its body (its gap to the skin under 3% of its height): how far the target's gap is from the source's, both
 /// over their heights. And over every frame: how often a target hand is in its body by more than 1% of its height when
 /// the source's isn't.
 fn touching(rigs: &[Rig]) {
-    const RUNS: [(&str, Fixes); 2] = [
+    const RUNS: [(&str, Fixes); 3] = [
         (
             "all but touch",
             Fixes {
@@ -705,6 +720,7 @@ fn touching(rigs: &[Rig]) {
             },
         ),
         ("all (`apply_touching`)", Fixes::ALL),
+        ("all, live (`Live::touching`)", Fixes::ALL),
     ];
     let joints = ["l_hand", "r_hand", "l_upperarm", "r_upperarm"];
     let ready = |r: &Rig| !r.model.skin.is_empty() && joints.iter().all(|j| r.labels.contains_key(*j));
@@ -728,13 +744,12 @@ fn touching(rigs: &[Rig]) {
                     times: clip.times.iter().step_by(step).copied().collect(),
                     poses: clip.poses.iter().step_by(step).cloned().collect(),
                 };
-                let played: Vec<Clip> = RUNS
+                let skins = [&s.model.skin, &t.model.skin];
+                let mut played: Vec<Clip> = RUNS[..2]
                     .iter()
-                    .map(|(_, fixes)| {
-                        map.apply_touching(ss, ts, [&s.model.skin, &t.model.skin], &clip, *fixes)
-                            .expect("plays")
-                    })
+                    .map(|(_, fixes)| map.apply_touching(ss, ts, skins, &clip, *fixes).expect("plays"))
                     .collect();
+                played.push(live_touching(&map, [ss, ts], skins, &clip, 0));
                 for (f, pose) in clip.poses.iter().enumerate() {
                     let sw = ss.world(pose);
                     for hand in ["l_hand", "r_hand"] {

@@ -10,7 +10,7 @@
 use glam::{Affine3A, Quat, Vec3, Vec3A};
 
 use crate::shape::Shape;
-use crate::surface::{Surface, under};
+use crate::surface::{Balls, Surface, under};
 use crate::{Clip, Mapping, Skeleton, Transform};
 
 /// The fixes [`Mapping::apply_with`] makes. All are on by default.
@@ -1192,6 +1192,25 @@ struct At {
     rotation: Quat,
 }
 
+impl crate::surface::Frame for At {
+    fn point(&self, p: Vec3) -> Vec3 {
+        self.matrix.transform_point3(p)
+    }
+
+    fn turn(&self) -> Quat {
+        self.rotation
+    }
+
+    fn scale(&self) -> f32 {
+        let m = &self.matrix.matrix3;
+        m.x_axis
+            .length_squared()
+            .max(m.y_axis.length_squared())
+            .max(m.z_axis.length_squared())
+            .sqrt()
+    }
+}
+
 impl At {
     const IDENTITY: Self = Self {
         matrix: Affine3A::IDENTITY,
@@ -1255,86 +1274,149 @@ fn place(skeleton: &Skeleton, pose: &[Transform], bones: &[usize], world: &mut [
 pub(crate) fn touch(
     map: &Mapping,
     rigs: [(&Skeleton, &Shape, &Surface); 2],
-    [s_body, t_body]: [&Body; 2],
+    bodies: [&Body; 2],
     from: &Clip,
     out: &mut Clip,
 ) {
-    let [(source, s, s_skin), (target, t, t_skin)] = rigs;
-    if s_skin.is_empty() || t_skin.is_empty() {
+    let Some(mut fix) = Touch::new(map, rigs, bodies) else {
         return;
-    }
-    // Each arm the two share: the target's limb, the source's hand, each hand's middle in its own frame, and the skin
-    // points of each hand and its fingers.
-    struct Arm {
-        limb: Limb,
-        source: usize,
-        middle: [Vec3; 2],
-        hand: [Vec<usize>; 2],
-    }
-    let arms: Vec<Arm> = t_body
-        .arms
-        .iter()
-        .filter_map(|ta| {
-            let a = map.source_of(ta.limb.end)?;
-            s_body.arms.iter().find(|sa| sa.limb.end == a)?;
-            let (cs, ct) = (s_skin.centre(a)?, t_skin.centre(ta.limb.end)?);
-            let (hs, ht) = (
-                s_skin.on(&under(source, &[a])),
-                t_skin.on(&under(target, &[ta.limb.end])),
-            );
-            Some(Arm {
-                limb: ta.limb,
-                source: a,
-                middle: [cs, ct],
-                hand: [hs, ht],
-            })
-        })
-        .collect();
-    if arms.is_empty() {
-        return;
-    }
-    // The skin a hand can touch: all but the arms, from the shoulder down.
-    let off_arms = |skeleton: &Skeleton, b: &Body| {
-        let off = under(skeleton, &b.arms.iter().map(|a| a.limb.upper).collect::<Vec<_>>());
-        off.into_iter().map(|o| !o).collect::<Vec<_>>()
     };
-    let (s_keep, t_keep) = (off_arms(source, s_body), off_arms(target, t_body));
-    let scale = t.height / s.height;
-    // Within `near` of the skin (over the height) a source hand is touching it; past `far` it is free.
-    let (near, far) = (0.015, 0.05);
-    let (mut s_pts, mut t_pts) = (Vec::new(), Vec::new());
+    let [(source, ..), (target, ..)] = rigs;
+    let mut scratch = Scratch::new(source, target);
     for (pose, played) in from.poses.iter().zip(&mut out.poses) {
-        let sw = source.world(pose);
-        s_skin.posed(&sw, |b| s_keep[b], &mut s_pts);
-        let mut tw = target.world(played);
-        t_skin.posed(&tw, |b| t_keep[b], &mut t_pts);
-        for Arm {
-            limb,
-            source: a,
-            middle: [cs, ct],
-            hand: [s_hand, t_hand],
-        } in &arms
-        {
-            let c = sw[*a].matrix.transform_point3(*cs);
-            let Some((g, _)) = s_skin.clearance(&s_pts, &sw, c, s_hand) else {
+        fix.pose([source, target], pose, played, &mut scratch);
+    }
+}
+
+/// Each arm the two rigs share, for [`Touch`]: the target's limb, the source's hand, each hand's middle in its own
+/// frame, and the skin points of each hand and its fingers.
+struct Reaching {
+    limb: Limb,
+    source: usize,
+    middle: [Vec3; 2],
+    hand: [Balls; 2],
+    /// The target's bones to place again once the arm has moved: those from its upper bone down.
+    below: Vec<usize>,
+}
+
+/// [`touch`], made ready for two rigs, then run a pose at a time.
+pub(crate) struct Touch {
+    skins: [Surface; 2],
+    arms: Vec<Reaching>,
+    /// The skin a hand can touch, by bone: all but the arms', from the shoulder down.
+    balls: [Balls; 2],
+    heights: [f32; 2],
+    s_path: Vec<usize>,
+    t_path: Vec<usize>,
+    /// The skin near a hand, posed.
+    points: Vec<(Vec3, Vec3)>,
+}
+
+impl Touch {
+    /// Nothing if either skin is empty, or no arm with skin on its hand plays the source's.
+    pub(crate) fn new(
+        map: &Mapping,
+        rigs: [(&Skeleton, &Shape, &Surface); 2],
+        [s_body, t_body]: [&Body; 2],
+    ) -> Option<Self> {
+        let [(source, s, s_skin), (target, t, t_skin)] = rigs;
+        if s_skin.is_empty() || t_skin.is_empty() {
+            return None;
+        }
+        // The bones under each hand, the hand's among them, on each rig.
+        let hands: Vec<(Limb, usize, [Vec<bool>; 2])> = played(map, s_body, t_body)
+            .into_iter()
+            .map(|(limb, a)| (limb, a, [under(source, &[a]), under(target, &[limb.end])]))
+            .collect();
+        let off_arms = |skeleton: &Skeleton, b: &Body| {
+            let off = under(skeleton, &b.arms.iter().map(|a| a.limb.upper).collect::<Vec<_>>());
+            off.into_iter().map(|o| !o).collect::<Vec<_>>()
+        };
+        let keep = [off_arms(source, s_body), off_arms(target, t_body)];
+        // Every bone the skin a hand can touch moves with, and every bone under a hand with skin.
+        let path = |skeleton: &Skeleton, skin: &Surface, k: usize| {
+            let on = |b: usize| keep[k][b] || hands.iter().any(|h| h.2[k][b]);
+            let ends = hands.iter().map(|h| if k == 0 { h.1 } else { h.0.end });
+            paths(skeleton, skin.bone.iter().copied().filter(|&b| on(b)).chain(ends))
+        };
+        let (s_path, t_path) = (path(source, s_skin, 0), path(target, t_skin, 1));
+        let arms: Vec<Reaching> = hands
+            .iter()
+            .filter_map(|(limb, a, [s_on, t_on])| {
+                let moved = under(target, &[limb.upper]);
+                Some(Reaching {
+                    limb: *limb,
+                    source: *a,
+                    middle: [s_skin.centre(*a)?, t_skin.centre(limb.end)?],
+                    hand: [s_skin.balls(|b| s_on[b]), t_skin.balls(|b| t_on[b])],
+                    below: t_path.iter().copied().filter(|&b| moved[b]).collect(),
+                })
+            })
+            .collect();
+        if arms.is_empty() {
+            return None;
+        }
+        Some(Self {
+            points: Vec::with_capacity(s_skin.len().max(t_skin.len())),
+            balls: [s_skin.balls(|b| keep[0][b]), t_skin.balls(|b| keep[1][b])],
+            skins: [s_skin.clone(), t_skin.clone()],
+            arms,
+            heights: [s.height, t.height],
+            s_path,
+            t_path,
+        })
+    }
+
+    /// The source bones to place ([`place_source`]) before [`Self::placed`].
+    pub(crate) fn s_path(&self) -> &[usize] {
+        &self.s_path
+    }
+
+    pub(crate) fn pose(
+        &mut self,
+        [source, target]: [&Skeleton; 2],
+        pose: &[Transform],
+        played: &mut [Transform],
+        scratch: &mut Scratch,
+    ) {
+        place(source, pose, &self.s_path, &mut scratch.sw);
+        self.placed(target, played, scratch);
+    }
+
+    /// [`Self::pose`], with the source's pose placed in `scratch` ([`Self::s_path`]).
+    pub(crate) fn placed(&mut self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch) {
+        // Within `near` of the skin (over the height) a source hand is touching it; past `far` it is free.
+        let (near, far) = (0.015, 0.05);
+        let ([s_skin, t_skin], [s_balls, t_balls]) = (&self.skins, &self.balls);
+        let [s_height, t_height] = self.heights;
+        let scale = t_height / s_height;
+        let pts = &mut self.points;
+        let Scratch { sw, tw, .. } = scratch;
+        place(target, played, &self.t_path, tw);
+        for arm in &self.arms {
+            let ([cs, ct], [s_hand, t_hand]) = (arm.middle, &arm.hand);
+            let c = sw[arm.source].matrix.transform_point3(cs);
+            s_skin.posed_near(s_balls, sw, c, pts);
+            let Some((g, _)) = s_skin.clearance(pts, sw, c, s_hand) else {
                 continue;
             };
             let g = g.max(0.0);
-            let x = ((g / s.height - near) / (far - near)).clamp(0.0, 1.0);
+            let x = ((g / s_height - near) / (far - near)).clamp(0.0, 1.0);
             let w = 1.0 - x * x * (3.0 - 2.0 * x);
-            let c = tw[limb.end].matrix.transform_point3(*ct);
-            let Some((now, facing)) = t_skin.clearance(&t_pts, &tw, c, t_hand) else {
+            let end = tw[arm.limb.end];
+            let c = end.matrix.transform_point3(ct);
+            t_skin.posed_near(t_balls, tw, c, pts);
+            let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand) else {
                 continue;
             };
             let mut want = now + w * (g * scale - now);
             // Out of the skin, unless so deep the nearest skin is likely the far side.
-            if now > -far * t.height {
+            if now > -far * t_height {
                 want = want.max(0.0);
             }
-            if (want - now).abs() > 1e-4 * t.height {
-                let goal = tw[limb.end].position() + facing * (want - now);
-                reach(target, played, limb, goal);
-                tw = target.world(played);
+            if (want - now).abs() > 1e-4 * t_height {
+                reach_in(target, played, tw, &arm.limb, end.position() + facing * (want - now));
+                place(target, played, &arm.below, tw);
             }
         }
     }

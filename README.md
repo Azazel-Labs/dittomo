@@ -44,9 +44,9 @@ fn stream(source: &Skeleton, target: &Skeleton, poses: impl Iterator<Item = (f32
 
 Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as
 soon as the source's are down and nearly still, and a clip walked in place moves on as far as the planted foot slides
-back. Keeping hands at the skin's distance needs the whole clip and is left out. `Live::delayed(6)` plays each pose six
-poses late, a fifth of a second at 30 a second, and plants feet with those six in sight as the whole clip does: eased
-in before they land, held where they stand on average.
+back. `Live::touching`, given both rigs' skins, keeps hands at the skin's distance too, just as the whole clip does.
+`Live::delayed(6)` plays each pose six poses late, a fifth of a second at 30 a second, and plants feet with those six
+in sight as the whole clip does: eased in before they land, held where they stand on average.
 
 The videos are rendered by `examples/video.rs`: the source, dittomo's copy, and the same clip with each bone's rotation
 copied by name, side by side, skinned and drawn on the CPU and piped to `ffmpeg`.
@@ -146,8 +146,9 @@ over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0293 | 0.0653 | 8.1% |
-| all (`apply_touching`) | 0.0108 | 0.0213 | 1.4% |
+| all but touch (`apply_with`) | 0.0290 | 0.0651 | 8.0% |
+| all (`apply_touching`) | 0.0106 | 0.0212 | 1.4% |
+| all, live (`Live::touching`) | 0.0106 | 0.0212 | 1.4% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
 2.7 times closer and hands end up inside the body a sixth as often.
@@ -200,7 +201,8 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 
 On a busier run, where mapping onto the mannequin took 3.2 ms and the walk with every fix 4.5 µs a frame, `Live`
 played the same walk with every fix but touch in 3.1 µs a frame, the walk done in place in 3.0 µs (the whole clip:
-4.9 µs), and the walk six poses late in 3.4 µs.
+4.9 µs), and the walk six poses late in 3.4 µs. Keeping hands at the skin's distance as well, with skins of 5,570 and
+6,697 points, takes about 4.5 times as long as the live walk without it (30 µs against 6.5 µs on a run twice as busy).
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
 is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):

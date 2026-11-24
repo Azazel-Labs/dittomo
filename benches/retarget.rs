@@ -15,7 +15,7 @@ mod common;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dittomo::{Clip, Fixes, Live, Mapping, Player, Skeleton, Transform};
+use dittomo::{Clip, Fixes, Live, Mapping, Player, Skeleton, Surface, Transform, Vec3};
 
 struct Case {
     name: &'static str,
@@ -125,6 +125,34 @@ fn dump(path: &str, source: &Skeleton, target: &Skeleton, clip: &Clip, mapping: 
     std::fs::write(path, body).expect("writes the rigs");
 }
 
+/// A rough skin for a rig: a tube round each bone, from it to each child, a twentieth of the rig's height thick,
+/// with a point about every hundredth of the height.
+fn skin(sk: &Skeleton) -> Surface {
+    let rest = sk.world(&sk.rest());
+    let ys = rest.iter().map(|p| p.position().y);
+    let height = ys.clone().fold(f32::MIN, f32::max) - ys.fold(f32::MAX, f32::min);
+    let (r, spacing) = (height / 40.0, height / 100.0);
+    let mut points = Vec::new();
+    for (c, bone) in sk.bones().iter().enumerate() {
+        let Some(b) = bone.parent else { continue };
+        let (a, z) = (rest[b].position(), rest[c].position());
+        let Some(along) = (z - a).try_normalize() else { continue };
+        let side = along.any_orthonormal_vector();
+        let up = along.cross(side);
+        let steps = ((z - a).length() / spacing).ceil().max(1.0) as usize;
+        let round = (std::f32::consts::TAU * r / spacing).ceil() as usize;
+        for i in 0..=steps {
+            let at = a.lerp(z, i as f32 / steps as f32);
+            for k in 0..round {
+                let t = k as f32 / round as f32 * std::f32::consts::TAU;
+                let n: Vec3 = side * t.cos() + up * t.sin();
+                points.push((at + n * r, n, b));
+            }
+        }
+    }
+    Surface::new(sk, points, spacing)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let flag = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
@@ -181,6 +209,30 @@ fn main() {
             per: "frame, reused live player",
         });
     }
+
+    // And with skins, so hands keep the skin's distance too.
+    let skins = [skin(&mixamo), skin(&mannequin)];
+    let mut live = Live::touching(&mapping, &mixamo, &mannequin, [&skins[0], &skins[1]], Fixes::ALL).expect("fits");
+    let mut out = mannequin.rest();
+    let micros = time(budget, || {
+        live.reset();
+        for p in &gait.poses {
+            live.pose(1.0 / 30.0, black_box(p), &mut out).expect("plays");
+        }
+        black_box(&out);
+    }) / gait.poses.len() as f64;
+    cases.push(Case {
+        name: Box::leak(
+            format!(
+                "mixamo 65 → mannequin 76: walk, live, all fixes with skins ({} and {} points)",
+                skins[0].len(),
+                skins[1].len()
+            )
+            .into_boxed_str(),
+        ),
+        micros,
+        per: "frame, reused live player",
+    });
 
     cases.push(Case {
         name: "mixamo 65 → mannequin 76: player setup",

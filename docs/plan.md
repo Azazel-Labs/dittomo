@@ -60,7 +60,7 @@ Phase 1 so far (November 2026):
 - `apply_with` adds travel for in-place clips, planted feet with two-bone IK, and sphere push-out, at about 3.3 µs per
   frame with all three on, travel worked out from the feet or not. Planted-foot skate on a
   longer-legged target fell from 0.00048 to 0.00002 of its height per frame. Legs and arms are found without names.
-- `Live` makes the same fixes (all but touch) as poses come, with nothing ahead to look at, in about 3.1 µs a frame on a
+- `Live` makes the same fixes as poses come, with nothing ahead to look at, in about 3.1 µs a frame on a
   busy machine with every fix on, under the 5 µs target, or 3.4 µs played six poses late, which plants feet as the
   whole clip does. Each fix used to place the source again; placing it once a frame for all of them, travel moving it
   on afterwards, took a fifth off.
@@ -88,8 +88,11 @@ Phase 1 so far (November 2026):
   the target's rest look and take only the turn away from it: 1.3°, for chest → head going from 4.6° to 6.2°.
 - **Hands on the body** (`apply_touching`, with `Surface` skins read from the skinned meshes): on the 63 pairs with
   skins, where the source's hand is within 3% of its height of its body (4,671 frames), the target's gap to its own
-  skin is now off by 0.0108 of its height on average against 0.0294 (90th percentile 0.0213 against 0.0654), and its
-  hand ends up inside its body while the source's isn't in 1.4% of frames against 8.0%.
+  skin is now off by 0.0106 of its height on average against 0.0290 (90th percentile 0.0212 against 0.0651), and its
+  hand ends up inside its body while the source's isn't in 1.4% of frames against 8.0%. `Live::touching` does the same
+  as poses come, to the same numbers. Only the skin that could be nearest a hand is posed now: each bone's points are
+  kept in balls of a few dozen, and a ball is passed over when even its nearest edge is too far to count. With skins of
+  about 6,000 points, touch went from 509 µs a frame to about 16 µs, with the same results.
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for
