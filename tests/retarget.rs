@@ -1092,7 +1092,7 @@ fn a_nameless_rig_stopping_at_the_base_of_the_head_with_one_hand_missing() {
 #[test]
 fn a_chest_bends_the_same_whether_its_collarbones_sit_above_it_or_beside_it() {
     // Mixamo's collarbones start just above the top spine bone; a cartoon's start out at its sides, level with it.
-    // The chest is aimed by all its children together, so one rig's collarbones don't tip the other's chest.
+    // The chest is aimed by its neck alone, so one rig's collarbones don't tip the other's chest.
     let from = mixamo_like();
     let to = {
         let mut j: Joints = vec![
@@ -1136,4 +1136,44 @@ fn a_chest_bends_the_same_whether_its_collarbones_sit_above_it_or_beside_it() {
         let off = ds.dot(dt).clamp(-1.0, 1.0).acos().to_degrees();
         assert!(off < 3.0, "the neck leans {off:.1}° away from the source's");
     }
+}
+
+#[test]
+fn hips_stay_level_whether_the_hip_joints_sit_below_them_or_behind() {
+    // Mixamo's hip joints sit just below its hips bone; another rig's sit level with its hips bone and behind it. Aimed
+    // at its thighs, the pelvis would tip some thirty degrees at rest; aimed at its spine, it stands as the
+    // source's does.
+    let from = mixamo_like();
+    let to = {
+        let mut j: Joints = vec![
+            joint("Hips", None, [0.0, 1.0, 0.04]),
+            joint("Spine", Some("Hips"), [0.0, 1.12, 0.04]),
+            joint("Chest", Some("Spine"), [0.0, 1.35, 0.03]),
+            joint("Neck", Some("Chest"), [0.0, 1.52, 0.02]),
+            joint("Head", Some("Neck"), [0.0, 1.62, 0.03]),
+        ];
+        for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+            let n = |s: &str| format!("{side}{s}");
+            j.push(joint(n("Shoulder"), Some("Chest"), [0.05 * x, 1.42, 0.0]));
+            j.push(joint(n("Arm"), Some(&n("Shoulder")), [0.18 * x, 1.44, 0.0]));
+            j.push(joint(n("ForeArm"), Some(&n("Arm")), [0.46 * x, 1.44, 0.0]));
+            j.push(joint(n("Hand"), Some(&n("ForeArm")), [0.72 * x, 1.44, 0.0]));
+            j.push(joint(n("UpLeg"), Some("Hips"), [0.09 * x, 1.0, -0.04]));
+            j.push(joint(n("Leg"), Some(&n("UpLeg")), [0.09 * x, 0.52, -0.04]));
+            j.push(joint(n("Foot"), Some(&n("Leg")), [0.09 * x, 0.08, -0.06]));
+            j.push(joint(n("ToeBase"), Some(&n("Foot")), [0.09 * x, 0.0, 0.04]));
+        }
+        placed(&j)
+    };
+    let map = Mapping::new(&from, &to);
+    let (hips, t_hips) = (from.index_of("Hips").unwrap(), to.index_of("Hips").unwrap());
+    assert_eq!(map.source_of(t_hips), Some(hips));
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![from.rest()],
+    };
+    let played = &map.apply(&from, &to, &clip).unwrap().poses[0];
+    let (now, rest) = (to.world(played)[t_hips].rotation, to.world(&to.rest())[t_hips].rotation);
+    let tipped = now.angle_between(rest).to_degrees();
+    assert!(tipped < 1.0, "the pelvis tips {tipped:.1}° at rest");
 }

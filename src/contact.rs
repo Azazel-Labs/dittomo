@@ -198,6 +198,11 @@ pub(crate) fn above_chest(skeleton: &Skeleton, s: &Shape) -> Vec<bool> {
     out
 }
 
+/// The spine from the hips to the chest, as far as the body is found.
+pub(crate) fn spine(skeleton: &Skeleton, s: &Shape) -> Vec<usize> {
+    body(skeleton, s).map_or(Vec::new(), |b| b.spine)
+}
+
 /// Turns a limb's upper and lower bones so its end reaches `goal`, or as near as the limb's length allows, bending the
 /// way it already bends. The end keeps its turn in the world; bones below it follow it.
 pub fn reach(skeleton: &Skeleton, pose: &mut [Transform], limb: &Limb, goal: Vec3) {

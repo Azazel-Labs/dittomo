@@ -312,10 +312,17 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// The neck and head are matched rest to rest, not by direction: where a head bone points to the top of the skull, or a
 /// neck to the head, is anatomy (one rig's skull leans back, another's neck forward), but every rig looks ahead at rest.
 /// Fitting their directions would tilt the target's gaze by the difference; matching rests keeps it looking where the
-/// source looks. Limbs differ at rest by pose (arms down or out), so they are matched by direction.
+/// source looks. Limbs differ at rest by pose (arms down or out), so they are matched by direction. The hips and chest
+/// are matched by the spine and neck rising from them alone: where the legs and arms hang from them is anatomy too (one
+/// rig's hip joints sit behind its pelvis bone, another's below), and fitting those would tip the pelvis or the chest.
 fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Vec<(usize, usize, f32)>) {
     let n = t.children.len();
     let (s_neck, t_neck) = (contact::above_chest(source, s), contact::above_chest(target, t));
+    let (s_spine, t_spine) = (contact::spine(source, s), contact::spine(target, t));
+    let ends = |sp: &[usize]| [sp.first().copied(), sp.last().copied()];
+    let (s_ends, t_ends) = (ends(&s_spine), ends(&t_spine));
+    let girdle = |a: usize, b: usize| (0..2).any(|i| s_ends[i] == Some(a) && t_ends[i] == Some(b));
+    let trunk = |spine: &[usize], neck: &[bool], b: usize| neck[b] || spine.contains(&b);
     let turn = map.turn();
     let mapped = |b: usize| map.source_of(b);
     // The first mapped bones down each path from every bone, and how many bones are under each.
@@ -372,15 +379,20 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
     let mut moving = Vec::new();
     for b in 0..n {
         let Some(a) = mapped(b) else { continue };
-        let pairs: Vec<(Vec3, Vec3)> = next[b]
+        let mut pairs: Vec<(Vec3, Vec3, bool)> = next[b]
             .iter()
             .filter_map(|&b2| {
                 let a2 = mapped(b2)?;
                 let u = turn * (s.rest[a2].position() - s.rest[a].position());
                 let v = t.rest[b2].position() - t.rest[b].position();
-                (u.length() > 1e-9 && v.length() > 1e-9).then_some((u, v))
+                let up = trunk(&s_spine, &s_neck, a2) && trunk(&t_spine, &t_neck, b2);
+                (u.length() > 1e-9 && v.length() > 1e-9).then_some((u, v, up))
             })
             .collect();
+        if girdle(a, b) && pairs.iter().any(|p| p.2) {
+            pairs.retain(|p| p.2);
+        }
+        let pairs: Vec<(Vec3, Vec3)> = pairs.into_iter().map(|(u, v, _)| (u, v)).collect();
         let fix = match pairs.as_slice() {
             _ if s_neck[a] && t_neck[b] => Quat::IDENTITY,
             [] => above(b).and_then(|p| fixes[p]).unwrap_or(Quat::IDENTITY),

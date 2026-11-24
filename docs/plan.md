@@ -103,12 +103,18 @@ Phase 1 so far (November 2026):
   the arms and the legs hang from (the parents of the two biggest mirrored pairs) play each other however high they
   stand, and a bone limbs branch from doesn't play one along a chain, so a robot's chest just above its hips no longer
   plays a lower spine bone.
-- **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 2.4°
-  from the source's on average (median 0.2°, 90th percentile 6.1°). Copying world turns from rest onto the right bones
+- **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 2.3°
+  from the source's on average (median 0.2°, 90th percentile 5.1°). Copying world turns from rest onto the right bones
   gives 22°, and copying local rotations, as an animation mixer does with a clip from another rig, 75°. Measuring this
   found the chest tipped by up to 50° on rigs whose collarbones sit beside the chest instead of above it: the rest
   correction lined up only the child with most below it, and now fits all of them at once (Wahba's problem, a few
-  Newton steps at setup), which halved the 90th percentile.
+  Newton steps at setup), which halved the 90th percentile. Then the hips and chest were found tipped too, by up to
+  24° on a VRM avatar at rest: fitting them to the thighs and collarbones as well as the spine and neck matched where
+  the hip and shoulder joints sit, which is anatomy. They now fit the spine and neck alone, as the head already kept
+  its own rest look: hips → chest went from 3.9° to 2.2° and chest → head from 5.3° to 4.5° with the bones set by hand;
+  limbs from 2.4° to 2.3° (90th percentile 6.1° to 5.1°), and with the bones set by hand 1.3° to 1.2° (4.0° to 3.3°,
+  all within 15°). Feet come out 0.0014 of the height off with every fix on, against 0.0011, as the hip joints no
+  longer swing to where the source's are.
 - **Foot contact on real clips**: the same pairs over 23,170 frames with a source foot planted. With every fix on, the
   target's feet slide 57 times less (0.00007 of its height per frame against 0.00402) and sit 8.5 times closer to the
   height they should (0.0011 against 0.0094), for 1.1° more limb error as legs bend to keep feet down. Measuring this
@@ -227,7 +233,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 96.4% of joints found on 12 real rigs (exact names: 30.3%); limbs within 2.4° of the source's on their 35 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 96.4% of joints found on 12 real rigs (exact names: 30.3%); limbs within 2.3° of the source's on their 35 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their

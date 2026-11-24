@@ -105,8 +105,8 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.4° | 0.2° | 6.1° | 97% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.3° | 0.2° | 4.0° | 99% |
+| dittomo | 2.3° | 0.2° | 5.1° | 97% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.2° | 0.2° | 3.3° | 100% |
 | World turns from rest copied onto the right bones | 22.0° | 11.2° | 64.6° | 56% |
 | Local rotations copied onto the right bones | 74.7° | 83.8° | 151.4° | 22% |
 
@@ -115,7 +115,7 @@ both rigs when the bones between are in other ratios. The upper arms are the big
 labels, from BrainStem's and RobotExpressive's misses above. CI fails if the mean passes 4°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
-It's off by 1.3° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
+It's off by 1.0° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
 turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the target's
 own rest look and take only the turn away from it; that costs chest → head 1.6° of direction, 4.6° to 6.2°.
 
@@ -126,19 +126,19 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 
 | Fixes | Foot slide | Foot height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00389 | 0.0093 | 2.3° |
-| travel | 0.00099 | 0.0093 | 2.3° |
-| planted feet | 0.00313 | 0.0019 | 3.3° |
-| push-out | 0.00389 | 0.0093 | 2.3° |
-| all (`apply_with`) | 0.00003 | 0.0011 | 3.5° |
-| all, live (`Live`) | 0.00004 | 0.0012 | 3.7° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0011 | 3.5° |
+| none (`apply`) | 0.00390 | 0.0098 | 2.1° |
+| travel | 0.00100 | 0.0098 | 2.1° |
+| planted feet | 0.00313 | 0.0022 | 3.2° |
+| push-out | 0.00390 | 0.0098 | 2.1° |
+| all (`apply_with`) | 0.00004 | 0.0014 | 3.4° |
+| all, live (`Live`) | 0.00005 | 0.0015 | 3.6° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00006 | 0.0014 | 3.4° |
 
-Together they cut foot slide 119 times and the height error 8.4 times. The degree they cost is the legs bending to keep
+Together they cut foot slide about 100 times and the height error 7 times. The degree they cost is the legs bending to keep
 feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
-slide is cut 93 times: a foot is held from the pose it lands, where the target's was the pose before, so it doesn't
+slide is cut about 80 times: a foot is held from the pose it lands, where the target's was the pose before, so it doesn't
 slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six poses late it is cut
-74 times, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on, judged by how
+about 65 times, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on, judged by how
 fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses, keep their
 feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
 
@@ -148,9 +148,9 @@ over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0290 | 0.0651 | 8.0% |
-| all (`apply_touching`) | 0.0106 | 0.0212 | 1.4% |
-| all, live (`Live::touching`) | 0.0106 | 0.0212 | 1.4% |
+| all but touch (`apply_with`) | 0.0276 | 0.0621 | 7.1% |
+| all (`apply_touching`) | 0.0091 | 0.0197 | 1.3% |
+| all, live (`Live::touching`) | 0.0091 | 0.0196 | 1.3% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
 2.7 times closer and hands end up inside the body a sixth as often.
