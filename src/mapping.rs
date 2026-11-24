@@ -323,9 +323,10 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     placed += 0.4 * bell(s.reach[a] - t.reach[b], 0.1);
     // A cartoon's arms may be twice a man's for its height: then a man's elbow stands where its shoulder does, and his
     // wrist where its elbow does. How far along the limb holds, from the chest to where the hand begins. Within the
-    // hand, past it, the fingers are told apart by where they are.
+    // hand, past it, the fingers are told apart by where they are. The hand of an arm a hair shorter than the other is
+    // where the hand begins too, as its twin is.
     let (xa, xb) = (s.along[a], t.along[b]);
-    v += if xa.is_finite() && xb.is_finite() && (xa < 1.0 || xb < 1.0) {
+    v += if xa.is_finite() && xb.is_finite() && (xa < 0.999 || xb < 0.999) {
         let alike = bell((s.span / t.span).ln(), 0.4);
         alike * placed + (1.0 - alike) * 2.0 * bell(xa - xb, 0.2)
     } else {

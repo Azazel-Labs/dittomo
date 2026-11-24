@@ -1056,6 +1056,11 @@ fn a_chest_just_above_the_hips_is_still_the_chest() {
 
 /// A fox as glTF's sample Fox is laid out, its front legs ahead of the spine bone they hang from.
 fn fox() -> Skeleton {
+    fox_with_right_hand_up(0.0)
+}
+
+/// The fox, its right forepaw raised a little, its right foreleg that much shorter.
+fn fox_with_right_hand_up(up: f32) -> Skeleton {
     let mut j: Joints = vec![
         joint("b_Root_00", None, [0.0, 0.0, 0.0]),
         joint("b_Hip_01", Some("b_Root_00"), [0.0, 0.707, -0.44]),
@@ -1083,6 +1088,7 @@ fn fox() -> Skeleton {
             let mut parent = from.to_owned();
             for &(part, [y, z]) in chain {
                 let name = format!("b_{side}{part}");
+                let y = if part == "Hand" && side == "Right" { y + up } else { y };
                 j.push(joint(name.clone(), Some(&parent), [x, y, z]));
                 parent = name;
             }
@@ -1227,6 +1233,24 @@ fn a_fox_and_a_dog_built_by_different_hands_find_each_others_legs() {
         assert_eq!(source(head.0).as_deref(), Some(head.1));
         assert_eq!(source(chest.0).as_deref(), Some(chest.1));
     }
+}
+
+#[test]
+fn forelegs_a_hair_apart_in_length_play_alike() {
+    // The Khronos Fox's right foreleg is a few millionths shorter than its left. Its right forepaw stood just
+    // short of where the hand begins, and so was matched by how far along the leg, the left by where: on the husky, the
+    // left forepaw played the paw and the right the toe beyond it.
+    let (fox, dog) = (fox_with_right_hand_up(1e-4), dog("Neck3"));
+    let map = Mapping::new(&fox, &dog);
+    let source = |n: &str| {
+        let b = dog.bones().iter().position(|b| b.name == n).expect("bone");
+        map.source_of(b).map(|a| fox.bones()[a].name.clone())
+    };
+    for bone in ["FrontShoulder", "FrontUpperLeg", "FrontLowerLeg", "IKFrontLeg", "FF"] {
+        let (left, right) = (source(&format!("{bone}.L")), source(&format!("{bone}.R")));
+        assert_eq!(left.map(|n| n.replace("Left", "Right")), right, "{bone}");
+    }
+    assert_eq!(source("IKFrontLeg.R").as_deref(), Some("b_RightHand"));
 }
 
 #[test]
