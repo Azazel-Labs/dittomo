@@ -212,11 +212,13 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 | Set up a `Player` for a pair of rigs | 40 µs |
 
 Mapping's times are scaled from runs back to back with the earlier, slower mapping, which took 1.1 and 2.3 ms here.
-On a busier run, where the walk with every fix took 4.5 µs a frame, `Live`
-played the same walk with every fix but touch in 3.1 µs a frame, the walk done in place in 3.0 µs (the whole clip:
-4.9 µs), and the walk six poses late in 3.4 µs. Where a reused `Player` posed a frame in 1.8 µs, a `Crowd` of 64 characters
-posed each in 0.89 µs. Keeping hands at the skin's distance as well, with skins of 5,570 and
-6,697 points, takes about 4.5 times as long as the live walk without it (30 µs against 6.5 µs on a run twice as busy).
+On a busier run, where the walk with every fix took 4.5 µs a frame, `Live` played the same walk with every fix but touch
+in 3.1 µs a frame, the walk done in place in 3.0 µs (the whole clip: 4.9 µs), and the walk six poses late in 3.4 µs.
+Where a reused `Player` posed a frame in 1.8 µs, a `Crowd` of 64 characters posed each in 0.89 µs. Keeping hands at the
+skin's distance as well, with skins of 5,570 and 6,697 points, takes about 3.8 times as long as the live walk without
+it: 7.6 µs against 2.0 µs, the fastest of runs back to back with the earlier code, which took 10.1 µs. The skin's balls
+round each bone are placed once a pose, not once a hand, and a hand's reach toward the skin is measured in each bone's
+own frame, so only its points that could reach farthest are looked at.
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
 is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):

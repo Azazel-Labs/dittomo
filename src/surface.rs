@@ -17,6 +17,9 @@ pub(crate) trait Frame {
     fn turn(&self) -> Quat;
     /// How much it scales lengths, at most.
     fn scale(&self) -> f32;
+    /// How far along `d` the points it places land, as `(l, o)` with `self.point(p).dot(d) == p.dot(l) + o`: so a
+    /// bone's points can be measured along a way without placing each.
+    fn along(&self, d: Vec3) -> (Vec3, f32);
 }
 
 impl Frame for Placed {
@@ -37,6 +40,16 @@ impl Frame for Placed {
             .max(m.z_axis.truncate().length_squared())
             .sqrt()
     }
+
+    fn along(&self, d: Vec3) -> (Vec3, f32) {
+        let m = &self.matrix;
+        let l = Vec3::new(
+            m.x_axis.truncate().dot(d),
+            m.y_axis.truncate().dot(d),
+            m.z_axis.truncate().dot(d),
+        );
+        (l, m.w_axis.truncate().dot(d))
+    }
 }
 
 /// Points on the skin, by bone, so that only those near some place need posing: each bone's in a ball, and split in
@@ -46,11 +59,41 @@ pub(crate) struct Balls {
     balls: Vec<Ball>,
 }
 
+impl Balls {
+    /// Each bone's ball placed in the world as `world` has the bones: its middle, its radius, and how much the bone
+    /// scales lengths. Placed once, it serves every [`Surface::posed_near`] while those bones keep still.
+    pub(crate) fn place<F: Frame>(&self, world: &[F], out: &mut Vec<Around>) {
+        out.clear();
+        out.extend(self.bunches.iter().map(|bunch| {
+            let w = &world[bunch.bone];
+            let scale = w.scale();
+            Around {
+                center: w.point(bunch.center),
+                radius: bunch.radius * scale,
+                scale,
+            }
+        }));
+    }
+}
+
+/// How far a bone's points reach some way, as `p.dot(l) + o` for a point `p` in its frame, and how much the bone
+/// stretches lengths that way: `(l, o, l.length())`.
+pub(crate) type Toward = (Vec3, f32, f32);
+
+/// A bone's ball of skin placed in the world ([`Balls::place`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Around {
+    center: Vec3,
+    radius: f32,
+    scale: f32,
+}
+
 /// One bone's points in a ball round them, in its frame, and the smaller balls they are split in.
 struct Bunch {
     bone: usize,
     center: Vec3,
     radius: f32,
+    half: Vec3,
     balls: std::ops::Range<usize>,
 }
 
@@ -58,17 +101,20 @@ struct Bunch {
 struct Ball {
     center: Vec3,
     radius: f32,
+    /// Half the box round them, which `center` is the middle of.
+    half: Vec3,
     at: Vec<Vec3>,
     normal: Vec<Vec3>,
 }
 
-/// The middle of the box round these points, and how far the farthest is from it.
-fn ball(points: impl Iterator<Item = Vec3> + Clone) -> (Vec3, f32) {
+/// The middle of the box round these points, how far the farthest is from it, and half the box.
+fn ball(points: impl Iterator<Item = Vec3> + Clone) -> (Vec3, f32, Vec3) {
     let (lo, hi) = points
         .clone()
         .fold((Vec3::MAX, Vec3::MIN), |(lo, hi), p| (lo.min(p), hi.max(p)));
     let center = (lo + hi) / 2.0;
-    (center, points.map(|p| p.distance(center)).fold(0.0, f32::max))
+    let radius = points.map(|p| p.distance(center)).fold(0.0, f32::max);
+    (center, radius, (hi - lo).max(Vec3::ZERO) / 2.0)
 }
 
 /// How much less than the nearest point's a point's weight in [`Surface::near`] can be and still count, as the most
@@ -197,13 +243,14 @@ impl Surface {
             balls: Vec::new(),
         };
         for (bone, points) in groups {
-            let (center, radius) = ball(points.iter().map(|&i| self.at[i]));
+            let (center, radius, half) = ball(points.iter().map(|&i| self.at[i]));
             let start = out.balls.len();
             self.split(points, &mut out.balls);
             out.bunches.push(Bunch {
                 bone,
                 center,
                 radius,
+                half,
                 balls: start..out.balls.len(),
             });
         }
@@ -229,10 +276,11 @@ impl Surface {
             self.split(upper, balls);
             return;
         }
-        let (center, radius) = ball(points.iter().map(|&i| self.at[i]));
+        let (center, radius, half) = ball(points.iter().map(|&i| self.at[i]));
         balls.push(Ball {
             center,
             radius,
+            half,
             at: points.iter().map(|&i| self.at[i]).collect(),
             normal: points.iter().map(|&i| self.normal[i]).collect(),
         });
@@ -240,23 +288,29 @@ impl Surface {
 
     /// [`Self::posed`], but only the points in `balls` that [`Self::near`] could weigh for `p`: those not so far from
     /// `p` that the nearest point and the smoothing rule them out. [`Self::near`] finds the same skin in these as in all
-    /// of them.
-    pub(crate) fn posed_near<F: Frame>(&self, balls: &Balls, world: &[F], p: Vec3, out: &mut Vec<(Vec3, Vec3)>) {
+    /// of them. `around` is `balls` placed by `world` ([`Balls::place`]).
+    pub(crate) fn posed_near<F: Frame>(
+        &self,
+        balls: &Balls,
+        around: &[Around],
+        world: &[F],
+        p: Vec3,
+        out: &mut Vec<(Vec3, Vec3)>,
+    ) {
         out.clear();
         // The nearest point is no farther than the farthest any bone's points can be, nor than the nearest in the ball
         // likeliest to hold it: the nearest-reaching one of the nearest-reaching bone.
         let (mut nearest, mut likeliest, mut low) = (f32::INFINITY, None, f32::INFINITY);
-        for bunch in &balls.bunches {
-            let w = &world[bunch.bone];
-            let (d, r) = (w.point(bunch.center).distance(p), bunch.radius * w.scale());
-            nearest = nearest.min(d + r);
-            if d - r < low {
-                (low, likeliest) = (d - r, Some(bunch));
+        for (bunch, a) in balls.bunches.iter().zip(around) {
+            let d = a.center.distance(p);
+            let near = d - a.radius;
+            nearest = nearest.min(d + a.radius);
+            if near < low {
+                (low, likeliest) = (near, Some((bunch, a.scale)));
             }
         }
-        if let Some(bunch) = likeliest {
+        if let Some((bunch, scale)) = likeliest {
             let (w, mut low) = (&world[bunch.bone], f32::INFINITY);
-            let scale = w.scale();
             let mut best = None;
             for ball in &balls.balls[bunch.balls.clone()] {
                 let d = w.point(ball.center).distance(p) - ball.radius * scale;
@@ -270,16 +324,17 @@ impl Surface {
         }
         // Nor is any point [`Self::near`] weighs farther than this from `p`, squared.
         let within = nearest * nearest + WEIGHED * (2.0 * self.spacing).powi(2);
-        let outside = |d: f32, r: f32| d > r && (d - r) * (d - r) > within;
-        for bunch in &balls.bunches {
-            let w = &world[bunch.bone];
-            let scale = w.scale();
-            if outside(w.point(bunch.center).distance(p), bunch.radius * scale) {
+        // A ball is out of reach if its middle is farther than its radius and that, compared squared.
+        let reach = within.sqrt();
+        let outside = |d2: f32, r: f32| d2 > (r + reach) * (r + reach);
+        for (bunch, a) in balls.bunches.iter().zip(around) {
+            if outside(a.center.distance_squared(p), a.radius) {
                 continue;
             }
+            let w = &world[bunch.bone];
             let turn = w.turn();
             for ball in &balls.balls[bunch.balls.clone()] {
-                if outside(w.point(ball.center).distance(p), ball.radius * scale) {
+                if outside(w.point(ball.center).distance_squared(p), ball.radius * a.scale) {
                     continue;
                 }
                 for (&at, &normal) in ball.at.iter().zip(&ball.normal) {
@@ -332,47 +387,57 @@ impl Surface {
         let on = under(skeleton, &[hand]);
         let fingers = self.balls(|b| on[b]);
         let center = world.get(hand)?.matrix.transform_point3(self.center(hand)?);
-        self.clearance(&points, world, center, &fingers).map(|(g, _)| g)
+        self.clearance(&points, world, center, &fingers, &mut Vec::new())
+            .map(|(g, _)| g)
     }
 
     /// How far out from the posed `points` a hand whose middle is at `center` is, less how far its own points (`hand`,
-    /// posed by `world`) reach toward the skin; and the way the skin faces there.
+    /// posed by `world`) reach toward the skin; and the way the skin faces there. `frames` is room to work in.
     pub(crate) fn clearance<F: Frame>(
         &self,
         points: &[(Vec3, Vec3)],
         world: &[F],
         center: Vec3,
         hand: &Balls,
+        frames: &mut Vec<(Toward, f32)>,
     ) -> Option<(f32, Vec3)> {
         let (spot, facing) = self.near(points, center)?;
-        // How far toward the skin a ball's points can reach, at most, and do.
-        let most = |w: &F, at: Vec3, r: f32| (w.point(at) - center).dot(-facing) + r * w.scale();
-        let farthest = |w: &F, ball: &Ball| {
-            ball.at
-                .iter()
-                .map(|&at| (w.point(at) - center).dot(-facing))
-                .fold(f32::MIN, f32::max)
+        // How far toward the skin a bone's points reach past the middle, as `p.dot(l) + o` for a point `p` in its
+        // frame, and how much it stretches lengths that way.
+        let toward = |w: &F| {
+            let (l, o) = w.along(-facing);
+            (l, o + center.dot(facing), l.length())
         };
-        // The ball that could reach farthest first, then only those that could reach farther than its points do.
-        let mut first: Option<(f32, usize, &Ball)> = None;
-        for bunch in &hand.bunches {
-            let w = &world[bunch.bone];
-            for ball in &hand.balls[bunch.balls.clone()] {
-                let m = most(w, ball.center, ball.radius);
-                if first.is_none_or(|f| m > f.0) {
-                    first = Some((m, bunch.bone, ball));
-                }
-            }
-        }
-        let mut reach = first.map_or(0.0, |(_, b, ball)| farthest(&world[b], ball)).max(0.0);
-        for bunch in &hand.bunches {
-            let w = &world[bunch.bone];
-            if most(w, bunch.center, bunch.radius) <= reach {
+        // How far toward the skin a ball's points can reach, at most (no farther than its ball or its box), and do.
+        let most = |(l, o, n): Toward, at: Vec3, r: f32, half: Vec3| at.dot(l) + o + (r * n).min(half.dot(l.abs()));
+        let farthest =
+            |(l, o, _): Toward, ball: &Ball| ball.at.iter().map(|&at| at.dot(l)).fold(f32::MIN, f32::max) + o;
+        // A ball likely to reach farthest first (that of the bone that could), then only those that could reach farther
+        // than its points do.
+        frames.clear();
+        frames.extend(hand.bunches.iter().map(|bunch| {
+            let t = toward(&world[bunch.bone]);
+            (t, most(t, bunch.center, bunch.radius, bunch.half))
+        }));
+        let likeliest = hand
+            .bunches
+            .iter()
+            .zip(frames.iter())
+            .max_by(|a, b| a.1.1.total_cmp(&b.1.1));
+        let first = likeliest.and_then(|(bunch, &(t, _))| {
+            hand.balls[bunch.balls.clone()]
+                .iter()
+                .max_by(|a, b| most(t, a.center, a.radius, a.half).total_cmp(&most(t, b.center, b.radius, b.half)))
+                .map(|ball| farthest(t, ball))
+        });
+        let mut reach = first.unwrap_or(0.0).max(0.0);
+        for (bunch, &(t, can)) in hand.bunches.iter().zip(frames.iter()) {
+            if can <= reach {
                 continue;
             }
             for ball in &hand.balls[bunch.balls.clone()] {
-                if most(w, ball.center, ball.radius) > reach {
-                    reach = reach.max(farthest(w, ball));
+                if most(t, ball.center, ball.radius, ball.half) > reach {
+                    reach = reach.max(farthest(t, ball));
                 }
             }
         }

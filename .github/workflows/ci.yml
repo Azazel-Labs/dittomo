@@ -24,7 +24,7 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: rustup toolchain install && rustup component add rustfmt
       - run: cargo fmt --check
 
@@ -35,7 +35,7 @@ jobs:
       matrix:
         features: ["", --features load, --features fs]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: dittomo
       - run: rustup toolchain install && rustup component add clippy
@@ -53,7 +53,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: dittomo
       - run: rustup toolchain install
@@ -70,7 +70,7 @@ jobs:
   demo:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: dittomo
       - run: rustup toolchain install && rustup target add wasm32-unknown-unknown && rustup component add clippy
@@ -88,7 +88,7 @@ jobs:
   rigs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: dittomo
       - run: rustup toolchain install
@@ -96,7 +96,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: dittomo
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: dittomo/bench/rigs/data
           key: rigs-${{ hashFiles('dittomo/bench/rigs/fetch.sh') }}
@@ -111,14 +111,14 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: dittomo
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base/dittomo
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: Azazel-Labs/polysmelt
           path: polysmelt
@@ -149,7 +149,7 @@ jobs:
   three:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: dittomo
       - run: rustup toolchain install
@@ -157,7 +157,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: dittomo
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
       - name: dittomo

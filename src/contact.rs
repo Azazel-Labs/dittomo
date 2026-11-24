@@ -10,7 +10,7 @@
 use glam::{Affine3A, Quat, Vec3, Vec3A};
 
 use crate::shape::Shape;
-use crate::surface::{Balls, Surface, under};
+use crate::surface::{Around, Balls, Surface, Toward, under};
 use crate::{Clip, Mapping, Skeleton, Transform};
 
 /// The fixes [`Mapping::apply_with`] makes. All are on by default.
@@ -1405,6 +1405,13 @@ impl crate::surface::Frame for At {
             .max(m.z_axis.length_squared())
             .sqrt()
     }
+
+    fn along(&self, d: Vec3) -> (Vec3, f32) {
+        (
+            self.matrix.matrix3.transpose() * d,
+            Vec3::from(self.matrix.translation).dot(d),
+        )
+    }
 }
 
 impl At {
@@ -1506,6 +1513,10 @@ pub(crate) struct Touch {
     t_path: Vec<usize>,
     /// The skin near a hand, posed.
     points: Vec<(Vec3, Vec3)>,
+    /// Each rig's [`Self::balls`] placed this pose.
+    around: [Vec<Around>; 2],
+    /// Room for [`Surface::clearance`] to work in.
+    frames: Vec<(Toward, f32)>,
 }
 
 impl Touch {
@@ -1554,6 +1565,8 @@ impl Touch {
         }
         Some(Self {
             points: Vec::with_capacity(s_skin.len().max(t_skin.len())),
+            around: [Vec::new(), Vec::new()],
+            frames: Vec::new(),
             balls: [s_skin.balls(|b| keep[0][b]), t_skin.balls(|b| keep[1][b])],
             skins: [s_skin.clone(), t_skin.clone()],
             arms,
@@ -1589,11 +1602,15 @@ impl Touch {
         let pts = &mut self.points;
         let Scratch { sw, tw, .. } = scratch;
         place(target, played, &self.t_path, tw);
+        // The skin a hand can touch is off the arms, so it keeps still while they move.
+        let [s_around, t_around] = &mut self.around;
+        s_balls.place(sw, s_around);
+        t_balls.place(tw, t_around);
         for arm in &self.arms {
             let ([cs, ct], [s_hand, t_hand]) = (arm.middle, &arm.hand);
             let c = sw[arm.source].matrix.transform_point3(cs);
-            s_skin.posed_near(s_balls, sw, c, pts);
-            let Some((g, _)) = s_skin.clearance(pts, sw, c, s_hand) else {
+            s_skin.posed_near(s_balls, s_around, sw, c, pts);
+            let Some((g, _)) = s_skin.clearance(pts, sw, c, s_hand, &mut self.frames) else {
                 continue;
             };
             let g = g.max(0.0);
@@ -1601,8 +1618,8 @@ impl Touch {
             let w = 1.0 - x * x * (3.0 - 2.0 * x);
             let end = tw[arm.limb.end];
             let c = end.matrix.transform_point3(ct);
-            t_skin.posed_near(t_balls, tw, c, pts);
-            let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand) else {
+            t_skin.posed_near(t_balls, t_around, tw, c, pts);
+            let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand, &mut self.frames) else {
                 continue;
             };
             let mut want = now + w * (g * scale - now);
