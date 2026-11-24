@@ -47,12 +47,13 @@ dittomo 0.1 (about 2,700 lines of library, 1,200 of tests, 700 of benchmarks):
 
 Phase 1 so far (November 2026):
 
-- `load` reads skeletons and clips from glTF, GLB and FBX through polysmelt's new `rig` view, and builds for wasm.
-  The twelve benchmark rigs and their 35 clips load in about 0.14 s, two thirds of it one Mixamo FBX's compressed
-  arrays. Loading them found and fixed, in polysmelt: FBX vertices with no skin weights given a joint past the skin's
-  end, FBX loading a third faster, a GLB on disk read one system call per accessor (12 times faster for a rig with
-  1,407 channels), and baking a clip sorting every key of every channel (55 times faster); `Rig::poser` steps through
-  each channel's keys rather than searching them.
+- `load` reads skeletons and clips from glTF, GLB and FBX through polysmelt's new `rig` view, and builds for wasm. The
+  twelve benchmark rigs and their 35 clips load in about 0.14 s, two thirds of it one Mixamo FBX's compressed arrays
+  (0.27 s on polysmelt 0.14.0, which keeps every one of that FBX's 10,849 key times). Loading them found and fixed, in
+  polysmelt: FBX vertices with no skin weights given a joint past the skin's end, FBX loading a third faster, a GLB on
+  disk read one system call per accessor (12 times faster for a rig with 1,407 channels), and baking a clip sorting
+  every key of every channel (55 times faster); `Rig::poser` steps through each channel's keys rather than searching
+  them.
 - `Model::write_clip` writes a clip back out as a glTF animation of the document the model was read from, which
   polysmelt writes as a GLB with the target's meshes, materials and VRM extensions as they were, and the `dittomo`
   command (with `fs`) retargets file to file. Each channel keeps only the keys that playing linearly between the others

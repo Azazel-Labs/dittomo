@@ -244,9 +244,9 @@ BVH bytes (`Model::from_bytes(bytes, "fbx")`), FBX read directly with no Blender
 CMU database's, say) with no conversion. `fs` adds
 `Model::load(path)`, and `usd` adds USD. Each skin's joints, and the nodes above them, become the skeleton; each
 animation is sampled at its keys into a `Clip`. `load` builds for wasm. The twelve benchmark rigs and their 35 clips
-read in about 0.14 s together on one core of a laptop. The eleven glTF and VRM rigs take under 50 ms between them (the
-biggest, hvgirl's 1,295 frames over 147 channels, about 12 ms); the rest is the 3.7 MB Mixamo FBX with its 1,223-frame
-dance, most of it inflating its compressed arrays.
+read in about 0.27 s together on one core of a laptop. The eleven glTF and VRM rigs take 90 ms between them (the
+biggest, seed-san's 132 bones, 16 ms; hvgirl's 1,295 frames over 147 channels, 10 ms); the rest is the 3.7 MB Mixamo
+FBX, whose dance keys each curve every 1/480 s at times of its own, 10,849 poses in all, each one kept.
 
 ## Writing clips
 
