@@ -70,7 +70,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 97.3% |
+| dittomo | 98.7% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
@@ -80,18 +80,15 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 | chest | 100% | 24% | | feet | 100% | 29% |
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
-| upper arms | 92% / 88% | 23% | | forearms | 94% / 88% | 23% |
+| upper arms | 98% / 95% | 23% | | forearms | 98% / 95% | 23% |
 | hands | 100% | 33% | | index fingers | 94% / 97% | 42% |
 
 What it gets wrong:
 
-- **RobotExpressive**, a cartoon whose legs start a fifth of its height out from the middle and whose feet hang from the
-  root for IK: two thirds of its joints are found against CesiumMan and RiggedFigure. Their arms start at the shoulder,
-  with no collarbone, and the robot's has no hand bone, so each of their arm bones is taken for the one before it on the
-  robot.
-- **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting far out from
-  the middle: 73% to 100% against the Mixamo rigs. With no collarbone, its upper arms start where a collarbone ends
-  and are taken for one.
+- **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting a third of its
+  height out from the middle: 87% to 100% against the Mixamo rigs, and half its joints against RobotExpressive, a
+  cartoon with long arms for its height. With no collarbone, BrainStem's upper arms start where a collarbone
+  ends, about as far along the arm as the robot's elbow, and each of its arm bones is taken for the one before it.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
 CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather than committed; each keeps its own license.
@@ -112,14 +109,14 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.7° | 0.2° | 4.0° | 98% |
+| dittomo | 1.2° | 0.2° | 3.1° | 99% |
 | dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.0° | 0.1° | 2.6° | 99% |
 | World turns from rest copied onto the right bones | 20.8° | 9.6° | 64.6° | 60% |
 | Local rotations copied onto the right bones | 74.0° | 82.4° | 150.7° | 21% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
 both rigs when the bones between are in other ratios. The upper arms are the biggest gap between dittomo and the hand
-labels, from BrainStem's and RobotExpressive's misses above. CI fails if the mean passes 4°.
+labels, from BrainStem's misses above. CI fails if the mean passes 4°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by 0.6° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
@@ -135,13 +132,13 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00388 | 0.0097 | 1.8° |
-| travel | 0.00099 | 0.0097 | 1.8° |
-| planted feet | 0.00312 | 0.0022 | 2.9° |
-| push-out | 0.00388 | 0.0097 | 1.8° |
-| all (`apply_with`) | 0.00003 | 0.0015 | 3.1° |
-| all, live (`Live`) | 0.00004 | 0.0015 | 3.2° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 3.1° |
+| none (`apply`) | 0.00388 | 0.0097 | 1.5° |
+| travel | 0.00099 | 0.0097 | 1.5° |
+| planted feet | 0.00312 | 0.0022 | 2.5° |
+| push-out | 0.00388 | 0.0097 | 1.5° |
+| all (`apply_with`) | 0.00003 | 0.0015 | 2.7° |
+| all, live (`Live`) | 0.00004 | 0.0015 | 2.9° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 2.7° |
 
 Together they cut foot slide about 130 times and the height error 6.5 times. The degree they cost is the legs bending to
 keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
@@ -355,7 +352,9 @@ Every source bone is compared with every target bone on:
   - how high it stands
   - how long it is and how much body lies beyond it
   - which side it's on
-  - and, counting for less as proportions differ, where it is and how far along the body.
+  - counting for less as proportions differ, where it is and how far along the body
+  - and, counting for more as they differ, how far along the arm it is, from the chest to where the hand begins: a
+    cartoon's arms may be twice a man's for its height, with its shoulder where his elbow would be.
 
 The body's frame is found from the plane its bones are most nearly mirrored in, turned towards the bones named left or,
 failing names, the way its feet point. Two bones are mirror images when they hang from one bone, as high as each other,

@@ -225,9 +225,8 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     if la * lb < 0.0 && la.abs() > 0.03 && lb.abs() > 0.03 {
         v -= 2.0;
     }
-    // What holds whatever the proportions: which way it points, from its parent and to its children, how high it
-    // stands and how much body lies beyond it. Then, worth less as proportions differ, where it is and how far along
-    // the body.
+    // What holds whatever the proportions: which way it points, from its parent and to its children. Then how high it
+    // stands, how much body lies beyond it, where it is and how far along the body, worth less as proportions differ.
     // A root has no way in and no length: that says little, so it counts half.
     let way = |x: glam::Vec3, y: glam::Vec3| {
         if x == glam::Vec3::ZERO || y == glam::Vec3::ZERO {
@@ -239,24 +238,32 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     let bell = |d: f32, w: f32| (-(d / w) * (d / w)).exp();
     v += 0.4 * way(s.dir[a], t.dir[b]);
     v += 0.4 * way(s.inward[a], t.inward[b]);
-    v += 0.4 * bell(s.at[a].y - t.at[b].y, 0.1);
-    // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with nothing
-    // beyond it says nothing of how much body would be.
-    v += 0.4
-        * if s.children[a].is_empty() || t.children[b].is_empty() {
-            0.5
-        } else {
-            bell(s.beyond[a] - t.beyond[b], 0.1)
-        };
     let (la, lb) = (s.length[a], t.length[b]);
     v += 0.4
         * match (la > 1e-4, lb > 1e-4) {
             (true, true) => bell((la / lb).ln(), 0.4),
             _ => 0.5,
         };
+    let mut placed = 0.4 * bell(s.at[a].y - t.at[b].y, 0.1);
+    // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with nothing
+    // beyond it says nothing of how much body would be.
+    placed += 0.4
+        * if s.children[a].is_empty() || t.children[b].is_empty() {
+            0.5
+        } else {
+            bell(s.beyond[a] - t.beyond[b], 0.1)
+        };
     let near = 0.08 + 0.35 * s.reach[a].min(t.reach[b]);
-    v += 0.8 * bell(s.at[a].distance(t.at[b]), near);
-    v += 0.4 * bell(s.reach[a] - t.reach[b], 0.1);
+    placed += 0.8 * bell(s.at[a].distance(t.at[b]), near);
+    placed += 0.4 * bell(s.reach[a] - t.reach[b], 0.1);
+    // A cartoon's arms may be twice a man's for its height: then a man's elbow stands where its shoulder does, and his
+    // wrist where its elbow does. How far along the limb holds, from the chest to where the hand begins.
+    v += if s.along[a].is_finite() && t.along[b].is_finite() {
+        let alike = bell((s.span / t.span).ln(), 0.4);
+        alike * placed + (1.0 - alike) * 2.0 * bell(s.along[a] - t.along[b], 0.2)
+    } else {
+        placed
+    };
     // Whatever the proportions, the arms hang from the chest and the legs from the hips.
     let role = |sh: &Shape, x: usize| sh.girdles.iter().position(|&g| g == Some(x));
     match (role(s, a), role(t, b)) {

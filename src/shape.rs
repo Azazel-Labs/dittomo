@@ -41,6 +41,11 @@ pub(crate) struct Shape {
     pub limbs: [Option<[usize; 2]>; 2],
     /// Which limb each bone is in, the arms (0) or the legs (1), and whether on the body's left.
     pub limb: Vec<Option<(usize, bool)>>,
+    /// How far along its arm each bone in one is: the way to it from the chest, over the way to where the hand begins
+    /// (the fingers' roots, or the arm's end). Not a number for a bone in no arm, or in the hand.
+    pub along: Vec<f32>,
+    /// How long the arms are, from the chest to where the hand begins, over the height: the longer of the two.
+    pub span: f32,
     pub names: Vec<Name>,
 }
 
@@ -82,6 +87,8 @@ impl Shape {
                 girdles: [None; 2],
                 limbs: [None; 2],
                 limb: Vec::new(),
+                along: Vec::new(),
+                span: 0.0,
                 names,
             };
         }
@@ -169,6 +176,8 @@ impl Shape {
                 girdles: [None; 2],
                 limbs: [None; 2],
                 limb: Vec::new(),
+                along: Vec::new(),
+                span: 0.0,
                 names,
             };
         }
@@ -214,17 +223,21 @@ impl Shape {
                 }
             }
         }
-        let dir: Vec<Vec3> = (0..n)
-            .map(|i| {
-                // To its biggest child: an average of children can cancel out, as a pelvis's spine and legs do.
-                let main = children[i].iter().copied().max_by(|&a, &b| {
+        // Each bone's biggest child.
+        let main: Vec<Option<usize>> = children
+            .iter()
+            .map(|kids| {
+                kids.iter().copied().max_by(|&a, &b| {
                     (under[a], beyond[a])
                         .partial_cmp(&(under[b], beyond[b]))
                         .unwrap_or(std::cmp::Ordering::Equal)
                         .then(b.cmp(&a))
-                });
-                main.map_or(Vec3::ZERO, |c| (back * (pos[c] - pos[i])).normalize_or_zero())
+                })
             })
+            .collect();
+        // To its biggest child: an average of children can cancel out, as a pelvis's spine and legs do.
+        let dir: Vec<Vec3> = (0..n)
+            .map(|i| main[i].map_or(Vec3::ZERO, |c| (back * (pos[c] - pos[i])).normalize_or_zero()))
             .collect();
         let inward: Vec<Vec3> = (0..n)
             .map(|i| {
@@ -247,17 +260,29 @@ impl Shape {
                 joints[p] += joints[i];
             }
         }
-        let forks = children
+        let forks: Vec<bool> = children
             .iter()
             .map(|kids| kids.iter().filter(|&&c| joints[c] >= 2).count() >= 2)
             .collect();
-        let length = (0..n)
+        let length: Vec<f32> = (0..n)
             .map(|i| {
                 skeleton.bones()[i]
                     .parent
                     .map_or(0.0, |p| pos[i].distance(pos[p]) / height)
             })
             .collect();
+        let parents: Vec<Option<usize>> = skeleton.bones().iter().map(|b| b.parent).collect();
+        let hand: Vec<f32> = (0..n)
+            .map(|i| {
+                let first = children[i].iter().filter(|&&c| joints[c] >= 2).map(|&c| length[c]);
+                if forks[i] {
+                    first.fold(f32::INFINITY, f32::min)
+                } else {
+                    f32::NAN
+                }
+            })
+            .collect();
+        let (along, span) = along_arms(limbs[0], &parents, &length, &main, &hand);
         Self {
             rest,
             children,
@@ -275,9 +300,74 @@ impl Shape {
             girdles,
             limbs,
             limb,
+            along,
+            span,
             names,
         }
     }
+}
+
+/// How far along its arm each bone is, and how long the arms are (see [`Shape::along`] and [`Shape::span`]). `hand`
+/// is, for a bone limbs of more than one bone hang from, how far the nearest of them starts from it.
+fn along_arms(
+    arms: Option<[usize; 2]>,
+    parents: &[Option<usize>],
+    length: &[f32],
+    main: &[Option<usize>],
+    hand: &[f32],
+) -> (Vec<f32>, f32) {
+    let n = parents.len();
+    let Some(arms) = arms else {
+        return (vec![f32::NAN; n], 0.0);
+    };
+    // The way to each bone from the chest, and the arm it's in; bones come after their parents.
+    let mut way = vec![0.0f32; n];
+    let mut root = vec![usize::MAX; n];
+    for i in 0..n {
+        let Some(p) = parents[i] else { continue };
+        if arms.contains(&i) {
+            root[i] = i;
+        } else if root[p] != usize::MAX {
+            root[i] = root[p];
+        } else {
+            continue;
+        }
+        way[i] = way[p] + length[i];
+    }
+    // Where the hand begins: down the biggest children, at the last bone limbs of more than one bone hang from, where
+    // the nearest starts (a hand's fingers, or a robot's palms hung from its forearm: not cloth hung from a shoulder),
+    // or else at the end.
+    let mut ends = [0.0f32; 2];
+    let mut hands = [usize::MAX; 2];
+    for k in 0..2 {
+        let (mut b, mut fork) = (arms[k], None);
+        loop {
+            if hand[b].is_finite() {
+                fork = Some(b);
+            }
+            match main[b] {
+                Some(c) => b = c,
+                None => break,
+            }
+        }
+        ends[k] = fork.map_or(way[b], |f| way[f] + hand[f]);
+        hands[k] = fork.unwrap_or(usize::MAX);
+    }
+    // One arm may stop short, as a rig's whose other hand holds something: the two are measured as the longer.
+    let end = ends[0].max(ends[1]);
+    // The bones of the hand, past where it begins, are left out: a hand's fingers are told apart by where they are.
+    let mut along = vec![f32::NAN; n];
+    for i in 0..n {
+        let Some(k) = arms.iter().position(|&r| r == root[i]) else {
+            continue;
+        };
+        let Some(p) = parents[i] else { continue };
+        if (i != arms[k] && along[p].is_nan()) || p == hands[k] || end <= 0.0 {
+            continue;
+        }
+        along[i] = way[i] / end;
+    }
+    (along, end)
 }
 
 /// The body's left, up and forward, as a rotation from them to the world's x, y and z. Up is the world's up (glTF's
