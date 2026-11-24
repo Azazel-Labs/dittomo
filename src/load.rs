@@ -571,12 +571,17 @@ fn bind(rig: &Rig, nodes: &[usize], bones: &mut [Bone]) -> Option<Bound> {
 }
 
 /// The skin of a mesh drawn at rest, or with `bound`, as stored, each vertex then moved by its joint's matrix there.
+/// A face wider than the skin's spacing, all of it moving with one bone, is filled in with points across it, so a
+/// low-poly body (a box for a head, say) has skin between its corners too. A face bending between two bones is left
+/// to its corners, as which bone its middle moves with isn't known.
 fn skin(model: &Model, mesh: &Mesh, bound: Option<&[Option<Mat4>]>) -> Surface {
     let mut bone_of = vec![None; model.nodes.iter().max().map_or(0, |&n| n + 1)];
     for (b, &n) in model.nodes.iter().enumerate() {
         bone_of[n] = Some(b);
     }
+    let spacing = Shape::light(&model.skeleton).height / 80.0;
     let mut points = Vec::new();
+    let mut corners: Vec<Option<(Vec3, Vec3, usize)>> = Vec::new();
     for p in &mesh.prims {
         if p.joints.len() != p.positions.len() {
             continue;
@@ -599,23 +604,68 @@ fn skin(model: &Model, mesh: &Mesh, bound: Option<&[Option<Mat4>]>) -> Surface {
             }
             n
         };
-        for ((&at, &j), normal) in p.positions.iter().zip(&p.joints).zip(normals) {
-            let Some(&Some(b)) = bone_of.get(j as usize) else {
-                continue;
-            };
-            let (mut at, mut normal) = (Vec3::from_array(at), normal);
-            if let Some(m) = bound {
-                let Some(&Some(m)) = m.get(j as usize) else {
-                    continue;
-                };
-                at = m.transform_point3(at);
-                normal = m.inverse().transpose().transform_vector3(normal);
+        corners.clear();
+        corners.extend(
+            p.positions
+                .iter()
+                .zip(&p.joints)
+                .zip(normals)
+                .map(|((&at, &j), normal)| {
+                    let b = (*bone_of.get(j as usize)?)?;
+                    let (mut at, mut normal) = (Vec3::from_array(at), normal);
+                    if let Some(m) = bound {
+                        let m = (*m.get(j as usize)?)?;
+                        at = m.transform_point3(at);
+                        normal = m.inverse().transpose().transform_vector3(normal);
+                    }
+                    Some((at, normal.normalize_or_zero(), b))
+                }),
+        );
+        points.extend(corners.iter().flatten().copied());
+        let unindexed: Vec<u32>;
+        let indices = if p.indices.is_empty() {
+            unindexed = (0..p.positions.len() as u32).collect();
+            &unindexed
+        } else {
+            &p.indices
+        };
+        for t in indices.as_chunks::<3>().0 {
+            let corner = |i: u32| corners.get(i as usize).copied().flatten();
+            if let (Some(a), Some(b), Some(c)) = (corner(t[0]), corner(t[1]), corner(t[2]))
+                && a.2 == b.2
+                && b.2 == c.2
+            {
+                fill([a.0, b.0, c.0], [a.1, b.1, c.1], a.2, spacing, &mut points);
             }
-            points.push((at, normal, b));
         }
     }
-    let height = Shape::light(&model.skeleton).height;
-    Surface::new(&model.skeleton, points, height / 80.0)
+    Surface::new(&model.skeleton, points, spacing)
+}
+
+/// Points across a face with these corners and normals at them, at most `spacing` apart, the corners left out, each
+/// with the normal blended from the corners'.
+fn fill(at: [Vec3; 3], normals: [Vec3; 3], bone: usize, spacing: f32, out: &mut Vec<(Vec3, Vec3, usize)>) {
+    let [a, b, c] = at;
+    let longest = a.distance(b).max(b.distance(c)).max(c.distance(a));
+    if longest.is_nan() || longest <= spacing {
+        return;
+    }
+    // A face stretching far past the body (a ground plane, say) is filled no finer than this.
+    let n = (longest / spacing).ceil().min(64.0) as usize;
+    for i in 0..=n {
+        for j in 0..=n - i {
+            let k = n - i - j;
+            if i == n || j == n || k == n {
+                continue;
+            }
+            let [u, v, w] = [i, j, k].map(|x| x as f32 / n as f32);
+            out.push((
+                a * u + b * v + c * w,
+                normals[0] * u + normals[1] * v + normals[2] * w,
+                bone,
+            ));
+        }
+    }
 }
 
 /// The format a file extension names, in lower case: VRM avatars are GLB.

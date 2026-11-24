@@ -174,18 +174,18 @@ is cut about 80 times, with limbs as close as the whole clip's. A foot is plante
 judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses,
 keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
 
-Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,671 of them with the
+Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,626 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
 over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0282 | 0.0648 | 7.9% |
-| all (`apply_touching`) | 0.0088 | 0.0194 | 1.3% |
-| all, live (`Live::touching`) | 0.0087 | 0.0194 | 1.3% |
+| all but touch (`apply_with`) | 0.0288 | 0.0660 | 9.8% |
+| all (`apply_touching`) | 0.0081 | 0.0174 | 1.3% |
+| all, live (`Live::touching`) | 0.0081 | 0.0174 | 1.4% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-3.2 times closer and hands end up inside the body a sixth as often.
+3.6 times closer and hands end up inside the body a seventh as often.
 
 ### Against the learned retargeters
 
@@ -362,7 +362,8 @@ tails are left out, and fingers hanging low aren't taken for feet.
   surface, not into it, and the elbow swings round the line from shoulder to hand till the arm is no deeper in the head
   than the source's.
 - **Touch** (`Mapping::apply_touching`, given each rig's `Surface`; `load::Model` reads it as `skin` from the skinned
-  mesh). Each skin is thinned to points about 1/80 of the height apart, each bound to the bone that moves it most.
+  mesh). Each skin is thinned to points about 1/80 of the height apart, each bound to the bone that moves it most;
+  a face wider than that, all of it moving with one bone (a box for a head), is filled in between its corners.
   Every frame, the gap from each hand to the skin of the rest of the body (arms left out) is measured on the source
   and on the target, along the skin's smoothed outward facing. Where the source's hand is near its body, two-bone IK
   moves the target's hand to the same gap over its own height, keeping its turn, and lets go smoothly as the source's

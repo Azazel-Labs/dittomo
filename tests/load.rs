@@ -195,6 +195,23 @@ fn refuses_clips_it_cannot_write() {
     );
 }
 
+/// `bytes` in base64, for a glTF's data URI.
+fn base64(bytes: &[u8]) -> String {
+    let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut data = String::new();
+    for c in bytes.chunks(3) {
+        let n = c
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            let at = (n >> (18 - 6 * i)) as usize & 63;
+            data.push(if i <= c.len() { char::from(table[at]) } else { '=' });
+        }
+    }
+    data
+}
+
 /// A glTF of hips and two legs bound standing straight, saved with the left leg swung forward, as a rig saved in a
 /// frame of its walk is.
 fn mid_stride() -> String {
@@ -212,18 +229,7 @@ fn mid_stride() -> String {
         ];
         bytes.extend(m.iter().flat_map(|f| f.to_le_bytes()));
     }
-    let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut data = String::new();
-    for c in bytes.chunks(3) {
-        let n = c
-            .iter()
-            .enumerate()
-            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
-        for i in 0..4 {
-            let at = (n >> (18 - 6 * i)) as usize & 63;
-            data.push(if i <= c.len() { char::from(table[at]) } else { '=' });
-        }
-    }
+    let data = base64(&bytes);
     let (s, c) = (15f32.to_radians().sin(), 15f32.to_radians().cos());
     format!(
         r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0,5]}}],
@@ -274,5 +280,109 @@ fn a_rig_resting_as_chosen_keeps_its_rest() {
     let m = Model::from_bytes(text.as_bytes(), "gltf").unwrap();
     for b in [1, 3] {
         assert!(m.skeleton.bones()[b].rest.rotation.angle_between(Quat::IDENTITY) > 0.2);
+    }
+}
+
+/// The corners and 12 triangles of a box, facing out: 24 corners, four to a side so each side has its own normals,
+/// or the 8 shared, as a low-poly mesh is often drawn, its normals then pointing out from the corners.
+fn cuboid(center: Vec3, half: Vec3, shared: bool) -> (Vec<Vec3>, Vec<u16>) {
+    let (mut at, mut faces) = (Vec::new(), Vec::new());
+    for axis in 0..3 {
+        for sign in [1.0, -1.0] {
+            let n = Vec3::AXES[axis] * sign;
+            let (mut u, mut v) = (Vec3::AXES[(axis + 1) % 3], Vec3::AXES[(axis + 2) % 3]);
+            if sign < 0.0 {
+                (u, v) = (v, u);
+            }
+            let mut corner = |p: Vec3| match at.iter().position(|&q| shared && q == p) {
+                Some(i) => i as u16,
+                None => {
+                    at.push(p);
+                    at.len() as u16 - 1
+                }
+            };
+            let side = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                .map(|(a, b)| corner(center + (n + u * a + v * b) * half));
+            faces.extend([0, 1, 2, 0, 2, 3].map(|i| side[i]));
+        }
+    }
+    (at, faces)
+}
+
+/// A glTF of a box for a chest, its sides far wider than the skin's spacing, its corners shared, and a box 2 cm wide
+/// for a hand with its middle at `hand`.
+fn chest_and_hand(hand: Vec3) -> String {
+    let (mut at, mut faces) = cuboid(Vec3::new(0.0, 1.25, 0.0), Vec3::new(0.3, 0.35, 0.2), true);
+    let (hand_at, hand_faces) = cuboid(hand, Vec3::splat(0.01), false);
+    faces.extend(hand_faces.iter().map(|&i| i + at.len() as u16));
+    let joints: Vec<u8> = (0..at.len() + hand_at.len())
+        .flat_map(|i| [if i < at.len() { 1 } else { 2 }, 0, 0, 0])
+        .collect();
+    at.extend(hand_at);
+    let mut bytes = Vec::new();
+    for p in [[0.0, 1.0, 0.0], [0.0, 1.25, 0.0], hand.to_array(), [0.0, 0.0, 0.0]] {
+        let m = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -p[0], -p[1], -p[2], 1.0f32,
+        ];
+        bytes.extend(m.iter().flat_map(|f| f.to_le_bytes()));
+    }
+    let views = [bytes.len(), at.len() * 12, joints.len(), at.len() * 16, faces.len() * 2];
+    bytes.extend(at.iter().flat_map(Vec3::to_array).flat_map(f32::to_le_bytes));
+    bytes.extend(&joints);
+    bytes.extend(
+        (0..at.len())
+            .flat_map(|_| [1.0f32, 0.0, 0.0, 0.0])
+            .flat_map(f32::to_le_bytes),
+    );
+    bytes.extend(faces.iter().flat_map(|i| i.to_le_bytes()));
+    let mut offset = 0;
+    let views: Vec<String> = views
+        .iter()
+        .map(|&len| {
+            let view = format!(r#"{{"buffer":0,"byteOffset":{offset},"byteLength":{len}}}"#);
+            offset += len;
+            view
+        })
+        .collect();
+    let (lo, hi) = at
+        .iter()
+        .fold((Vec3::MAX, Vec3::MIN), |(lo, hi), &p| (lo.min(p), hi.max(p)));
+    format!(
+        r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0,4]}}],
+        "nodes":[{{"name":"Hips","translation":[0,1,0],"children":[1,2,3]}},
+        {{"name":"Chest","translation":[0,0.25,0]}},
+        {{"name":"Hand","translation":{hand_rel:?}}},
+        {{"name":"Foot","translation":[0,-1,0]}},
+        {{"name":"Body","skin":0,"mesh":0}}],
+        "skins":[{{"joints":[0,1,2,3],"inverseBindMatrices":0}}],
+        "meshes":[{{"primitives":[{{"attributes":{{"POSITION":1,"JOINTS_0":2,"WEIGHTS_0":3}},"indices":4}}]}}],
+        "accessors":[{{"bufferView":0,"componentType":5126,"count":4,"type":"MAT4"}},
+        {{"bufferView":1,"componentType":5126,"count":{n},"type":"VEC3","min":{lo:?},"max":{hi:?}}},
+        {{"bufferView":2,"componentType":5121,"count":{n},"type":"VEC4"}},
+        {{"bufferView":3,"componentType":5126,"count":{n},"type":"VEC4"}},
+        {{"bufferView":4,"componentType":5123,"count":{f},"type":"SCALAR"}}],
+        "bufferViews":[{views}],
+        "buffers":[{{"byteLength":{len},"uri":"data:application/octet-stream;base64,{data}"}}]}}"#,
+        n = at.len(),
+        hand_rel = (hand - Vec3::Y).to_array(),
+        f = faces.len(),
+        lo = lo.to_array(),
+        hi = hi.to_array(),
+        views = views.join(","),
+        len = bytes.len(),
+        data = base64(&bytes),
+    )
+}
+
+#[test]
+fn a_low_poly_body_has_skin_across_its_faces() {
+    // 5 cm in front of the chest, off to the side, where its nearest corners face out every which way; and 2 cm into
+    // its side. The gap is from the hand's middle to the skin, less the hand's half-width.
+    for (hand, want) in [(Vec3::new(0.2, 1.45, 0.25), 0.04), (Vec3::new(0.28, 1.2, 0.0), -0.03)] {
+        let m = Model::from_bytes(chest_and_hand(hand).as_bytes(), "gltf").unwrap();
+        let hand = m.skeleton.index_of("Hand").unwrap();
+        let world = m.skeleton.world(&m.skeleton.rest());
+        let gap = m.skin.gap(&m.skeleton, &world, hand, &[hand]).unwrap();
+        assert!((gap - want).abs() < 0.01, "{gap} for {want}");
     }
 }
