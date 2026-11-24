@@ -188,24 +188,42 @@ pub fn arms(skeleton: &Skeleton) -> Vec<Limb> {
         .unwrap_or_default()
 }
 
-/// The spine bones above the chest, where the arms branch: the neck and head, up to the highest bone. Each marks itself
-/// in the result; a skeleton with no arms found has none.
-pub(crate) fn above_chest(skeleton: &Skeleton, s: &Shape) -> Vec<bool> {
-    let mut out = vec![false; skeleton.len()];
-    if let (Some(trunk), Some(body)) = (trunk(skeleton, s), body(skeleton, s))
-        && let Some(&chest) = body.spine.last()
+/// The body's axis, found from its rest pose: the spine from the hips to the chest, and by bone, whether it stands on
+/// the spine above the chest (the neck and head, up to the highest bone). The chest is where the arms branch, or on a
+/// body with none, where the highest legs do: a four-legged animal's shoulders, its neck and head above them however
+/// it carries them. A skeleton with neither has no axis.
+pub(crate) fn axis(skeleton: &Skeleton, s: &Shape) -> (Vec<usize>, Vec<bool>) {
+    let mut above = vec![false; skeleton.len()];
+    let Some(trunk) = trunk(skeleton, s) else {
+        return (Vec::new(), above);
+    };
+    let spine = if let Some(body) = body(skeleton, s) {
+        body.spine
+    } else {
+        // Each spine bone some leg hangs from, off the spine: the lowest is the hips, the highest the shoulders.
+        let mut legged = vec![false; skeleton.len()];
+        for l in legs_in(skeleton, s, &trunk) {
+            legged[l.end] = true;
+        }
+        for b in (0..skeleton.len()).rev() {
+            if let Some(p) = skeleton.bones()[b].parent {
+                legged[p] |= legged[b];
+            }
+        }
+        let bears = |&b: &usize| s.children[b].iter().any(|&c| !trunk.on_spine[c] && legged[c]);
+        match (trunk.spine.iter().position(bears), trunk.spine.iter().rposition(bears)) {
+            (Some(hips), Some(chest)) if chest > hips => trunk.spine[hips..=chest].to_vec(),
+            _ => Vec::new(),
+        }
+    };
+    if let Some(&chest) = spine.last()
         && let Some(i) = trunk.spine.iter().position(|&b| b == chest)
     {
         for &b in &trunk.spine[i + 1..] {
-            out[b] = true;
+            above[b] = true;
         }
     }
-    out
-}
-
-/// The spine from the hips to the chest, as far as the body is found.
-pub(crate) fn spine(skeleton: &Skeleton, s: &Shape) -> Vec<usize> {
-    body(skeleton, s).map_or(Vec::new(), |b| b.spine)
+    (spine, above)
 }
 
 /// Turns a limb's upper and lower bones so its end reaches `goal`, or as near as the limb's length allows, bending the

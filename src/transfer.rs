@@ -368,8 +368,7 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// a half turn, legs swapped and the hips twisted. A tail, on the middle but a limb of its own, goes the source's way.
 fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Vec<(usize, usize, f32)>) {
     let n = t.children.len();
-    let (s_neck, t_neck) = (contact::above_chest(source, s), contact::above_chest(target, t));
-    let (s_spine, t_spine) = (contact::spine(source, s), contact::spine(target, t));
+    let ((s_spine, s_neck), (t_spine, t_neck)) = (contact::axis(source, s), contact::axis(target, t));
     let (s_feet, t_feet) = (feet(source, s), feet(target, t));
     let turn = map.turn();
     let mapped = |b: usize| map.source_of(b);

@@ -1805,3 +1805,51 @@ fn a_curved_back_stands_as_it_was_built_and_bends_as_the_source_bends() {
         }
     }
 }
+
+#[test]
+fn a_neck_carried_high_stays_high_under_one_carried_low() {
+    // A fox carries its head forward, low; a llama's neck rises straight up from its shoulders. Each is that animal
+    // standing as it stands, so the llama walking as the fox walks holds its neck up and turns it as the fox turns its
+    // own. Before, the shoulders of a body with four legs and no arms weren't found, nor the neck above them, and the
+    // llama's neck was laid forward along the fox's.
+    let fox = fox();
+    let llama = {
+        let mut bones = dog("Head").bones().to_vec();
+        for b in &mut bones {
+            if ["Neck2", "Neck3", "Head"].contains(&b.name.as_str()) {
+                b.rest.translation = Vec3::new(0.0, 0.12, 0.01);
+            }
+        }
+        Skeleton::new(bones).unwrap()
+    };
+    let map = Mapping::new(&fox, &llama);
+    let (neck, head) = (fox.index_of("b_Neck_04").unwrap(), fox.index_of("b_Head_05").unwrap());
+    let pairs: Vec<(usize, usize)> = (0..llama.len())
+        .filter_map(|b| map.source_of(b).filter(|a| [neck, head].contains(a)).map(|a| (a, b)))
+        .collect();
+    assert!(pairs.len() >= 2, "the neck and head play {pairs:?}");
+    let nod = {
+        let mut pose = fox.rest();
+        pose[neck].rotation = Quat::from_rotation_x(0.4) * pose[neck].rotation;
+        pose
+    };
+    let clip = Clip {
+        times: vec![0.0, 1.0],
+        poses: vec![fox.rest(), nod],
+    };
+    let played = map.apply(&fox, &llama, &clip).unwrap();
+    let (s_rest, t_rest) = (fox.world(&fox.rest()), llama.world(&llama.rest()));
+    for (f, pose) in clip.poses.iter().enumerate() {
+        let (sw, tw) = (fox.world(pose), llama.world(&played.poses[f]));
+        for &(a, b) in &pairs {
+            let s_turn = sw[a].rotation * s_rest[a].rotation.inverse();
+            let t_turn = tw[b].rotation * t_rest[b].rotation.inverse();
+            let off = s_turn.angle_between(t_turn).to_degrees();
+            assert!(
+                off < 1.0,
+                "{} turns {off:.1}° away from the fox's on frame {f}",
+                llama.bones()[b].name
+            );
+        }
+    }
+}
