@@ -22,7 +22,8 @@ fn play_on(source: &Skeleton, target: &Skeleton, clip: &Clip) -> Result<Clip, di
 ```
 
 `apply` is the plain retarget; `apply_with` adds the contact fixes below, and `apply_touching` also keeps hands on the
-body, given both rigs' skins. For a game loop, `Player` poses one frame at a time without allocating.
+body, given both rigs' skins. For a game loop, `Player` poses one frame at a time without allocating, and `Crowd` poses
+many characters through one player at once, eight side by side, in about half the time each.
 
 For poses that arrive one at a time, with nothing ahead to look at (motion capture streaming in, a networked player,
 another animation system's output), `Live` plays each and makes the same fixes from the poses so far, also without
@@ -201,7 +202,8 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 
 On a busier run, where mapping onto the mannequin took 3.2 ms and the walk with every fix 4.5 µs a frame, `Live`
 played the same walk with every fix but touch in 3.1 µs a frame, the walk done in place in 3.0 µs (the whole clip:
-4.9 µs), and the walk six poses late in 3.4 µs. Keeping hands at the skin's distance as well, with skins of 5,570 and
+4.9 µs), and the walk six poses late in 3.4 µs. Where a reused `Player` posed a frame in 1.8 µs, a `Crowd` of 64 characters
+posed each in 0.89 µs. Keeping hands at the skin's distance as well, with skins of 5,570 and
 6,697 points, takes about 4.5 times as long as the live walk without it (30 µs against 6.5 µs on a run twice as busy).
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing

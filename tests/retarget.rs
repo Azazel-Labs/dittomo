@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use dittomo::{Bone, Clip, Mapping, Quat, Skeleton, Transform, Vec3};
+use dittomo::{Bone, Clip, Crowd, Mapping, Player, Quat, Skeleton, Transform, Vec3};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Side {
@@ -462,6 +462,45 @@ fn a_character_facing_another_way_in_centimetres_plays_the_same() {
     let out = map.apply(&from.skeleton, &to.skeleton, &clip).expect("plays");
     let w = worst(&from, &to, &map, &clip, &out);
     assert!(w < 1.0, "worst {w}°");
+}
+
+#[test]
+fn a_crowd_plays_each_character_as_a_player_does() {
+    let from = humanoid(Style {
+        root: true,
+        ..Style::default()
+    });
+    let to = humanoid(Style {
+        naming: Naming::Unreal,
+        spine: 5,
+        facing: 90.0,
+        unit: 100.0,
+        pelvis: true,
+        twists: true,
+        axes: 2,
+        ..Style::default()
+    });
+    let (s, t) = (&from.skeleton, &to.skeleton);
+    let map = Mapping::new(s, t);
+    let clip = swing(&from, 1.0);
+    let mut player = Player::new(&map, s, t).expect("fits");
+    player.moving_in(&clip).expect("poses the source");
+    let mut crowd = Crowd::new(player.clone());
+    // Eleven characters, not a whole number of lanes, each at its own frame.
+    let frames: Vec<usize> = (0..11).map(|c| (3 * c) % clip.poses.len()).collect();
+    let poses: Vec<Transform> = frames.iter().flat_map(|&f| clip.poses[f].iter().copied()).collect();
+    let mut out = vec![Transform::IDENTITY; frames.len() * t.len()];
+    crowd.pose(&poses, &mut out).expect("plays");
+    let mut one = t.rest();
+    for (c, &f) in frames.iter().enumerate() {
+        player.pose(&clip.poses[f], &mut one).expect("plays");
+        for (a, b) in one.iter().zip(&out[c * t.len()..]) {
+            assert!(a.translation.distance(b.translation) < 1e-3, "{a:?} {b:?}");
+            assert!(a.rotation.dot(b.rotation).abs() > 1.0 - 1e-6, "{a:?} {b:?}");
+            assert_eq!(a.scale, b.scale);
+        }
+    }
+    assert!(crowd.pose(&poses[1..], &mut out).is_err());
 }
 
 #[test]

@@ -11,11 +11,15 @@
 //! allocating. Rotations are chained as quaternions; whole transforms are chained only down the paths to bones that
 //! travel, since only their positions are needed.
 
+mod crowd;
+
 use glam::{Affine3A, Mat3, Quat, Vec3};
 
 use crate::contact;
 use crate::shape::Shape;
 use crate::{Clip, Error, Mapping, Placed, Skeleton, Transform};
+
+pub use crowd::Crowd;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Plan {

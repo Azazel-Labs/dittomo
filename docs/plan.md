@@ -64,6 +64,10 @@ Phase 1 so far (November 2026):
   busy machine with every fix on, under the 5 µs target, or 3.4 µs played six poses late, which plants feet as the
   whole clip does. Each fix used to place the source again; placing it once a frame for all of them, travel moving it
   on afterwards, took a fifth off.
+- `Crowd` poses many characters through one `Player`, eight side by side, each part of their turns in its own array,
+  so the chains of turns down the bones run for eight characters at once rather than each waiting on the one above,
+  and the compiler does the arithmetic in vector registers: about half the time per character (1.8 to 0.89 µs on a
+  busy run, 65 → 76 bones), the same poses to rounding.
 - Mapping takes 1.1 ms for a 65-bone rig onto itself and 2.3 ms onto a 76-bone mannequin.
 - **Bone-finding on twelve real rigs** (Mixamo, Ready Player Me, VRM, Khronos samples, three.js and Babylon
   characters; 132 ordered pairs, 2558 hand-labelled joints): dittomo finds 92.7% of joints; matching by exact name, as

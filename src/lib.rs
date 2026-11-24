@@ -21,7 +21,8 @@
 //! theirs ([`Surface`]), so a hand on a hip stays on the hip of a wider body.
 //!
 //! [`Player`] poses one frame at a time without allocating. [`Live`] does too, for poses that come one at a time with
-//! nothing ahead to look at, and makes the same fixes from the poses so far.
+//! nothing ahead to look at, and makes the same fixes from the poses so far. [`Crowd`] poses many characters through
+//! one player at once, in about half the time each.
 //!
 //! With the `load` feature, [`load::Model`] reads skeletons and clips from glTF, GLB and FBX (and USD with `usd`).
 #![forbid(unsafe_code)]
@@ -42,7 +43,7 @@ pub use glam::{Mat4, Quat, Vec3};
 pub use live::Live;
 pub use mapping::{Mapping, Pair};
 pub use surface::Surface;
-pub use transfer::Player;
+pub use transfer::{Crowd, Player};
 
 /// A bone's place relative to its parent: translation, rotation and scale, applied scale first.
 #[derive(Clone, Copy, Debug, PartialEq)]

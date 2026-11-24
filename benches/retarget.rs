@@ -15,7 +15,7 @@ mod common;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dittomo::{Clip, Fixes, Live, Mapping, Player, Skeleton, Surface, Transform, Vec3};
+use dittomo::{Clip, Crowd, Fixes, Live, Mapping, Player, Skeleton, Surface, Transform, Vec3};
 
 struct Case {
     name: &'static str,
@@ -39,7 +39,7 @@ fn time(budget: Duration, mut f: impl FnMut()) -> f64 {
     samples[samples.len() / 2]
 }
 
-fn play(budget: Duration, name: &'static str, source: &Skeleton, target: &Skeleton, clip: &Clip) -> [Case; 3] {
+fn play(budget: Duration, name: &'static str, source: &Skeleton, target: &Skeleton, clip: &Clip) -> [Case; 4] {
     let map = time(budget, || {
         black_box(Mapping::new(black_box(source), black_box(target)));
     });
@@ -57,6 +57,24 @@ fn play(budget: Duration, name: &'static str, source: &Skeleton, target: &Skelet
         }
         black_box(&out);
     }) / frames;
+    // A crowd of characters, each at its own frame of the clip.
+    const CROWD: usize = 64;
+    let mut crowd = Crowd::new(player);
+    let n = clip.poses.len();
+    let frames_in: Vec<Vec<Transform>> = (0..n)
+        .map(|f| {
+            (0..CROWD)
+                .flat_map(|c| clip.poses[(f + 7 * c) % n].iter().copied())
+                .collect()
+        })
+        .collect();
+    let mut outs = vec![Transform::IDENTITY; CROWD * target.len()];
+    let crowd_pose = time(budget, || {
+        for p in &frames_in {
+            crowd.pose(black_box(p), &mut outs).expect("plays");
+        }
+        black_box(&outs);
+    }) / (frames * CROWD as f64);
     [
         Case {
             name: Box::leak(format!("{name}: map").into_boxed_str()),
@@ -72,6 +90,11 @@ fn play(budget: Duration, name: &'static str, source: &Skeleton, target: &Skelet
             name: Box::leak(format!("{name}: pose").into_boxed_str()),
             micros: pose,
             per: "frame, reused player",
+        },
+        Case {
+            name: Box::leak(format!("{name}: pose a crowd of {CROWD}").into_boxed_str()),
+            micros: crowd_pose,
+            per: "frame each, reused crowd",
         },
     ]
 }
