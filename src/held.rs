@@ -27,8 +27,8 @@ pub(crate) struct Held {
 
 /// The skeleton's held bones, if it has any: a bone low down, in the lowest 15% of the body with bones under it
 /// reaching the floor, hanging from the root or a bone holding half the skeleton or more, under a limb that hangs down
-/// and stops short, between a twentieth and two fifths of the height up with nothing under it or beside it reaching
-/// lower, straight above the bone (nearer it across than down). A twist bone beside a leg that goes on to the floor
+/// and stops short, between a twentieth and two fifths of the height up (half, hanging straight down over the bone)
+/// with nothing under it or beside it reaching lower, straight above the bone (nearer it across than down). A twist bone beside a leg that goes on to the floor
 /// ends no limb, nor does a hand. Each limb takes the nearest such bone, and each bone the nearest limb.
 pub(crate) fn held(skeleton: &Skeleton) -> Option<Held> {
     let bones = skeleton.bones();
@@ -76,7 +76,11 @@ pub(crate) fn held(skeleton: &Skeleton) -> Option<Held> {
             let across = Vec3::new(pos[d].x - pos[l].x, 0.0, pos[d].z - pos[l].z).length();
             let branches = parent(d).is_none_or(|p| 2 * size[p] >= n && above(p, l));
             let short = lowest[q] >= stands(l);
-            if leaf[l] && short && (0.05..0.4).contains(&stands(l)) && pos[q].y > pos[l].y && across < drop && branches
+            // A long forearm hanging straight down from a short upper leg, under a head held high with tall ears (a
+            // wolf's): the limb's last bone starts nearly half way up.
+            let hangs = Vec3::new(pos[q].x - pos[l].x, 0.0, pos[q].z - pos[l].z).length() < 0.5 * (pos[q].y - pos[l].y);
+            let high = if hangs && across < 0.5 * drop { 0.5 } else { 0.4 };
+            if leaf[l] && short && (0.05..high).contains(&stands(l)) && pos[q].y > pos[l].y && across < drop && branches
             {
                 found.push((pos[l].distance(pos[d]), d, l));
             }

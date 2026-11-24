@@ -1952,3 +1952,57 @@ fn a_long_neck_leaves_the_hind_legs_hip_to_hip() {
         }
     }
 }
+
+#[test]
+fn a_tail_carried_above_a_lowered_head_is_still_a_tail() {
+    // A cow walks with its head low and its tail's root above it: the highest bone is in the tail. Before, the spine
+    // was taken up the tail, all four legs hanging from where it starts, and the neck and head, found nowhere, were
+    // laid along the fox's.
+    let fox = fox();
+    let cow = {
+        let mut bones = alpaca().bones().to_vec();
+        for b in &mut bones {
+            if b.name == "Tail2" {
+                b.rest.translation = Vec3::new(0.0, 0.6, -0.05);
+            }
+        }
+        Skeleton::new(bones).unwrap()
+    };
+    let map = Mapping::new(&fox, &cow);
+    let rest = Clip {
+        times: vec![0.0],
+        poses: vec![fox.rest()],
+    };
+    let played = map.apply(&fox, &cow, &rest).unwrap();
+    let (t_rest, t_now) = (cow.world(&cow.rest()), cow.world(&played.poses[0]));
+    for name in ["Back", "Torso2", "Neck2", "Head"] {
+        let b = cow.index_of(name).unwrap();
+        let off = (t_now[b].rotation * t_rest[b].rotation.inverse()).angle_between(Quat::IDENTITY);
+        assert!(
+            off.to_degrees() < 1.0,
+            "{name} turns {:.1}° standing as the fox stands",
+            off.to_degrees()
+        );
+    }
+}
+
+#[test]
+fn a_body_rolled_over_by_a_bone_the_target_lacks_lies_down() {
+    // The Quaternius animals turn the whole body with a bone between the root and the hips that a fox has no match
+    // for. Rolled onto its side by it, the alpaca's hips come down near the floor; before, the fox's only turned where
+    // they stood, floating at full height with their legs out through the floor.
+    let (alpaca, fox) = (alpaca(), fox());
+    let map = Mapping::new(&alpaca, &fox);
+    let body = alpaca.index_of("Body").unwrap();
+    let mut rolled = alpaca.rest();
+    rolled[body].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2) * rolled[body].rotation;
+    let clip = Clip {
+        times: vec![0.0, 1.0],
+        poses: vec![alpaca.rest(), rolled],
+    };
+    let played = map.apply(&alpaca, &fox, &clip).unwrap();
+    let hips = fox.index_of("b_Hip_01").unwrap();
+    let (rest, now) = (fox.world(&fox.rest()), fox.world(&played.poses[1]));
+    let (from, to) = (rest[hips].position().y, now[hips].position().y);
+    assert!(to < 0.5 * from, "the fox's hips stay {to:.2} high of {from:.2}");
+}

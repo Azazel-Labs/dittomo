@@ -164,19 +164,58 @@ fn trunk(skeleton: &Skeleton, s: &Shape) -> Option<Trunk> {
         top_of[b] = parent(b).and_then(|p| top_of[p]);
     }
     let pos = |b: usize| s.rest[b].position();
-    let top = (0..n)
-        .filter(|&b| top_of[b] == Some(root))
-        .max_by(|&a, &b| pos(a).y.total_cmp(&pos(b).y))?;
-    let mut spine = vec![top];
-    while let Some(p) = parent(spine[spine.len() - 1]) {
-        spine.push(p);
+    let highest = |under: &dyn Fn(usize) -> bool| {
+        (0..n)
+            .filter(|&b| under(b))
+            .max_by(|&a, &b| pos(a).y.total_cmp(&pos(b).y))
+    };
+    let to = |top: usize| {
+        let mut spine = vec![top];
+        while let Some(p) = parent(spine[spine.len() - 1]) {
+            spine.push(p);
+        }
+        spine.reverse();
+        let mut on_spine = vec![false; n];
+        for &b in &spine {
+            on_spine[b] = true;
+        }
+        (spine, on_spine)
+    };
+    let top = highest(&|b| top_of[b] == Some(root))?;
+    let (spine, on_spine) = to(top);
+    let first = Trunk { under, spine, on_spine };
+    // An animal carrying its tail above its lowered head (a cow): the way to the highest bone is the tail, and every
+    // leg hangs from where it starts. The way on from there that two legs hang from, the shoulders, is the body, if it
+    // reaches nearly as high: a pelvis bone holding the legs beside the spine stands far lower than the head.
+    let mut legs = vec![0usize; n];
+    for l in legs_in(skeleton, s, &first) {
+        let mut b = l.end;
+        while !first.on_spine[b] {
+            legs[b] += 1;
+            let Some(p) = parent(b) else { break };
+            b = p;
+        }
     }
-    spine.reverse();
-    let mut on_spine = vec![false; n];
-    for &b in &spine {
-        on_spine[b] = true;
+    let stands = |b: usize| pos(b).y - s.floor;
+    let branch = (0..n).find(|&c| legs[c] >= 2 && parent(c).is_some_and(|p| first.on_spine[p]));
+    if let Some(c) = branch {
+        let mut within = vec![false; n];
+        within[c] = true;
+        for b in c + 1..n {
+            within[b] = parent(b).is_some_and(|p| within[p]);
+        }
+        if let Some(high) = highest(&|b| within[b])
+            && stands(high) >= 0.7 * stands(top)
+        {
+            let (spine, on_spine) = to(high);
+            return Some(Trunk {
+                under: first.under,
+                spine,
+                on_spine,
+            });
+        }
     }
-    Some(Trunk { under, spine, on_spine })
+    Some(first)
 }
 
 /// The skeleton's arms, found from its rest pose: each chain off the spine above where the legs branch, down to where

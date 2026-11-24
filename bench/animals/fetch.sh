@@ -5,7 +5,8 @@
 # They're fetched, not committed: each keeps its own licence, as its source says.
 #   Khronos glTF-Sample-Assets: Fox (mesh CC0 by PixelMannen; rig and animation CC-BY 4.0 by @tomkranis; glTF by
 #     @AsoboStudio and @scurest)
-#   Quaternius's Ultimate Animated Animals, CC0, from a copy on GitHub: Husky
+#   Quaternius's Ultimate Animated Animals, CC0, from a copy on GitHub: Husky, Alpaca, Cow, Deer, Horse, Shiba Inu,
+#     Stag, Wolf
 set -eu
 
 dir=${1:-"$(dirname "$0")/data"}
@@ -40,4 +41,11 @@ fetch() { # file url sha256
 
 fetch fox.glb "$khronos/Fox/glTF-Binary/Fox.glb" d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7
 fetch husky.gltf "$quaternius/Husky.gltf" 0cfd85ddfcc5c07caf1bdeb296b21017b0da4c8558a92086daf4a172e0bf8d97
-echo "2 animals in $dir"
+fetch alpaca.gltf "$quaternius/Alpaca.gltf" 5009bfa756c7b7af5e02263d47a6d9088cadaada2240b41b4e87f31327b0e063
+fetch cow.gltf "$quaternius/Cow.gltf" b04af067688d9fadf1395b4456dbf3117c2f760fb49e704ee5c8b6391fc8adb5
+fetch deer.gltf "$quaternius/Deer.gltf" b8afd0647e7a74332ce802c8326dfefe1a2b76da67ab925a631aaddb5ae9bdd4
+fetch horse.gltf "$quaternius/Horse.gltf" 3deb61550dff1d2786d04b6e8559d63ad3907d6ab606ba28ce0af074ed96341b
+fetch shiba.gltf "$quaternius/ShibaInu.gltf" 3236979b94a840eb72d9ce091b1361da327a96f5ce068e666680297480f30f6b
+fetch stag.gltf "$quaternius/Stag.gltf" 170b964909d16d1ab4d428b1d714f25016913d32481acd9c3d62923192583be6
+fetch wolf.gltf "$quaternius/Wolf.gltf" cc02e9d128b5715f352ee8bea086f97a35f1d875d240de99b0f9f2775c37d415
+echo "9 animals in $dir"

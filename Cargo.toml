@@ -59,6 +59,11 @@ name = "rigs"
 harness = false
 required-features = ["fs"]
 
+[[bench]]
+name = "animals"
+harness = false
+required-features = ["fs"]
+
 [[example]]
 name = "video"
 required-features = ["fs"]

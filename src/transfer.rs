@@ -64,6 +64,12 @@ pub struct Player {
     s_mat_need: Vec<bool>,
     s_rest_pos: Vec<Vec3>,
     s_rest_translation: Vec<Vec3>,
+    s_rest_rotation: Vec<Quat>,
+    /// Source bones some target bone plays.
+    s_played: Vec<bool>,
+    /// For each source bone, the nearest bone above it some target bone plays, and where the bone stands from it at
+    /// rest, in its frame.
+    s_anchor: Vec<Option<(usize, Vec3)>>,
     s_height: f32,
     // The target.
     t_parent: Vec<Option<usize>>,
@@ -128,14 +134,37 @@ impl Player {
                 p => p,
             })
             .collect();
+        let mut s_played = vec![false; ns];
+        for p in &plans {
+            if let Plan::Mapped { source: a, .. } = *p {
+                s_played[a] = true;
+            }
+        }
+        let s_parent: Vec<Option<usize>> = source.bones().iter().map(|b| b.parent).collect();
+        let s_anchor = (0..ns)
+            .map(|a| {
+                let mut up = s_parent[a];
+                while let Some(p) = up {
+                    if s_played[p] {
+                        let off = s.rest[p].matrix.inverse().transform_point3(s.rest[a].position());
+                        return Some((p, off));
+                    }
+                    up = s_parent[p];
+                }
+                None
+            })
+            .collect();
         let mut player = Self {
             turn,
             plans,
-            s_parent: source.bones().iter().map(|b| b.parent).collect(),
+            s_parent,
             s_rot_need: vec![false; ns],
             s_mat_need: vec![false; ns],
             s_rest_pos: s.rest.iter().map(Placed::position).collect(),
             s_rest_translation: source.bones().iter().map(|b| b.rest.translation).collect(),
+            s_rest_rotation: source.bones().iter().map(|b| b.rest.rotation).collect(),
+            s_played,
+            s_anchor,
             s_height: s.height,
             t_parent: target.bones().iter().map(|b| b.parent).collect(),
             t_rest: target.rest(),
@@ -157,7 +186,9 @@ impl Player {
     }
 
     /// Marks the source bones that move, not just turn, somewhere in this clip, so the bones playing them travel too.
-    /// [`Mapping::apply`] does this for the clip it plays.
+    /// A bone moves when it does under its parent, or when a bone above it that no target bone plays moves or turns,
+    /// carrying it: a body bone between the root and the hips (a four-legged rig's) rolling the animal onto its side
+    /// lowers its hips, which the target's must follow. [`Mapping::apply`] does this for the clip it plays.
     ///
     /// # Errors
     /// If the clip doesn't pose the source.
@@ -165,12 +196,27 @@ impl Player {
         clip.check(self.s_parent.len())?;
         let hung = self.held[0].as_ref().map(|h| h.hang_clip(clip));
         let clip = hung.as_ref().unwrap_or(clip);
-        for (a, m) in self.moves.iter_mut().enumerate() {
-            let r = self.s_rest_translation[a];
-            *m = clip
+        let ns = self.s_parent.len();
+        let (mut shifts, mut turns) = (vec![false; ns], vec![false; ns]);
+        for a in 0..ns {
+            let (t, r) = (self.s_rest_translation[a], self.s_rest_rotation[a]);
+            shifts[a] = clip
                 .poses
                 .iter()
-                .any(|p| p[a].translation.distance(r) > 1e-4 * self.s_height);
+                .any(|p| p[a].translation.distance(t) > 1e-4 * self.s_height);
+            turns[a] = clip.poses.iter().any(|p| p[a].rotation.dot(r).abs() < 1.0 - 1e-7);
+        }
+        for a in 0..ns {
+            let mut carried = shifts[a];
+            let mut up = self.s_parent[a];
+            while let Some(p) = up
+                && !carried
+                && !self.s_played[p]
+            {
+                carried = shifts[p] || turns[p];
+                up = self.s_parent[p];
+            }
+            self.moves[a] = carried;
         }
         self.needs();
         Ok(self)
@@ -291,8 +337,22 @@ impl Player {
                 Plan::Mapped { source: a, travel, .. } => {
                     let w = self.turned[b] * self.t_rest_rot[b];
                     let at = travel.map_or(rest.translation, |k| {
-                        let moved = turn * (Vec3::from(self.s_mat[a].translation) - self.s_rest_pos[a]) * k;
-                        up_m.inverse().transform_point3(self.t_rest_pos[b] + moved)
+                        let now = Vec3::from(self.s_mat[a].translation);
+                        match self.s_anchor[a] {
+                            // How far the source has come from where it stands at rest from the bone above it that
+                            // is played, carried as that bone is turned now: a paw slipping off the end of its leg
+                            // moves with the leg, wherever the leg has gone.
+                            Some((p, off)) => {
+                                let from = self.s_mat[p];
+                                let moved =
+                                    turn * from.transform_vector3(from.inverse().transform_point3(now) - off) * k;
+                                rest.translation + up_m.inverse().transform_vector3(moved)
+                            }
+                            None => {
+                                let moved = turn * (now - self.s_rest_pos[a]) * k;
+                                up_m.inverse().transform_point3(self.t_rest_pos[b] + moved)
+                            }
+                        }
                     });
                     (whole(up_r.inverse() * w), at, w)
                 }

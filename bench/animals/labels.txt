@@ -1,0 +1,43 @@
+# The bones playing each joint of a four-legged body, by rig file: hips, chest and head, and on each side the hind
+# leg's hip, knee, hock and foot, and the foreleg's shoulder, elbow and foot. A joint may name more than one bone,
+# separated by `|`, where the rig's bones split it: a joint is found when any of the target's plays any of the
+# source's. The Quaternius animals share one rig's names.
+
+[fox.glb]
+hips = b_Hip_01
+chest = b_Spine02_03
+head = b_Head_05
+l_hip = b_LeftLeg01_015
+l_knee = b_LeftLeg02_016
+l_hock = b_LeftFoot01_017
+l_hindfoot = b_LeftFoot02_018
+r_hip = b_RightLeg01_019
+r_knee = b_RightLeg02_020
+r_hock = b_RightFoot01_021
+r_hindfoot = b_RightFoot02_022
+l_shoulder = b_LeftUpperArm_09
+l_elbow = b_LeftForeArm_010
+l_forefoot = b_LeftHand_011
+r_shoulder = b_RightUpperArm_06
+r_elbow = b_RightForeArm_07
+r_forefoot = b_RightHand_08
+
+[husky.gltf alpaca.gltf cow.gltf deer.gltf horse.gltf shiba.gltf stag.gltf wolf.gltf]
+hips = Back
+chest = Torso2
+head = Head
+l_hip = BackLeg.L
+l_knee = BackUpperLeg.L
+l_hock = BackLowerLeg.L
+l_hindfoot = IKBackLeg.L | FFB.L
+r_hip = BackLeg.R
+r_knee = BackUpperLeg.R
+r_hock = BackLowerLeg.R
+r_hindfoot = IKBackLeg.R | FFB.R
+# The shoulder bone stands out from the chest beside the top of the leg: either is the shoulder.
+l_shoulder = FrontShoulder.L | FrontUpperLeg.L
+l_elbow = FrontLowerLeg.L
+l_forefoot = IKFrontLeg.L | FF.L
+r_shoulder = FrontShoulder.R | FrontUpperLeg.R
+r_elbow = FrontLowerLeg.R
+r_forefoot = IKFrontLeg.R | FF.R

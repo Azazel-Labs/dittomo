@@ -128,6 +128,17 @@ jobs:
       - run: cargo bench --features fs --bench rigs -- --min 95 --max-degrees 3 | tee -a "$GITHUB_STEP_SUMMARY"
         shell: bash
         working-directory: dittomo
+      # Four-legged animals of different builds, from a fox to an alpaca: joints found, posture at rest, feet in
+      # the floor.
+      - uses: actions/cache@v5
+        with:
+          path: dittomo/bench/animals/data
+          key: animals-${{ hashFiles('dittomo/bench/animals/fetch.sh') }}
+      - run: sh bench/animals/fetch.sh
+        working-directory: dittomo
+      - run: cargo bench --features fs --bench animals -- --min 100 --max-posture 1 --max-floor 13 | tee -a "$GITHUB_STEP_SUMMARY"
+        shell: bash
+        working-directory: dittomo
 
   # Both builds run on one runner, one after the other, so the machine is the same for each.
   bench:
