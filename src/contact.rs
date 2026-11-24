@@ -287,20 +287,33 @@ fn contacts(at: &[Vec3], times: &[f32], rest_y: f32, height: f32) -> Vec<bool> {
 }
 
 /// Into `out`, for each place a foot is at, whether it is planted: within a twenty-fifth of the height of `ground` and
-/// moving under a quarter of the height a second, with one-pose gaps filled and one-pose plants dropped.
+/// moving under a quarter of the height a second coming or going (a foot still on one side has just landed or is about
+/// to lift, but stands), with one-pose gaps filled and one-pose plants dropped. A contact then holds on through the
+/// poses either side of it the foot is still that slow and within three fiftieths of the height of `ground` in, as one
+/// played live does, so it isn't let go of while the foot is only a little higher. Planted poses either side of a quick
+/// step are [`apart`]: a contact is a run of planted poses none of which is apart from the one before.
 fn detect(at: &[Vec3], times: &[f32], ground: f32, height: f32, out: &mut Vec<bool>) {
     let n = at.len();
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
     out.clear();
-    out.extend((0..n).map(|f| {
-        let (i, j) = (f.saturating_sub(1), (f + 1).min(n - 1));
+    // How fast the foot moves between two poses, if time passes between them.
+    let speed = |i: usize, j: usize| {
         let dt = times[j] - times[i];
-        let speed = if dt > 0.0 {
-            flat(at[j] - at[i]).length() / dt
-        } else {
-            0.0
+        (dt > 0.0).then(|| flat(at[j] - at[i]).length() / dt)
+    };
+    // How high the foot is off the ground at a pose, and the slower of coming and going.
+    let at_pose = |f: usize| {
+        let coming = f.checked_sub(1).and_then(|i| speed(i, f));
+        let going = (f + 1 < n).then(|| speed(f, f + 1)).flatten();
+        let slowest = match (coming, going) {
+            (Some(c), Some(g)) => c.min(g),
+            (c, g) => c.or(g).unwrap_or(0.0),
         };
-        at[f].y - ground < 0.04 * height && speed < 0.25 * height
+        (at[f].y - ground, slowest)
+    };
+    out.extend((0..n).map(|f| {
+        let (low, slowest) = at_pose(f);
+        low < 0.04 * height && slowest < 0.25 * height
     }));
     // Fill one-frame gaps, then drop one-frame plants.
     for f in 1..n.saturating_sub(1) {
@@ -314,6 +327,30 @@ fn detect(at: &[Vec3], times: &[f32], ground: f32, height: f32, out: &mut Vec<bo
         if out[f] && !before && !after {
             out[f] = false;
         }
+    }
+    let holds = |f: usize| {
+        let (low, slowest) = at_pose(f);
+        low < 0.06 * height && slowest < 0.25 * height
+    };
+    for f in 1..n {
+        if !out[f] && out[f - 1] && holds(f) {
+            out[f] = true;
+        }
+    }
+    for f in (0..n.saturating_sub(1)).rev() {
+        if !out[f] && out[f + 1] && holds(f) {
+            out[f] = true;
+        }
+    }
+}
+
+/// Whether the foot at `at[f]` is planted somewhere else than at the pose before, having moved there quickly: the end of
+/// one contact and the start of the next, a step taken between two poses.
+fn apart(at: &[Vec3], times: &[f32], height: f32, f: usize) -> bool {
+    f > 0 && {
+        let dt = times[f] - times[f - 1];
+        let d = at[f] - at[f - 1];
+        dt > 0.0 && Vec3::new(d.x, 0.0, d.z).length() >= 0.25 * height * dt
     }
 }
 
@@ -409,7 +446,8 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         while f < n {
             if down[f] {
                 let start = f;
-                while f < n && down[f] {
+                f += 1;
+                while f < n && down[f] && !apart(&s_at, &from.times, s.height, f) {
                     f += 1;
                 }
                 runs.push((start, f));
@@ -458,13 +496,91 @@ fn smooth(x: f32) -> f32 {
     x * x * (3.0 - 2.0 * x)
 }
 
+/// Where each of the source's feet comes down to, worked out as the poses come from those so far. Feet that walk on
+/// tiptoe never come down to where they stand at rest: once one foot is well above where the lowest came down to, that
+/// is the floor, till a foot comes down well below it; and once a foot is well above where it came down to, that is its
+/// own ground, as feet needn't stand equally high. Till then a foot's ground is the lowest it has been, or where it
+/// stands at rest if lower, so a foot coming down from its first step isn't taken to be on the floor.
+#[derive(Clone)]
+pub(crate) struct Ground {
+    /// Each foot's height at rest.
+    rest: Vec<f32>,
+    ground: Vec<f32>,
+    /// The lowest each foot has been, and whether it has since been well above it.
+    low: Vec<(f32, bool)>,
+    /// The lowest any foot has been, and whether a foot has since been well above it, so that it is known to be the
+    /// floor the feet walk on.
+    floor: f32,
+    known: bool,
+    height: f32,
+}
+
+impl Ground {
+    /// For feet standing at these heights at rest, on a body this tall.
+    fn new(rest: Vec<f32>, height: f32) -> Self {
+        let n = rest.len();
+        Self {
+            ground: rest.clone(),
+            rest,
+            low: vec![(f32::INFINITY, false); n],
+            floor: f32::INFINITY,
+            known: false,
+            height,
+        }
+    }
+
+    /// Forgets the poses so far, as after a cut.
+    fn reset(&mut self) {
+        self.ground.clone_from(&self.rest);
+        self.low.fill((f32::INFINITY, false));
+        (self.floor, self.known) = (f32::INFINITY, false);
+    }
+
+    /// Takes in how high foot `l` is in the next pose, as `at(l)`, for every foot.
+    fn see(&mut self, at: impl Fn(usize) -> f32) {
+        let h = self.height;
+        let (mut bottom, mut top) = (f32::INFINITY, f32::NEG_INFINITY);
+        for l in 0..self.rest.len() {
+            let y = at(l);
+            (bottom, top) = (bottom.min(y), top.max(y));
+        }
+        if bottom < self.floor {
+            self.known &= self.floor - bottom < 0.01 * h;
+            self.floor = bottom;
+        }
+        self.known |= top - self.floor > 0.04 * h;
+        for l in 0..self.rest.len() {
+            let y = at(l);
+            let (own, lifted) = &mut self.low[l];
+            if y < *own {
+                *lifted &= *own - y < 0.01 * h;
+                *own = y;
+            }
+            *lifted |= y - *own > 0.04 * h;
+            self.ground[l] = if *lifted {
+                *own
+            } else if self.known {
+                self.floor
+            } else {
+                self.ground[l].min(y)
+            };
+        }
+    }
+
+    /// Foot `l`'s ground.
+    fn of(&self, l: usize) -> f32 {
+        self.ground[l]
+    }
+}
+
 /// Feet kept still while the source's are planted, worked out as the poses come from those so far, with nothing ahead
-/// to look at. A source foot plants as soon as it is down and nearly still, and lifts once it rises or moves off by a
-/// little more, so it doesn't flicker between the two. The target's is held where it was when it planted, at the height
-/// the source's stands scaled, and let go over [`SETTLE`]. A foot coming down to the floor is brought to the source's
+/// to look at. A source foot plants as soon as it is down and nearly still, and lifts once it moves off or rises a little
+/// higher, so it doesn't flicker between the two. The target's is held where it was the pose before it planted, moved on
+/// as far as the source's has since (scaled), at the height the source's stands scaled, and let go over [`SETTLE`]. A foot coming down to the floor is brought to the source's
 /// height scaled as it nears it, so it lands without a jump.
 pub(crate) struct Feet {
     feet: Vec<Foot>,
+    ground: Ground,
     s_path: Vec<usize>,
     t_path: Vec<usize>,
     /// The target's height over the source's.
@@ -478,15 +594,14 @@ struct Foot {
     source: usize,
     s_rest_y: f32,
     t_rest_y: f32,
-    /// The lowest the source's foot has been, or stands at rest if lower: a foot coming down from its first step isn't
-    /// taken to be on the floor.
-    ground: f32,
     last: Option<Vec3>,
     /// The source foot's speed across the floor.
     speed: f32,
     down: bool,
     /// Where the target's foot is held, if it is or is letting go.
     lock: Option<Vec3>,
+    /// Where the target's foot was shown the pose before.
+    shown: Option<Vec3>,
     /// Seconds since the foot planted or lifted.
     since: f32,
 }
@@ -503,16 +618,17 @@ impl Feet {
                     source: a,
                     s_rest_y: s.rest[a].position().y,
                     t_rest_y: t.rest[leg.end].position().y,
-                    ground: s.rest[a].position().y,
                     last: None,
                     speed: 0.0,
                     down: false,
                     lock: None,
+                    shown: None,
                     since: 0.0,
                 })
             })
             .collect();
         (!feet.is_empty()).then(|| Self {
+            ground: Ground::new(feet.iter().map(|f| f.s_rest_y).collect(), s.height),
             s_path: paths(source, feet.iter().map(|f| f.source)),
             t_path: paths(target, feet.iter().map(|f| f.leg.end)),
             feet,
@@ -525,15 +641,16 @@ impl Feet {
     pub(crate) fn reset(&mut self) {
         for f in &mut self.feet {
             *f = Foot {
-                ground: f.s_rest_y,
                 last: None,
                 speed: 0.0,
                 down: false,
                 lock: None,
+                shown: None,
                 since: 0.0,
                 ..*f
             };
         }
+        self.ground.reset();
     }
 
     /// The source bones to place ([`place_source`]) before each pose.
@@ -547,22 +664,26 @@ impl Feet {
         let h = self.s_height;
         let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
         let Scratch { sw, tw, .. } = scratch;
-        let mut placed = false;
-        for f in &mut self.feet {
+        self.ground.see(|l| sw[self.feet[l].source].position().y);
+        place(target, played, &self.t_path, tw);
+        for (l, f) in self.feet.iter_mut().enumerate() {
             let at = sw[f.source].position();
-            f.ground = f.ground.min(at.y);
-            if let (Some(last), true) = (f.last, dt > 0.0) {
-                f.speed = flat(at - last).length() / dt;
+            let step = f.last.map_or(Vec3::ZERO, |last| flat(at - last));
+            if dt > 0.0 && f.last.is_some() {
+                f.speed = step.length() / dt;
             }
             f.last = Some(at);
-            let low = at.y - f.ground;
+            let low = at.y - self.ground.of(l);
             f.since += dt;
             if f.down {
-                if low > 0.06 * h || f.speed > 0.5 * h {
+                if low > 0.06 * h || f.speed > 0.35 * h {
                     (f.down, f.since) = (false, 0.0);
                 }
             } else if low < 0.04 * h && f.speed < 0.35 * h {
-                (f.down, f.since, f.lock) = (true, 0.0, None);
+                // Held where it was shown the pose before, moved on as the source's foot has since: the foot has only
+                // just stopped, and where the target's is now it may have slid to as the legs bent unlike the source's.
+                (f.down, f.since) = (true, 0.0);
+                f.lock = f.shown.map(|p| p + step * self.k);
             }
             // Held across the floor at once, as the foot is where it planted, and let go over SETTLE. Its height is
             // the source's scaled while planted, and on the way down to the floor from twice the height a foot plants
@@ -576,14 +697,11 @@ impl Feet {
                 }
             };
             let up = ease.max(smooth((0.08 * h - low) / (0.04 * h)));
+            let free = tw[f.leg.end].position();
             if up <= 0.0 {
+                f.shown = Some(free);
                 continue;
             }
-            if !placed {
-                place(target, played, &self.t_path, tw);
-                placed = true;
-            }
-            let free = tw[f.leg.end].position();
             let lock = if f.down {
                 *f.lock.get_or_insert(free)
             } else {
@@ -597,6 +715,7 @@ impl Feet {
             );
             // Legs hang apart, so reaching one leaves the other placed as it was.
             reach_in(target, played, tw, &f.leg, goal);
+            f.shown = Some(goal);
         }
     }
 }
@@ -608,6 +727,7 @@ impl Feet {
 /// many as are in sight.
 pub(crate) struct Ahead {
     feet: Vec<Foot>,
+    ground: Ground,
     t_path: Vec<usize>,
     k: f32,
     s_height: f32,
@@ -633,6 +753,7 @@ impl Ahead {
         let n = feet.feet.len();
         let mut ahead = Self {
             feet: feet.feet.clone(),
+            ground: feet.ground.clone(),
             t_path: feet.t_path.clone(),
             k: feet.k,
             s_height: feet.s_height,
@@ -653,9 +774,7 @@ impl Ahead {
 
     /// Forgets every contact, as after a cut.
     pub(crate) fn reset(&mut self) {
-        for f in &mut self.feet {
-            f.ground = f.s_rest_y;
-        }
+        self.ground.reset();
         self.held.fill(None);
         (self.seen, self.clock) = (0, 0.0);
     }
@@ -671,9 +790,9 @@ impl Ahead {
         self.times[slot] = self.clock;
         let Scratch { sw, tw, .. } = scratch;
         place(target, played, &self.t_path, tw);
-        for (i, f) in self.feet.iter_mut().enumerate() {
+        self.ground.see(|l| sw[self.feet[l].source].position().y);
+        for (i, f) in self.feet.iter().enumerate() {
             let at = sw[f.source].position();
-            f.ground = f.ground.min(at.y);
             self.s_at[slot * n + i] = at;
             self.t_at[slot * n + i] = tw[f.leg.end].position();
         }
@@ -705,13 +824,14 @@ impl Ahead {
                 self.w_at.push(self.s_at[slot(g) * n + i]);
                 self.w_times.push(self.times[slot(g)]);
             }
-            detect(&self.w_at, &self.w_times, f.ground, h, &mut self.w_down);
-            let down = &self.w_down;
+            detect(&self.w_at, &self.w_times, self.ground.of(i), h, &mut self.w_down);
+            let (down, w_at, w_times) = (&self.w_down, &self.w_at, &self.w_times);
             let t_at = &self.t_at;
+            let apart = |w: usize| apart(w_at, w_times, h, w);
             // The average of where the target's foot is over the contact from pose `j` (of those kept) on, in sight.
             let lock_from = |j: usize| {
                 let (sum, count) = (j..down.len())
-                    .take_while(|&w| down[w])
+                    .take_while(|&w| down[w] && (w == j || !apart(w)))
                     .fold((Vec3::ZERO, 0.0), |(s, c), w| {
                         (s + t_at[slot(first + w) * n + i], c + 1.0)
                     });
@@ -720,7 +840,7 @@ impl Ahead {
             let mut near: Option<(usize, Vec3)> = None;
             if down[at_o] {
                 let lock = match self.held[i] {
-                    Some((lock, None)) => lock,
+                    Some((lock, None)) if !apart(at_o) => lock,
                     _ => lock_from(at_o),
                 };
                 self.held[i] = Some((lock, None));
@@ -768,17 +888,8 @@ pub(crate) struct Travel {
     path: Vec<usize>,
     roots: Vec<usize>,
     s_height: f32,
-    /// Each foot's height at rest.
-    rest: Vec<f32>,
-    /// Each foot's ground: the lowest it has been once it has lifted off that, else the floor once known, else the
-    /// lowest it has been, or stands at rest if lower.
-    ground: Vec<f32>,
-    /// The lowest each foot has been, and whether it has since been well above it.
-    low: Vec<(f32, bool)>,
-    /// The lowest any foot has been, and whether a foot has since been well above it, so that it is known to be the
-    /// floor the feet walk on.
-    floor: f32,
-    known: bool,
+    /// Where each foot comes down to.
+    ground: Ground,
     last: Vec<Option<Vec3>>,
     start: Option<Vec3>,
     velocity: Vec3,
@@ -796,11 +907,7 @@ impl Travel {
                 .filter(|&b| source.bones()[b].parent.is_none())
                 .collect(),
             s_height: s.height,
-            rest: legs.iter().map(|l| s.rest[l.0].position().y).collect(),
-            ground: legs.iter().map(|l| s.rest[l.0].position().y).collect(),
-            floor: f32::INFINITY,
-            known: false,
-            low: vec![(f32::INFINITY, false); legs.len()],
+            ground: Ground::new(legs.iter().map(|l| s.rest[l.0].position().y).collect(), s.height),
             last: vec![None; legs.len()],
             start: None,
             velocity: Vec3::ZERO,
@@ -812,9 +919,7 @@ impl Travel {
 
     /// Forgets the travel so far, as after a cut.
     pub(crate) fn reset(&mut self) {
-        self.ground.clone_from(&self.rest);
-        (self.floor, self.known) = (f32::INFINITY, false);
-        self.low.fill((f32::INFINITY, false));
+        self.ground.reset();
         self.last.fill(None);
         (self.start, self.velocity, self.moved, self.on) = (None, Vec3::ZERO, Vec3::ZERO, true);
     }
@@ -845,36 +950,11 @@ impl Travel {
         if flat(hips - start).length() > 0.1 * h {
             self.on = false;
         }
-        // Feet that walk on tiptoe never come down to where they stand at rest: once one foot is well above where the
-        // other came down to, that is the floor, till a foot comes down well below it; and once a foot is well above
-        // where it came down to, that is its own ground, as feet needn't stand equally high.
-        let (mut bottom, mut top) = (f32::INFINITY, f32::NEG_INFINITY);
-        for &(foot, _) in &self.legs {
-            let y = sw[foot].position().y;
-            (bottom, top) = (bottom.min(y), top.max(y));
-        }
-        if bottom < self.floor {
-            self.known &= self.floor - bottom < 0.01 * h;
-            self.floor = bottom;
-        }
-        self.known |= top - self.floor > 0.04 * h;
+        self.ground.see(|l| sw[self.legs[l].0].position().y);
         let mut lowest: Option<(f32, Vec3)> = None;
         for (l, &(foot, _)) in self.legs.iter().enumerate() {
             let at = sw[foot].position();
-            let (own, lifted) = &mut self.low[l];
-            if at.y < *own {
-                *lifted &= *own - at.y < 0.01 * h;
-                *own = at.y;
-            }
-            *lifted |= at.y - *own > 0.04 * h;
-            self.ground[l] = if *lifted {
-                *own
-            } else if self.known {
-                self.floor
-            } else {
-                self.ground[l].min(at.y)
-            };
-            let low = at.y - self.ground[l];
+            let low = at.y - self.ground.of(l);
             if let Some(last) = self.last[l]
                 && low < 0.04 * h
                 && lowest.is_none_or(|(m, _)| low < m)

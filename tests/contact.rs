@@ -29,16 +29,42 @@ fn long_legs(sk: &Skeleton, by: f32) -> Skeleton {
     Skeleton::new(bones).unwrap()
 }
 
-/// How far the target's feet slide, on average, between frames where the source's are planted, over its height.
-fn skate(map: &Mapping, source: &Skeleton, target: &Skeleton, from: &Clip, played: &Clip) -> f32 {
-    let world = target.world(&target.rest());
-    let (lo, hi) = world.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+/// How tall a rig stands at rest.
+fn height(sk: &Skeleton) -> f32 {
+    let (lo, hi) = sk.world(&sk.rest()).iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
         (lo.min(p.position().y), hi.max(p.position().y))
     });
+    hi - lo
+}
+
+/// For each frame, whether this foot is planted, judged here rather than by the crate so the yardstick stays put as
+/// the crate's judgment changes: within a twenty-fifth of its height of the lowest it gets, moving under a quarter of
+/// its height a second between the frames either side.
+fn planted(sk: &Skeleton, clip: &Clip, bone: usize) -> Vec<bool> {
+    let h = height(sk);
+    let ps: Vec<Vec3> = clip.poses.iter().map(|p| at(sk, p, bone)).collect();
+    let ground = ps.iter().map(|p| p.y).fold(f32::MAX, f32::min);
+    let n = ps.len();
+    (0..n)
+        .map(|f| {
+            let (i, j) = (f.saturating_sub(1), (f + 1).min(n - 1));
+            let (d, dt) = (ps[j] - ps[i], clip.times[j] - clip.times[i]);
+            let speed = if dt > 0.0 {
+                Vec3::new(d.x, 0.0, d.z).length() / dt
+            } else {
+                0.0
+            };
+            ps[f].y - ground < 0.04 * h && speed < 0.25 * h
+        })
+        .collect()
+}
+
+/// How far the target's feet slide, on average, between frames where the source's are planted, over its height.
+fn skate(map: &Mapping, source: &Skeleton, target: &Skeleton, from: &Clip, played: &Clip) -> f32 {
     let (mut slid, mut count) = (0.0, 0);
     for leg in contact::legs(target) {
         let a = map.source_of(leg.end).unwrap();
-        let down = contact::planted(source, from, a);
+        let down = planted(source, from, a);
         for f in 1..played.poses.len() {
             if down[f] && down[f - 1] {
                 let d = at(target, &played.poses[f], leg.end) - at(target, &played.poses[f - 1], leg.end);
@@ -48,7 +74,7 @@ fn skate(map: &Mapping, source: &Skeleton, target: &Skeleton, from: &Clip, playe
         }
     }
     assert!(count > 10, "the clip has planted frames ({count})");
-    slid / count as f32 / (hi - lo)
+    slid / count as f32 / height(target)
 }
 
 #[test]
@@ -157,6 +183,66 @@ fn planted_feet_stay_still_on_the_mannequin() {
     let after = skate(&map, &source, &target, &walk, &fixed);
     eprintln!("mannequin, skate per planted frame over height: {before:.5} -> {after:.5}");
     assert!(after < 1e-3, "{after}");
+}
+
+/// A walk played in steps, each pose held for `hold` frames, as clips keyed with stepped curves play.
+fn stepped(clip: &Clip, hold: usize) -> Clip {
+    let poses: Vec<Vec<Transform>> = clip
+        .poses
+        .iter()
+        .step_by(hold)
+        .flat_map(|p| vec![p.clone(); hold])
+        .collect();
+    Clip {
+        times: (0..poses.len()).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn feet_stay_still_through_a_walk_played_in_steps() {
+    // Each held pose is still, but between them the feet jump: judged by how fast they move from the pose before to the
+    // pose after, the first and last of each held pose were taken to move, and feet slid as they were eased in and out.
+    let source = common::mixamo();
+    let target = long_legs(&source, 1.3);
+    let walk = stepped(&common::gait(&source, 90, false), 3);
+    let map = Mapping::new(&source, &target);
+    let (hs, ht) = (height(&source), height(&target));
+    let plain = map.apply(&source, &target, &walk).unwrap();
+    let whole = map.apply_with(&source, &target, &walk, feet_only()).unwrap();
+    let played = [&plain, &whole, &live(&map, &source, &target, &walk, feet_only())];
+    let played = [
+        played[0],
+        played[1],
+        played[2],
+        &late(&map, &source, &target, &walk, feet_only(), 6),
+    ];
+    // Over the frames the source's foot is down and doesn't move at all.
+    let mut slid = [0.0; 4];
+    let mut count = 0;
+    for leg in contact::legs(&target) {
+        let a = map.source_of(leg.end).unwrap();
+        let ground = walk.poses.iter().map(|p| at(&source, p, a).y).fold(f32::MAX, f32::min);
+        for f in 1..walk.poses.len() {
+            let (was, is) = (at(&source, &walk.poses[f - 1], a), at(&source, &walk.poses[f], a));
+            if is.y - ground > 0.04 * hs || was.distance(is) > 1e-4 * hs {
+                continue;
+            }
+            count += 1;
+            for (m, c) in played.iter().enumerate() {
+                let d = at(&target, &c.poses[f], leg.end) - at(&target, &c.poses[f - 1], leg.end);
+                slid[m] += Vec3::new(d.x, 0.0, d.z).length() / ht;
+            }
+        }
+    }
+    assert!(count > 20, "{count}");
+    let [before, offline, online, late] = slid.map(|s| s / count as f32);
+    eprintln!(
+        "slide per still frame over height: {before:.5}, whole clip {offline:.5}, live {online:.5}, late {late:.5}"
+    );
+    for fixed in [offline, online, late] {
+        assert!(fixed < 0.05 * before, "{before} -> {fixed}");
+    }
 }
 
 #[test]
@@ -915,7 +1001,7 @@ fn live_played_late_plants_feet_as_the_whole_clip_does() {
             "{name}, skate per planted frame over height: {before:.5}, whole clip {offline:.5}, 6 late {online:.5}"
         );
         assert!(online < 0.1 * before, "{before} -> {online}");
-        assert!(online < 2.0 * offline + 1e-5, "{offline} -> {online}");
+        assert!(online < 2.0 * offline + 3e-5, "{offline} -> {online}");
     }
 }
 

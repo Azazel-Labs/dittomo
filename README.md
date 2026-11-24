@@ -44,8 +44,8 @@ fn stream(source: &Skeleton, target: &Skeleton, poses: impl Iterator<Item = (f32
 ```
 
 Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as
-soon as the source's are down and nearly still, and a clip walked in place moves on as far as the planted foot slides
-back. `Live::touching`, given both rigs' skins, keeps hands at the skin's distance too, just as the whole clip does.
+soon as the source's are down and nearly still, held where they were shown the pose before so they don't slide as they
+settle, and a clip walked in place moves on as far as the planted foot slides back. `Live::touching`, given both rigs' skins, keeps hands at the skin's distance too, just as the whole clip does.
 `Live::delayed(6)` plays each pose six poses late, a fifth of a second at 30 a second, and plants feet with those six
 in sight as the whole clip does: eased in before they land, held where they stand on average.
 
@@ -128,18 +128,19 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 | --- | ---: | ---: | ---: |
 | none (`apply`) | 0.00389 | 0.0093 | 3.0° |
 | travel | 0.00099 | 0.0093 | 3.0° |
-| planted feet | 0.00318 | 0.0020 | 3.9° |
+| planted feet | 0.00313 | 0.0019 | 4.0° |
 | push-out | 0.00389 | 0.0093 | 3.0° |
-| all (`apply_with`) | 0.00007 | 0.0011 | 4.2° |
-| all, live (`Live`) | 0.00015 | 0.0011 | 4.4° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0012 | 4.2° |
+| all (`apply_with`) | 0.00003 | 0.0011 | 4.2° |
+| all, live (`Live`) | 0.00004 | 0.0012 | 4.4° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0011 | 4.2° |
 
-Together they cut foot slide 56 times and the height error 8.5 times. The degree they cost is the legs bending to keep
+Together they cut foot slide 119 times and the height error 8.4 times. The degree they cost is the legs bending to keep
 feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
-slide is cut 26 times: a foot can only be held once it has landed, where the whole clip eases it toward where it will
-land. Six poses late, feet are planted as the whole clip plants them, and the travel of a clip walked in place, worked
-out from the poses so far, comes within 0.00001 of the whole clip's (0.00011 given it). Push-out finds nothing to do
-here, as none of these clips put a hand through the body.
+slide is cut 93 times: a foot is held from the pose it lands, where the target's was the pose before, so it doesn't
+slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six poses late it is cut
+74 times, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on, judged by how
+fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses, keep their
+feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,671 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,

@@ -70,6 +70,17 @@ Phase 1 so far (November 2026):
   ground. On the bench rigs' in-place runs live travel now matches the whole clip's exactly, the error in travel
   against the whole clip's fell by two thirds, and live foot slide fell from 0.00024 to 0.00015 (six poses late,
   0.00022 to 0.00012, against 0.00007 for the whole clip).
+- Live feet planted where the target's foot was on the pose they planted, but it had slid there since the pose before
+  as the legs bent unlike the source's, though the source's foot was already still. Now it is held where it was shown
+  the pose before, moved on as far as the source's foot has since: live slide fell from 0.00015 to 0.00004, under the
+  whole clip's. Planted feet were judged by how fast they moved from the pose before to the pose after, so the first
+  and last pose of each contact read as moving, and clips keyed in steps (each pose held, feet jumping between them)
+  slid more fixed than not: on a walk held three frames a pose, 0.00070 whole clip and 0.00123 live, against 0.00034
+  unfixed. Now the slower of coming and going counts, a contact holds on while the foot is still slow and only a
+  little higher, as it does live, and planted poses either side of a quick step start a new contact rather than one
+  holding the foot through the step. That walk now slides under 0.00001 every way; on the bench rigs whole-clip slide
+  fell from 0.00007 to 0.00003 and six poses late from 0.00012 to 0.00005. The live and late paths share one
+  `Ground` for where each foot comes down.
 - `Crowd` poses many characters through one `Player`, eight side by side, each part of their turns in its own array,
   so the chains of turns down the bones run for eight characters at once rather than each waiting on the one above,
   and the compiler does the arithmetic in vector registers: about half the time per character (1.8 to 0.89 µs on a
