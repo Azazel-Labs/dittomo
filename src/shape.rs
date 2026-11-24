@@ -178,7 +178,7 @@ impl Shape {
                 under[p] += under[i];
             }
         }
-        let pairs = mirrored(&pos, &children, &under, height);
+        let pairs = mirrored(skeleton, &pos, &children, &under, &names, height);
         let height = stature(&pairs, height, floor);
         let (girdles, limbs) = girdles(&pairs);
         let from_middle = along(middle);
@@ -344,10 +344,65 @@ struct Mirrored {
     weight: usize,
     /// How high the two are.
     y: f32,
+    /// How far the shorter of the two reaches from their parent, over the height: a limb's length, not an ear's. Zero
+    /// if they rise to their ends, as ears and antlers do: limbs hang, or reach out level.
+    span: f32,
+    /// How far their parent is along the bones from its root, over the height.
+    depth: f32,
 }
 
-fn mirrored(pos: &[Vec3], children: &[Vec<usize>], under: &[usize], height: f32) -> Vec<Mirrored> {
+fn mirrored(
+    skeleton: &Skeleton,
+    pos: &[Vec3],
+    children: &[Vec<usize>],
+    under: &[usize],
+    names: &[Name],
+    height: f32,
+) -> Vec<Mirrored> {
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+    let n = pos.len();
+    // How far along the bones each bone's farthest descendant is, and where it is.
+    let mut far = vec![0.0f32; n];
+    let mut tip = pos.to_vec();
+    let mut depth = vec![0.0f32; n];
+    for i in (0..n).rev() {
+        for &c in &children[i] {
+            let d = far[c] + pos[c].distance(pos[i]);
+            if d > far[i] {
+                far[i] = d;
+                tip[i] = tip[c];
+            }
+        }
+    }
+    let rises = |i: usize| {
+        let to = tip[i] - pos[i];
+        to.y > 0.5 * to.length()
+    };
+    for i in 0..n {
+        if let Some(p) = skeleton.bones()[i].parent {
+            depth[i] = depth[p] + pos[i].distance(pos[p]);
+        }
+    }
+    // What a name says the bone is, an arm or a leg alone as much as a numbered one (which the names read as the whole
+    // limb's chain, `arm_joint_L_4` against `arm_joint_R`).
+    fn part(n: &Name) -> Vec<&str> {
+        n.words
+            .iter()
+            .map(|w| match w.as_str() {
+                "upperarm" => "arm",
+                "shin" => "leg",
+                w => w,
+            })
+            .collect()
+    }
+    // Which way a bone points, to the child with most below it.
+    let way = |i: usize| {
+        let main = children[i]
+            .iter()
+            .copied()
+            .max_by_key(|&c| (under[c], std::cmp::Reverse(c)));
+        main.map(|c| (pos[c] - pos[i]).normalize_or_zero())
+    };
     let mut out = Vec::new();
     for (p, kids) in children.iter().enumerate() {
         for (k, &i) in kids.iter().enumerate() {
@@ -355,10 +410,34 @@ fn mirrored(pos: &[Vec3], children: &[Vec<usize>], under: &[usize], height: f32)
                 if (pos[i].y - pos[j].y).abs() > 0.05 * height {
                     continue;
                 }
+                // Named for one side both, as a front and a back leg's IK targets are, for either side but as
+                // different parts (a left front leg's and a right back leg's), or one for a side and one for neither
+                // (a hind leg and the tail): not mirror images.
+                if let (Some(a), Some(b)) = (names.get(i), names.get(j))
+                    && (a.side != Side::Middle || b.side != Side::Middle)
+                    && (a.side == b.side || a.side == Side::Middle || b.side == Side::Middle || part(a) != part(b))
+                {
+                    continue;
+                }
                 let (di, dj) = (flat(pos[i] - pos[p]), flat(pos[j] - pos[p]));
                 let apart = di - dj;
-                if apart.length() < 0.02 * height || (di + dj).length() > 0.8 * apart.length() {
+                if apart.length() < 0.02 * height {
                     continue;
+                }
+                // Both ahead of their parent, they may still be limbs pointing away from it, as a four-legged animal's
+                // front legs hang down ahead of the spine bone they hang from. Fingers side by side in front of the
+                // hand point on the way they lie.
+                let ahead = di + dj;
+                if ahead.length() > 0.8 * apart.length() {
+                    if ahead.dot(apart).abs() > 0.3 * apart.length_squared() {
+                        continue;
+                    }
+                    let (Some(wi), Some(wj)) = (way(i), way(j)) else {
+                        continue;
+                    };
+                    if (wi + wj).normalize_or_zero().dot(ahead.normalize()) > 0.5 {
+                        continue;
+                    }
                 }
                 // As much below each; or, placed as nearly exact mirror images, limbs one of which stops short (an arm
                 // with a hand and one without).
@@ -373,6 +452,12 @@ fn mirrored(pos: &[Vec3], children: &[Vec<usize>], under: &[usize], height: f32)
                     apart: apart.normalize(),
                     weight: under[i] + under[j],
                     y: (pos[i].y + pos[j].y) / 2.0,
+                    span: if rises(i) && rises(j) {
+                        0.0
+                    } else {
+                        (pos[i].distance(pos[p]) + far[i]).min(pos[j].distance(pos[p]) + far[j]) / height
+                    },
+                    depth: depth[p] / height,
                 });
             }
         }
@@ -401,22 +486,30 @@ fn mirrored_limbs(pairs: &[Mirrored]) -> Option<Vec3> {
 /// bone at its top). The shoulders are about five sixths of the way up, so the body is at least 1.22 times as tall as
 /// they are high: the two biggest mirrored pairs are the arms and the legs, and the higher are the arms.
 fn stature(pairs: &[Mirrored], height: f32, floor: f32) -> f32 {
-    let mut big: Vec<&Mirrored> = pairs.iter().collect();
-    big.sort_by_key(|m| std::cmp::Reverse(m.weight));
-    match big.as_slice() {
+    match biggest(pairs).as_slice() {
         [a, b, ..] if a.parent != b.parent => height.max(1.22 * (a.y.max(b.y) - floor)),
         _ => height,
     }
 }
 
-/// The bones the arms and the legs hang from: the parents of the two biggest mirrored pairs, if they differ, the
-/// higher pair being the arms; and the two pairs.
-fn girdles(pairs: &[Mirrored]) -> ([Option<usize>; 2], [Option<[usize; 2]>; 2]) {
-    let mut big: Vec<&Mirrored> = pairs.iter().collect();
+/// The mirrored pairs long enough to be limbs (not ears, eyes or toes), the biggest first.
+fn biggest(pairs: &[Mirrored]) -> Vec<&Mirrored> {
+    let mut big: Vec<&Mirrored> = pairs.iter().filter(|m| m.span >= 0.2).collect();
     big.sort_by_key(|m| std::cmp::Reverse(m.weight));
-    match big.as_slice() {
+    big
+}
+
+/// The bones the arms and the legs hang from: the parents of the two biggest mirrored pairs, if they differ, the arms
+/// being the pair farther along the bones from the root (a chest above hips, an animal's shoulders ahead of them,
+/// whichever stands higher); and the two pairs.
+fn girdles(pairs: &[Mirrored]) -> ([Option<usize>; 2], [Option<[usize; 2]>; 2]) {
+    match biggest(pairs).as_slice() {
         [a, b, ..] if a.parent != b.parent => {
-            let (arms, legs) = if a.y > b.y { (a, b) } else { (b, a) };
+            let (arms, legs) = if (a.depth, a.y) > (b.depth, b.y) {
+                (a, b)
+            } else {
+                (b, a)
+            };
             (
                 [Some(arms.parent), Some(legs.parent)],
                 [Some(arms.bones), Some(legs.bones)],
@@ -467,4 +560,81 @@ fn mirror_plane(pos: &[Vec3], center: Vec3, height: f32) -> Vec3 {
         across = sum.normalize();
     }
     across
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Bone, Transform};
+
+    /// A skeleton from bones named with their parents and world positions, every bone unturned.
+    fn placed(joints: &[(&str, Option<&str>, [f32; 3])]) -> Skeleton {
+        let at = |n: &str| joints.iter().position(|j| j.0 == n).expect("parent listed");
+        let bones = joints.iter().map(|&(name, parent, p)| {
+            let from = parent.map_or(Vec3::ZERO, |q| Vec3::from(joints[at(q)].2));
+            Bone {
+                name: name.to_owned(),
+                parent: parent.map(at),
+                rest: Transform::new(Vec3::from(p) - from, Quat::IDENTITY),
+            }
+        });
+        Skeleton::new(bones.collect()).expect("parents first")
+    }
+
+    #[test]
+    fn arms_named_unevenly_are_still_a_pair() {
+        // As glTF's CesiumMan names them: the left upper arm numbered, which makes it the whole arm's chain, and the
+        // right one not, which makes it the upper arm alone. They're still mirror images, and the chest hangs them.
+        let s = placed(&[
+            ("Skeleton_torso_joint_1", None, [0.004, 0.571, 0.0]),
+            (
+                "Skeleton_torso_joint_2",
+                Some("Skeleton_torso_joint_1"),
+                [0.004, 0.692, 0.009],
+            ),
+            ("torso_joint_3", Some("Skeleton_torso_joint_2"), [0.004, 0.903, -0.004]),
+            ("Skeleton_neck_joint_1", Some("torso_joint_3"), [0.004, 0.956, 0.005]),
+            (
+                "Skeleton_neck_joint_2",
+                Some("Skeleton_neck_joint_1"),
+                [0.004, 1.0, 0.007],
+            ),
+            (
+                "Skeleton_arm_joint_L__4_",
+                Some("torso_joint_3"),
+                [0.081, 0.903, -0.004],
+            ),
+            (
+                "Skeleton_arm_joint_L__3_",
+                Some("Skeleton_arm_joint_L__4_"),
+                [0.262, 0.811, -0.013],
+            ),
+            (
+                "Skeleton_arm_joint_L__2_",
+                Some("Skeleton_arm_joint_L__3_"),
+                [0.382, 0.735, 0.056],
+            ),
+            ("Skeleton_arm_joint_R", Some("torso_joint_3"), [-0.072, 0.903, -0.004]),
+            (
+                "Skeleton_arm_joint_R__2_",
+                Some("Skeleton_arm_joint_R"),
+                [-0.253, 0.811, -0.013],
+            ),
+            (
+                "Skeleton_arm_joint_R__3_",
+                Some("Skeleton_arm_joint_R__2_"),
+                [-0.374, 0.735, 0.056],
+            ),
+            ("leg_joint_L_1", Some("Skeleton_torso_joint_1"), [0.061, 0.516, 0.02]),
+            ("leg_joint_L_2", Some("leg_joint_L_1"), [0.069, 0.296, 0.057]),
+            ("leg_joint_L_3", Some("leg_joint_L_2"), [0.07, 0.072, -0.004]),
+            ("leg_joint_R_1", Some("Skeleton_torso_joint_1"), [-0.053, 0.516, 0.02]),
+            ("leg_joint_R_2", Some("leg_joint_R_1"), [-0.061, 0.296, 0.057]),
+            ("leg_joint_R_3", Some("leg_joint_R_2"), [-0.062, 0.072, -0.004]),
+        ]);
+        let shape = Shape::of(&s);
+        let name = |i: Option<usize>| i.map(|i| s.bones()[i].name.as_str());
+        assert_eq!(name(shape.girdles[0]), Some("torso_joint_3"));
+        assert_eq!(name(shape.girdles[1]), Some("Skeleton_torso_joint_1"));
+    }
 }

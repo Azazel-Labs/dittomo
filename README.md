@@ -77,7 +77,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 | --- | ---: | ---: | --- | --- | ---: | ---: |
 | hips | 100% | 38% | | thighs | 100% | 24% |
 | spine | 96% | 38% | | shins | 100% | 24% |
-| chest | 98% | 24% | | feet | 100% | 29% |
+| chest | 100% | 24% | | feet | 100% | 29% |
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
 | upper arms | 92% / 88% | 23% | | forearms | 94% / 88% | 23% |
@@ -112,8 +112,8 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.8° | 0.2° | 4.0° | 98% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.1° | 0.2° | 3.0° | 99% |
+| dittomo | 1.7° | 0.2° | 4.0° | 98% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.0° | 0.1° | 2.6° | 99% |
 | World turns from rest copied onto the right bones | 20.8° | 9.6° | 64.6° | 60% |
 | Local rotations copied onto the right bones | 74.0° | 82.4° | 150.7° | 21% |
 
@@ -135,13 +135,13 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00388 | 0.0097 | 2.0° |
-| travel | 0.00099 | 0.0097 | 2.0° |
-| planted feet | 0.00312 | 0.0022 | 3.0° |
-| push-out | 0.00388 | 0.0097 | 2.0° |
-| all (`apply_with`) | 0.00003 | 0.0015 | 3.2° |
-| all, live (`Live`) | 0.00004 | 0.0015 | 3.4° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 3.2° |
+| none (`apply`) | 0.00388 | 0.0097 | 1.8° |
+| travel | 0.00099 | 0.0097 | 1.8° |
+| planted feet | 0.00312 | 0.0022 | 2.9° |
+| push-out | 0.00388 | 0.0097 | 1.8° |
+| all (`apply_with`) | 0.00003 | 0.0015 | 3.1° |
+| all, live (`Live`) | 0.00004 | 0.0015 | 3.2° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 3.1° |
 
 Together they cut foot slide about 130 times and the height error 6.5 times. The degree they cost is the legs bending to
 keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
@@ -157,7 +157,7 @@ over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0282 | 0.0648 | 8.0% |
+| all but touch (`apply_with`) | 0.0282 | 0.0648 | 7.9% |
 | all (`apply_touching`) | 0.0088 | 0.0194 | 1.3% |
 | all, live (`Live::touching`) | 0.0087 | 0.0194 | 1.3% |
 
@@ -356,7 +356,12 @@ Every source bone is compared with every target bone on:
   - and, counting for less as proportions differ, where it is and how far along the body.
 
 The body's frame is found from the plane its bones are most nearly mirrored in, turned towards the bones named left or,
-failing names, the way its feet point.
+failing names, the way its feet point. Two bones are mirror images when they hang from one bone, as high as each other,
+on either side of it, and, if named, are named as the same part for opposite sides; both may hang ahead of that bone, as
+an animal's front legs hang ahead of the spine bone they're tied to, when they point away from where they lie (fingers
+point the way they lie). The two biggest such pairs that are long enough to be limbs, and don't rise to their ends as
+ears and antlers do, are the arms and the legs, or the front and hind legs: the arms being the pair farther along the
+bones from the root.
 
 The two trees are then matched as wholes for the most total likeness, keeping the family. A bone below another plays a
 bone below the other's, and separate limbs play separate limbs. Any bone on either side can be passed over, so a root
@@ -389,10 +394,12 @@ bone holding two fingers, a COLLADA export stopping at the base of the head with
 nameless rig with one hand missing, and a chest whose collarbones start beside it rather than above it.
 
 Made-up humanoids that differ the ways real rigs do: names from different tools or none, extra roots and twist bones,
-two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimetres
-against metres, and different leg lengths. A sweep of 300 such pairs all map correctly, with every limb within a
-degree of the source's direction. A four-legged animal maps onto an unnamed one with a longer body and tail. A snake
-mapped from a human is found to share little.
+two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimeters
+against meters, and different leg lengths. A sweep of 300 such pairs all map correctly, with every limb within a degree
+of the source's direction. A four-legged animal maps onto an unnamed one with a longer body and tail, and a fox laid out
+as glTF's sample Fox onto a dog laid out as the Quaternius animals (front legs ahead of the spine bone they hang from,
+four-bone ears, IK handles named for a side and an end) and back, each leg on the same leg. A snake mapped from a human
+is found to share little.
 
 The contact tests walk a procedural gait (planted feet, swing, bobbing hips) on these rigs and on a longer-legged copy,
 and push a hand placed inside the chest back out. Their limb finding is tested on an avatar laid out as VRM exports

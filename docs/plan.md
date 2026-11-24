@@ -119,6 +119,15 @@ Phase 1 so far (November 2026):
   glTF exporter names what has no name `node12`, so a rig named so no longer counts every name as unlike. Limbs go from
   2.1° to 1.8°, gaze from 1.1° to 0.6°; the hands reach into the body without touch a little more often (7.3% to 8.0%),
   and with it no more often.
+- Four-legged animals built by different hands: the Khronos Fox against the Quaternius animals (Husky, Horse, Stag,
+  Alpaca) found only 10 of 24 bones, as the animals' front legs hang ahead of the spine bone they're tied to and weren't
+  taken for a pair, while their ears were, and the IK handles of a front leg and the other side's back leg. Mirror
+  images may now lie ahead of their parent if they point away from it; pairs that rise to their ends (ears, antlers) or
+  are short (eyes, toes) don't count as limbs; bones named for a side need a partner named for the other as the same
+  part; and the arms are the limb pair farther along the bones from the root, not the higher. The Fox's legs now find
+  all four of the Husky's, 18 bones in all. On the bench, the chest goes from 98% to 100%, limbs from 1.8° to 1.7°
+  (labeled bones set by hand 1.1° to 1.0°, 90th percentile 3.0° to 2.6°), and a VRM rig whose arms had gone unfound as a
+  pair now finds them.
 - **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 2.3°
   from the source's on average (median 0.2°, 90th percentile 5.1°). Copying world turns from rest onto the right bones
   gives 22°, and copying local rotations, as an animation mixer does with a clip from another rig, 75°. Measuring this
@@ -272,7 +281,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 97.3% of joints found on 12 real rigs (exact names: 30.3%); limbs within 1.8° of the source's on their 35 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 97.3% of joints found on 12 real rigs (exact names: 30.3%); limbs within 1.7° of the source's on their 35 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their

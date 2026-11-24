@@ -125,7 +125,7 @@ def main(out):
         ),
     }
     for name, text in files.items():
-        (out / name).write_text(text, encoding="utf-8")
+        (out / name).write_text(text, encoding="utf-8", newline="\n")
         print(out / name)
 
 

@@ -1054,6 +1054,179 @@ fn a_chest_just_above_the_hips_is_still_the_chest() {
     );
 }
 
+/// A fox as glTF's sample Fox is laid out, its front legs ahead of the spine bone they hang from.
+fn fox() -> Skeleton {
+    let mut j: Joints = vec![
+        joint("b_Root_00", None, [0.0, 0.0, 0.0]),
+        joint("b_Hip_01", Some("b_Root_00"), [0.0, 0.707, -0.44]),
+        joint("b_Spine01_02", Some("b_Hip_01"), [0.0, 0.905, -0.365]),
+        joint("b_Spine02_03", Some("b_Spine01_02"), [0.0, 0.885, -0.009]),
+        joint("b_Neck_04", Some("b_Spine02_03"), [0.0, 0.876, 0.413]),
+        joint("b_Head_05", Some("b_Neck_04"), [0.0, 1.0, 0.595]),
+        joint("b_Tail01_012", Some("b_Hip_01"), [0.0, 0.866, -0.661]),
+        joint("b_Tail02_013", Some("b_Tail01_012"), [0.0, 0.716, -0.8]),
+        joint("b_Tail03_014", Some("b_Tail02_013"), [0.0, 0.462, -1.108]),
+    ];
+    for (side, x) in [("Left", 0.115), ("Right", -0.115)] {
+        let arm = [
+            ("UpperArm", [0.808, 0.297]),
+            ("ForeArm", [0.429, 0.283]),
+            ("Hand", [0.11, 0.294]),
+        ];
+        let leg = [
+            ("Leg01", [0.811, -0.492]),
+            ("Leg02", [0.502, -0.452]),
+            ("Foot01", [0.262, -0.625]),
+            ("Foot02", [0.016, -0.542]),
+        ];
+        for (chain, from) in [(&arm[..], "b_Spine02_03"), (&leg[..], "b_Hip_01")] {
+            let mut parent = from.to_owned();
+            for &(part, [y, z]) in chain {
+                let name = format!("b_{side}{part}");
+                j.push(joint(name.clone(), Some(&parent), [x, y, z]));
+                parent = name;
+            }
+        }
+    }
+    placed(&j)
+}
+
+/// A chain of bones hanging from a bone, each named with its world position.
+type Chain<'a> = (&'a str, &'a [(&'a str, [f32; 3])]);
+
+/// A dog as the Quaternius animals are laid out: front legs hanging ahead of and below a spine bone, ears of four bones
+/// rising from the neck beside the head, and handles for IK and its poles at the ground, named for a side and an end.
+fn dog() -> Skeleton {
+    let mut j: Joints = vec![
+        joint("AnimalArmature", None, [0.0, 0.0, 0.0]),
+        joint("Body", Some("AnimalArmature"), [0.0, 0.135, 0.0]),
+        joint("Back", Some("Body"), [0.0, 0.594, -0.228]),
+        joint("Torso", Some("Back"), [0.0, 0.56, -0.058]),
+        joint("Torso2", Some("Torso"), [0.0, 0.553, 0.111]),
+        joint("Torso3", Some("Torso2"), [0.0, 0.549, 0.326]),
+        joint("Neck1", Some("Torso3"), [0.0, 0.623, 0.436]),
+        joint("Neck2", Some("Neck1"), [0.0, 0.697, 0.495]),
+        joint("Neck3", Some("Neck2"), [0.0, 0.783, 0.548]),
+        joint("Head", Some("Neck3"), [0.0, 0.86, 0.606]),
+        joint("Tail1", Some("Back"), [0.0, 0.579, -0.27]),
+        joint("Tail2", Some("Tail1"), [0.0, 0.633, -0.328]),
+        joint("Tail3", Some("Tail2"), [0.0, 0.706, -0.387]),
+        joint("Tail4", Some("Tail3"), [0.0, 0.783, -0.431]),
+    ];
+    for (side, s) in [("L", 1.0), ("R", -1.0)] {
+        let chains: [Chain; 5] = [
+            (
+                "Neck3",
+                &[
+                    ("Ear1", [0.059, 0.913, 0.607]),
+                    ("Ear2", [0.075, 0.945, 0.594]),
+                    ("Ear3", [0.086, 0.973, 0.603]),
+                    ("Ear4", [0.093, 1.0, 0.613]),
+                ],
+            ),
+            (
+                "Torso2",
+                &[
+                    ("FrontShoulder", [0.065, 0.445, 0.328]),
+                    ("FrontUpperLeg", [0.099, 0.449, 0.328]),
+                    ("FrontLowerLeg", [0.1, 0.333, 0.296]),
+                ],
+            ),
+            (
+                "Back",
+                &[
+                    ("BackShoulder", [0.082, 0.535, -0.205]),
+                    ("BackLeg", [0.125, 0.54, -0.204]),
+                    ("BackUpperLeg", [0.122, 0.388, -0.106]),
+                    ("BackLowerLeg", [0.127, 0.175, -0.409]),
+                ],
+            ),
+            (
+                "AnimalArmature",
+                &[("IKFrontLeg", [0.099, 0.049, 0.35]), ("FF", [0.099, 0.001, 0.39])],
+            ),
+            (
+                "AnimalArmature",
+                &[("IKBackLeg", [0.125, 0.045, -0.342]), ("FFB", [0.125, 0.0, -0.294])],
+            ),
+        ];
+        for (from, chain) in chains {
+            let mut parent = from.to_owned();
+            for &(part, [x, y, z]) in chain {
+                let name = format!("{part}.{side}");
+                j.push(joint(name.clone(), Some(&parent), [s * x, y, z]));
+                parent = name;
+            }
+        }
+        j.push(joint(
+            format!("PoleTarget.{side}"),
+            Some("Body"),
+            [s * 0.072, 0.251, 1.293],
+        ));
+        j.push(joint(
+            format!("PoleTargetBack.{side}"),
+            Some("Body"),
+            [s * 0.072, 0.25, 1.389],
+        ));
+    }
+    placed(&j)
+}
+
+#[test]
+fn a_fox_and_a_dog_built_by_different_hands_find_each_others_legs() {
+    // Measured from the Khronos Fox and the Quaternius Husky. Before, the dog's front legs, hanging ahead of the bone
+    // they hang from, weren't taken for limbs; its ears were taken for the arms, and its IK handles, a front one on
+    // one side and a back one on the other, for a pair of legs.
+    let (fox, dog) = (fox(), dog());
+    // Which leg a bone is in, and on which side; none for the trunk, ears, tail and IK handles.
+    let leg = |name: &str| -> Option<(&str, &str)> {
+        let side = if name.contains("Left") || name.ends_with(".L") {
+            "left"
+        } else if name.contains("Right") || name.ends_with(".R") {
+            "right"
+        } else {
+            return None;
+        };
+        if name.contains("Arm") || name.contains("Hand") || name.starts_with("Front") {
+            Some(("front", side))
+        } else if name.contains("Leg0") || name.contains("Foot") || name.starts_with("Back") {
+            Some(("hind", side))
+        } else {
+            None
+        }
+    };
+    for (from, to) in [(&fox, &dog), (&dog, &fox)] {
+        let map = Mapping::new(from, to);
+        let name = |s: &Skeleton, b: usize| s.bones()[b].name.clone();
+        let (mut front, mut hind) = (0, 0);
+        for b in 0..to.len() {
+            let Some(a) = map.source_of(b) else { continue };
+            let (got, want) = (leg(&name(from, a)), leg(&name(to, b)));
+            assert_eq!(got, want, "{} plays {}", name(to, b), name(from, a));
+            match want {
+                Some(("front", _)) => front += 1,
+                Some(_) => hind += 1,
+                None => {}
+            }
+        }
+        assert!(
+            front >= 4 && hind >= 6,
+            "{front} front and {hind} hind leg bones played"
+        );
+        let source = |n: &str| {
+            let b = to.bones().iter().position(|b| b.name == n).expect("bone");
+            map.source_of(b).map(|a| name(from, a))
+        };
+        let (head, chest) = if to.len() == dog.len() {
+            (("Head", "b_Head_05"), ("Torso2", "b_Spine02_03"))
+        } else {
+            (("b_Head_05", "Head"), ("b_Spine02_03", "Torso2"))
+        };
+        assert_eq!(source(head.0).as_deref(), Some(head.1));
+        assert_eq!(source(chest.0).as_deref(), Some(chest.1));
+    }
+}
+
 #[test]
 fn wide_hips_with_legs_that_stop_at_the_knee_still_start_the_legs() {
     // A toy robot's legs hang from far out at the sides of its hips and stop at the knee, its feet hanging from the
@@ -1181,6 +1354,22 @@ fn wide_hips_with_legs_that_stop_at_the_knee_still_start_the_legs() {
     ] {
         assert_plays(from, to, &Mapping::new(from, to), &pairs);
     }
+    // The figure's arms are named unevenly, `Skeleton_arm_joint_L__4_` against `Skeleton_arm_joint_R`, but they're
+    // still a pair, the chest being where they hang from.
+    let mixamo = mixamo_like();
+    assert_plays(
+        &figure,
+        &mixamo,
+        &Mapping::new(&figure, &mixamo),
+        &[
+            ("torso_joint_3", "Spine2"),
+            ("Skeleton_neck_joint_1", "Neck"),
+            ("Skeleton_arm_joint_L__4_", "LeftArm"),
+            ("Skeleton_arm_joint_L__3_", "LeftForeArm"),
+            ("Skeleton_arm_joint_R", "RightArm"),
+            ("Skeleton_arm_joint_R__2_", "RightForeArm"),
+        ],
+    );
 }
 
 #[test]
