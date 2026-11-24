@@ -377,6 +377,7 @@ const fn only(travel: bool, feet: bool, push_out: bool) -> Fixes {
         travel,
         feet,
         push_out,
+        floor: false,
         touch: false,
         hands: false,
         head: false,

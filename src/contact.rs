@@ -20,6 +20,9 @@ pub struct Fixes {
     pub travel: bool,
     /// While a source foot is planted, keep the target's still, reaching it with two-bone IK.
     pub feet: bool,
+    /// Keep the target's bones out of the floor: none comes further under it than the bone it plays comes under the
+    /// source's, so a knee, a tail or an ear of an animal lying on its side lies on the ground, however its build differs.
+    pub floor: bool,
     /// Push the target's elbows and hands out of its body.
     pub push_out: bool,
     /// Keep the target's hands as far from its skin as the source's are from theirs, when both skins are known
@@ -37,6 +40,7 @@ impl Fixes {
     pub const ALL: Self = Self {
         travel: true,
         feet: true,
+        floor: true,
         push_out: true,
         touch: true,
         hands: true,
@@ -45,6 +49,7 @@ impl Fixes {
     pub const NONE: Self = Self {
         travel: false,
         feet: false,
+        floor: false,
         push_out: false,
         touch: false,
         hands: false,
@@ -75,8 +80,9 @@ pub struct Limb {
 }
 
 /// The skeleton's legs, found from its rest pose: a bone standing in the lowest 15% of the body whose parent stands
-/// above that, with bones below it reaching the floor, on a chain hanging from the spine. The knee and hip are picked
-/// from that chain (`split`), so twist bones along it don't count.
+/// above that, with bones below it reaching the floor (or with none, as a paw's last bone at the wrist leaves the paw
+/// to the skin below it), on a chain hanging from the spine. The knee and hip are picked from that chain (`split`), so
+/// twist bones along it don't count.
 #[must_use]
 pub fn legs(skeleton: &Skeleton) -> Vec<Limb> {
     legs_of(skeleton, &Shape::light(skeleton))
@@ -91,15 +97,17 @@ fn legs_in(skeleton: &Skeleton, s: &Shape, trunk: &Trunk) -> Vec<Limb> {
     let parent = |b: usize| skeleton.bones()[b].parent;
     let pos = |b: usize| s.rest[b].position();
     let mut lowest: Vec<f32> = (0..skeleton.len()).map(stands).collect();
+    let mut leaf = vec![true; skeleton.len()];
     for b in (0..skeleton.len()).rev() {
         if let Some(p) = parent(b) {
             lowest[p] = lowest[p].min(lowest[b]);
+            leaf[p] = false;
         }
     }
     (0..skeleton.len())
         .filter_map(|b| {
             let p = parent(b)?;
-            if trunk.on_spine[b] || stands(b) >= 0.15 || stands(p) < 0.15 || lowest[b] > 0.05 {
+            if trunk.on_spine[b] || stands(b) >= 0.15 || stands(p) < 0.15 || (lowest[b] > 0.05 && !leaf[b]) {
                 return None;
             }
             let mut chain = vec![p];
@@ -1378,6 +1386,9 @@ pub(crate) struct Scratch {
     sw: Vec<At>,
     tw: Vec<At>,
     spheres: Vec<(Vec3, f32)>,
+    /// Room for [`least_turn`] to work in.
+    waves: Vec<(f32, f32, f32)>,
+    edges: Vec<f32>,
 }
 
 impl Scratch {
@@ -1386,6 +1397,8 @@ impl Scratch {
             sw: vec![At::IDENTITY; source.len()],
             tw: vec![At::IDENTITY; target.len()],
             spheres: Vec::with_capacity(64),
+            waves: Vec::with_capacity(16),
+            edges: Vec::with_capacity(48),
         }
     }
 }
@@ -1438,6 +1451,212 @@ pub(crate) fn push_pose(target: &Skeleton, body: &Body, path: &[usize], pose: &m
             // The lower bone's parent is now turned by `turn`, and the lower bone by `bend` after it.
             let above_new = turn * above(l.lower);
             pose[l.lower].rotation = (above_new.inverse() * bend * turn * low.rotation).normalize();
+        }
+    }
+}
+
+/// Keeps a target's bones out of the floor: none comes further under where the lowest bone stands at rest than the bone
+/// it plays comes under the source's, scaled, nor a bone playing none under it at all. A bone that would turns the
+/// bone it hangs from, about where that starts, just enough to lift it to the floor, keeping its heading across it, as
+/// an animator lays a tail, an ear or a shin along the ground: so does the next bone down, from that. Only a bone its
+/// parent has no other child than is lifted this way, as turning a hip or a chest for one limb would move the others;
+/// the bones hanging from it, if more than one, are lifted with it, as the ears with a head.
+///
+/// Feet placed after ([`Feet`], [`plant`]) may bend a knee back under the floor: [`Self::knees`] then swings the leg
+/// about the line from its hip to its foot, the least that brings the knee and the bones down to the foot over it, so
+/// the foot stays where it was put.
+pub(crate) struct Floor {
+    /// Each bone's source bone.
+    sources: Vec<Option<usize>>,
+    /// For each bone lifted this way, the bones lifted with it: itself, and those hanging from it if more than one.
+    lifted: Vec<Vec<usize>>,
+    /// Each leg, the bones from the root to its foot, and those between its hip and its foot.
+    legs: Vec<(Limb, Vec<usize>, Vec<usize>)>,
+    /// The target's bones to place, and the source's ([`place_source`]).
+    t_path: Vec<usize>,
+    s_path: Vec<usize>,
+    floors: [f32; 2],
+    /// The target's height over the source's.
+    k: f32,
+}
+
+impl Floor {
+    /// Nothing if no bone can be lifted.
+    pub(crate) fn new(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> Option<Self> {
+        let parent = |b: usize| target.bones()[b].parent;
+        let sources: Vec<Option<usize>> = (0..target.len()).map(|b| map.source_of(b)).collect();
+        let lifted: Vec<Vec<usize>> = (0..target.len())
+            .map(|b| match parent(b) {
+                Some(p) if parent(p).is_some() && t.children[p].len() == 1 => {
+                    let with = &t.children[b];
+                    std::iter::once(b)
+                        .chain(with.iter().copied().filter(|_| with.len() > 1))
+                        .collect()
+                }
+                _ => Vec::new(),
+            })
+            .collect();
+        let legs: Vec<(Limb, Vec<usize>, Vec<usize>)> = legs_of(target, t)
+            .into_iter()
+            .map(|leg| {
+                let mut between = Vec::new();
+                let mut b = parent(leg.end);
+                while let Some(x) = b.filter(|&x| x != leg.upper) {
+                    between.push(x);
+                    b = parent(x);
+                }
+                (leg, paths(target, [leg.end]), between)
+            })
+            .collect();
+        let ends: Vec<usize> = lifted.iter().flatten().copied().collect();
+        if ends.is_empty() && legs.is_empty() {
+            return None;
+        }
+        Some(Self {
+            s_path: paths(source, ends.iter().filter_map(|&b| sources[b])),
+            t_path: paths(target, ends),
+            sources,
+            lifted,
+            legs,
+            floors: [s.floor, t.floor],
+            k: t.height / s.height,
+        })
+    }
+
+    /// The source bones to place ([`place_source`]) before each pose.
+    pub(crate) fn s_path(&self) -> &[usize] {
+        &self.s_path
+    }
+
+    /// Lifts the bones of `pose`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]).
+    pub(crate) fn pose(&self, target: &Skeleton, pose: &mut [Transform], scratch: &mut Scratch) {
+        let Scratch {
+            sw, tw, waves, edges, ..
+        } = scratch;
+        let [s_floor, t_floor] = self.floors;
+        let parent = |b: usize| target.bones()[b].parent;
+        let low =
+            |b: usize| t_floor - self.sources[b].map_or(0.0, |a| (s_floor - sw[a].position().y).max(0.0) * self.k);
+        for &b in &self.t_path {
+            let with = &self.lifted[b];
+            place(target, pose, &[b], tw);
+            place(target, pose, with, tw);
+            let Some(p) = parent(b).filter(|_| !with.is_empty()) else {
+                continue;
+            };
+            if with.iter().all(|&c| tw[c].position().y >= low(c)) {
+                continue;
+            }
+            let from = tw[p].position();
+            let v = tw[b].position() - from;
+            // About the level line across the bone, so it keeps its heading across the floor.
+            let Some(axis) = Vec3::Y.cross(v).try_normalize() else {
+                continue;
+            };
+            let points = with.iter().map(|&c| (tw[c].position(), low(c)));
+            let Some(angle) = least_turn(from, axis, points, 1e-5 * v.length(), waves, edges) else {
+                continue;
+            };
+            let turn = Quat::from_axis_angle(axis, angle);
+            let above = parent(p).map_or(Quat::IDENTITY, |q| tw[q].rotation);
+            pose[p].rotation = (above.inverse() * turn * tw[p].rotation).normalize();
+            place(target, pose, &[p], tw);
+            place(target, pose, with, tw);
+        }
+    }
+
+    /// Swings each leg of `pose` whose knee, or a bone between it and the foot, is under the floor about the line from
+    /// its hip to its foot, the least that brings them all over it, or as near as the leg allows.
+    pub(crate) fn knees(&self, target: &Skeleton, pose: &mut [Transform], scratch: &mut Scratch) {
+        let Scratch { tw, waves, edges, .. } = scratch;
+        let low = self.floors[1];
+        let parent = |b: usize| target.bones()[b].parent;
+        for (leg, path, between) in &self.legs {
+            place(target, pose, path, tw);
+            if between.iter().all(|&b| tw[b].position().y >= low) {
+                continue;
+            }
+            let (a, c) = (tw[leg.upper].position(), tw[leg.end].position());
+            let Some(axis) = (c - a).try_normalize() else {
+                continue;
+            };
+            let points = between.iter().map(|&b| (tw[b].position(), low));
+            let Some(angle) = least_turn(a, axis, points, 1e-5 * (c - a).length(), waves, edges) else {
+                continue;
+            };
+            let turn = Quat::from_axis_angle(axis, angle);
+            let world_rot = |b: Option<usize>| b.map_or(Quat::IDENTITY, |p| tw[p].rotation);
+            pose[leg.upper].rotation =
+                (world_rot(parent(leg.upper)).inverse() * turn * tw[leg.upper].rotation).normalize();
+            // The foot keeps its turn, as it does where it was put.
+            pose[leg.end].rotation = ((turn * world_rot(parent(leg.end))).inverse() * tw[leg.end].rotation).normalize();
+        }
+    }
+}
+
+/// The least turn about `axis` through `pivot` bringing each point to or over its floor, given as `(point, floor)`
+/// pairs, to within `slack`; failing any, the turn leaving the one furthest under its floor least far under. Nothing if
+/// none is needed. `waves` and `edges` are room to work in.
+fn least_turn(
+    pivot: Vec3,
+    axis: Vec3,
+    points: impl Iterator<Item = (Vec3, f32)>,
+    slack: f32,
+    waves: &mut Vec<(f32, f32, f32)>,
+    edges: &mut Vec<f32>,
+) -> Option<f32> {
+    use std::f32::consts::{PI, TAU};
+    // Each point turned by `t` stands `y + r cos(t - phase)` over its floor.
+    waves.clear();
+    waves.extend(points.map(|(q, floor)| {
+        let off = q - pivot;
+        let u = off - axis * off.dot(axis);
+        let w = axis.cross(u);
+        (pivot.y + axis.y * off.dot(axis) - floor, u.y.hypot(w.y), w.y.atan2(u.y))
+    }));
+    let lowest = |t: f32| {
+        waves
+            .iter()
+            .map(|&(y, r, phase)| y + r * (t - phase).cos())
+            .fold(f32::INFINITY, f32::min)
+    };
+    if lowest(0.0) >= 0.0 {
+        return None;
+    }
+    // The least turn is one where some point just reaches its floor; failing any, one with some point at its highest.
+    edges.clear();
+    for &(y, r, phase) in waves.iter() {
+        edges.push(phase);
+        if r > 1e-9 && (y / r).abs() <= 1.0 {
+            let half = (-y / r).acos();
+            edges.extend([phase - half, phase + half]);
+        }
+    }
+    let wrap = |t: f32| (t + PI).rem_euclid(TAU) - PI;
+    edges
+        .iter()
+        .map(|&t| wrap(t))
+        .filter(|&t| lowest(t) >= -slack)
+        .min_by(|p, q| p.abs().total_cmp(&q.abs()))
+        .or_else(|| {
+            edges
+                .iter()
+                .map(|&t| wrap(t))
+                .max_by(|p, q| lowest(*p).total_cmp(&lowest(*q)))
+        })
+        .filter(|t| t.abs() > 1e-6)
+}
+
+/// Keeps every pose's bones out of the floor ([`Floor`]), or with `knees`, just its knees ([`Floor::knees`]).
+pub(crate) fn floor_clip(floor: &Floor, rigs: [&Skeleton; 2], from: &Clip, out: &mut Clip, knees: bool) {
+    let [source, target] = rigs;
+    let mut scratch = Scratch::new(source, target);
+    for (s_pose, pose) in from.poses.iter().zip(&mut out.poses) {
+        if knees {
+            floor.knees(target, pose, &mut scratch);
+        } else {
+            place_source(source, s_pose, floor.s_path(), &mut scratch);
+            floor.pose(target, pose, &mut scratch);
         }
     }
 }
@@ -1808,7 +2027,7 @@ impl Hands {
     pub(crate) fn placed(&mut self, target: &Skeleton, t_body: &Body, played: &mut [Transform], scratch: &mut Scratch) {
         // Within `near` of each other (over the height) the source's hands are together; past `far`, apart.
         let (near, far) = (0.06, 0.15);
-        let Scratch { sw, tw, spheres } = scratch;
+        let Scratch { sw, tw, spheres, .. } = scratch;
         for (k, &(i, j)) in self.pairs.iter().enumerate() {
             let ((li, si), (lj, sj)) = (self.arms[i], self.arms[j]);
             let apart = sw[sj].position() - sw[si].position();

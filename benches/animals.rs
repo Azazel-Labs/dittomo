@@ -5,7 +5,7 @@
 //! sh bench/animals/fetch.sh                        # download the animals (once)
 //! cargo bench --features fs --bench animals        # print the table
 //! cargo bench --features fs --bench animals -- --pairs   # print each pair's misses
-//! cargo bench --features fs --bench animals -- --min 100 --max-posture 1 --max-floor 13   # fail past these (CI)
+//! cargo bench --features fs --bench animals -- --min 100 --max-posture 1 --max-floor 1 --max-body 3.5   # fail past these (CI)
 //! ```
 //!
 //! `bench/animals/labels.txt` names, for each rig, the bones playing 17 joints of a four-legged body. Each ordered pair
@@ -16,6 +16,8 @@
 //!   low), so standing as the source stands is standing as it does itself.
 //! - floor: every clip of the source played on the target with every fix, how much further the target's feet sink
 //!   below its floor at worst than the source's own do below theirs, over the height, in percent.
+//! - body: the same for every bone of the body (all but the `helpers`), below the lowest of them at rest: a knee, a
+//!   tail or an ear of an animal lying on its side.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -116,8 +118,8 @@ fn sampled(clip: &Clip) -> Clip {
 }
 
 /// How far the animal's feet sink below its floor (where they stand at rest) at worst over a clip, over its height,
-/// in percent.
-fn sunk(animal: &Animal, clip: &Clip) -> f32 {
+/// in percent, then how far any bone of its body does below the lowest of them at rest.
+fn sunk(animal: &Animal, clip: &Clip) -> [f32; 2] {
     let skeleton = &animal.model.skeleton;
     let rest = skeleton.world(&skeleton.rest());
     let ys = || rest.iter().map(|w| w.position().y);
@@ -128,12 +130,17 @@ fn sunk(animal: &Animal, clip: &Clip) -> f32 {
         .flatten()
         .copied()
         .collect();
-    let floor = feet.iter().map(|&b| rest[b].position().y).fold(f32::MAX, f32::min);
-    let mut sink = 0.0f32;
+    let helpers = animal.labels.get("helpers").cloned().unwrap_or_default();
+    let body: Vec<usize> = (0..skeleton.len()).filter(|b| !helpers.contains(b)).collect();
+    let floor = |bones: &[usize]| bones.iter().map(|&b| rest[b].position().y).fold(f32::MAX, f32::min);
+    let floors = [floor(&feet), floor(&body)];
+    let mut sink = [0.0f32; 2];
     for pose in &clip.poses {
         let w = skeleton.world(pose);
-        for &b in &feet {
-            sink = sink.max((floor - w[b].position().y) / height * 100.0);
+        for (i, bones) in [&feet, &body].into_iter().enumerate() {
+            for &b in bones {
+                sink[i] = sink[i].max((floors[i] - w[b].position().y) / height * 100.0);
+            }
         }
     }
     sink
@@ -154,7 +161,7 @@ fn main() {
         std::process::exit(if value("--min").is_some() { 1 } else { 0 });
     }
     let started = Instant::now();
-    let own: BTreeMap<String, f32> = animals
+    let own: BTreeMap<String, [f32; 2]> = animals
         .iter()
         .map(|a| {
             let worst = a
@@ -162,14 +169,14 @@ fn main() {
                 .clips
                 .iter()
                 .map(|(_, c)| sunk(a, &sampled(c)))
-                .fold(0.0, f32::max);
+                .fold([0.0f32; 2], |w, s| [w[0].max(s[0]), w[1].max(s[1])]);
             (a.name.clone(), worst)
         })
         .collect();
     let (mut found, mut labeled) = (0usize, 0usize);
     let (mut posture_sum, mut posture_n, mut posture_worst) = (0.0f32, 0usize, (0.0f32, String::new()));
-    let mut floor_worst = (0.0f32, String::new());
-    let mut floor_sum = (0.0f32, 0usize);
+    let mut floor_worst = [(0.0f32, String::new()), (0.0f32, String::new())];
+    let mut floor_sum = ([0.0f32; 2], 0usize);
     let mut rows = Vec::new();
     for s in &animals {
         for t in &animals {
@@ -223,23 +230,26 @@ fn main() {
             }
 
             // Floor: every clip with every fix, past how far the source's own feet sink.
-            let mut sink = 0.0f32;
+            let mut sink = [0.0f32; 2];
             for (_, clip) in &s.model.clips {
                 let out = map.apply_with(ss, ts, &sampled(clip), Fixes::ALL).expect("plays");
-                sink = sink.max(sunk(t, &out));
+                let now = sunk(t, &out);
+                sink = [sink[0].max(now[0]), sink[1].max(now[1])];
             }
-            let sink = (sink - own[&s.name]).max(0.0);
-            floor_sum.0 += sink;
+            let sink = [0, 1].map(|i| (sink[i] - own[&s.name][i]).max(0.0));
             floor_sum.1 += 1;
-            if sink > floor_worst.0 {
-                floor_worst = (sink, format!("{} on {}", s.name, t.name));
+            for i in 0..2 {
+                floor_sum.0[i] += sink[i];
+                if sink[i] > floor_worst[i].0 {
+                    floor_worst[i] = (sink[i], format!("{} on {}", s.name, t.name));
+                }
             }
             rows.push((s.name.clone(), t.name.clone(), hits, misses, posture, sink));
         }
     }
     let joints = 100.0 * found as f32 / labeled.max(1) as f32;
     let posture = posture_sum / posture_n.max(1) as f32;
-    let floor = floor_sum.0 / floor_sum.1.max(1) as f32;
+    let [floor, body] = floor_sum.0.map(|x| x / floor_sum.1.max(1) as f32);
     println!(
         "## Four-legged animals\n\n{} animals, {} pairs, in {:.1} s.\n",
         animals.len(),
@@ -254,12 +264,19 @@ fn main() {
     );
     println!(
         "| Feet below the floor past the source's (% of height) | {floor:.2}% | {:.2}% ({}) |",
-        floor_worst.0, floor_worst.1
+        floor_worst[0].0, floor_worst[0].1
+    );
+    println!(
+        "| Body below the floor past the source's (% of height) | {body:.2}% | {:.2}% ({}) |",
+        floor_worst[1].0, floor_worst[1].1
     );
     if has("--pairs") {
         println!();
         for (s, t, hits, misses, posture, sink) in &rows {
-            println!("{s} -> {t}: {hits} found, posture {posture:.1}°, floor {sink:.2}%");
+            println!(
+                "{s} -> {t}: {hits} found, posture {posture:.1}°, feet {:.2}%, body {:.2}%",
+                sink[0], sink[1]
+            );
             for m in misses {
                 println!("    {m}");
             }
@@ -278,14 +295,19 @@ fn main() {
         eprintln!("posture {:.2}° > {max}° ({})", posture_worst.0, posture_worst.1);
         failed = true;
     }
-    if let Some(max) = value("--max-floor")
-        && floor_worst.0 > max
+    for (i, (flag, what)) in [("--max-floor", "feet"), ("--max-body", "body")]
+        .into_iter()
+        .enumerate()
     {
-        eprintln!(
-            "feet {:.2}% below the floor > {max}% ({})",
-            floor_worst.0, floor_worst.1
-        );
-        failed = true;
+        if let Some(max) = value(flag)
+            && floor_worst[i].0 > max
+        {
+            eprintln!(
+                "{what} {:.2}% below the floor > {max}% ({})",
+                floor_worst[i].0, floor_worst[i].1
+            );
+            failed = true;
+        }
     }
     if failed {
         std::process::exit(1);

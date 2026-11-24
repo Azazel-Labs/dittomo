@@ -200,8 +200,18 @@ impl Mapping {
         let walked = traveled.as_ref().unwrap_or(clip);
         let mut player = transfer::Player::of_shapes(map, source, target, &s, &t);
         let mut out = transfer::play_on(&mut player, target, walked)?;
+        let floor = fixes
+            .floor
+            .then(|| contact::Floor::new(map, [(source, &s), (target, &t)]))
+            .flatten();
+        if let Some(f) = &floor {
+            contact::floor_clip(f, [source, target], walked, &mut out, false);
+        }
         if fixes.feet {
             contact::plant(map, [(source, &s), (target, &t)], walked, &mut out);
+            if let Some(f) = &floor {
+                contact::floor_clip(f, [source, target], walked, &mut out, true);
+            }
         }
         let clip = if fixes.travel {
             walked

@@ -427,6 +427,14 @@ skeleton) straight under a limb that stops short of the floor is taken for that 
 bone hung from the limb, then put back under the root where it was, so it goes with its leg. The Quaternius animals
 hang their paws this way, and the toy robot its feet.
 
+An animal lying down or on its side brings its knees, tail and ears to the ground, and a target built otherwise would put
+them through it: a longer tail, a lower belly, a bone playing nothing. With `Fixes::floor`, no bone comes further under
+the floor than the bone it plays comes under the source's, scaled. A bone that would turns the bone it hangs from just
+enough to lay it along the ground, keeping its heading, and the next bone down from that, as an animator lays a tail; a
+head lifts with its ears. A knee that planted feet bend back under the floor swings the leg about the line from hip to
+foot, so the foot stays put. Over every Quaternius and Fox clip played on each other animal, the worst bone under the
+floor past the source's went from 11% of the target's height to under 3%.
+
 ## Tested on
 
 The twelve real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm

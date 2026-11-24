@@ -1,7 +1,8 @@
 # The bones playing each joint of a four-legged body, by rig file: hips, chest and head, and on each side the hind
 # leg's hip, knee, hock and foot, and the foreleg's shoulder, elbow and foot. A joint may name more than one bone,
 # separated by `|`, where the rig's bones split it: a joint is found when any of the target's plays any of the
-# source's. The Quaternius animals share one rig's names.
+# source's. `helpers` names bones that are no part of the body, as handles for IK poles, left out of how far the body
+# comes under the floor. The Quaternius animals share one rig's names.
 
 [fox.glb]
 hips = b_Hip_01
@@ -41,3 +42,4 @@ l_forefoot = IKFrontLeg.L | FF.L
 r_shoulder = FrontShoulder.R | FrontUpperLeg.R
 r_elbow = FrontLowerLeg.R
 r_forefoot = IKFrontLeg.R | FF.R
+helpers = PoleTarget.L | PoleTarget.R | PoleTargetBack.L | PoleTargetBack.R

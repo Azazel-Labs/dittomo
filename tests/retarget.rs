@@ -1097,6 +1097,51 @@ fn fox_with_right_hand_up(up: f32) -> Skeleton {
     placed(&j)
 }
 
+#[test]
+fn a_tail_lying_down_lies_on_the_floor() {
+    // The fox lying on its belly, its hips brought down near the floor, played on itself with its tail playing nothing:
+    // left as it hangs at rest, the tail would go a tenth of the fox's height through the floor. Each bone of it turns
+    // up just enough to lay the next along the floor; the legs, playing the source's, come as low as its do.
+    let fox = fox();
+    let mut map = Mapping::new(&fox, &fox);
+    for tail in ["b_Tail01_012", "b_Tail02_013", "b_Tail03_014"] {
+        map.set(fox.index_of(tail).unwrap(), None);
+    }
+    let hip = fox.index_of("b_Hip_01").unwrap();
+    let mut pose = fox.rest();
+    pose[hip].translation.y -= 0.56;
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![pose],
+    };
+    let tip = fox.index_of("b_Tail03_014").unwrap();
+    let lowest = |fixes: Fixes| {
+        let out = map.apply_with(&fox, &fox, &clip, fixes).unwrap();
+        let world = fox.world(&out.poses[0]);
+        (world[tip].position().y, world[hip].position().y)
+    };
+    let (sunk, _) = lowest(Fixes::NONE);
+    assert!(sunk < -0.05, "the tail's tip at {sunk} unfixed");
+    let (tip_y, hip_y) = lowest(Fixes {
+        floor: true,
+        ..Fixes::NONE
+    });
+    assert!(tip_y.abs() < 1e-4, "the tail's tip at {tip_y}");
+    assert!((hip_y - 0.147).abs() < 1e-4, "the hips at {hip_y}");
+}
+
+#[test]
+fn a_paw_ending_at_the_wrist_is_still_a_leg() {
+    // The fox's forelegs end at the wrist, a tenth of its height up, with no bone below: the paw is skin. Before, they
+    // weren't legs, so nothing kept them out of the floor, and a cow lying down on its side, played on the fox, put its
+    // forepaws a seventh of its height under it.
+    let fox = fox();
+    let name = |b: usize| fox.bones()[b].name.clone();
+    let mut ends: Vec<String> = dittomo::contact::legs(&fox).iter().map(|l| name(l.end)).collect();
+    ends.sort();
+    assert_eq!(ends, ["b_LeftFoot02", "b_LeftHand", "b_RightFoot02", "b_RightHand"]);
+}
+
 /// A chain of bones hanging from a bone, each named with its world position.
 type Chain<'a> = (&'a str, &'a [(&'a str, [f32; 3])]);
 

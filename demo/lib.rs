@@ -149,6 +149,7 @@ pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
             touch: fixes & 8 != 0,
             hands: fixes & 16 != 0,
             head: fixes & 32 != 0,
+            floor: fixes & 64 != 0,
         };
         let shown = if fixes.travel {
             contact::travel(&source.skeleton, from)

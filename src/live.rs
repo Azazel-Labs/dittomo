@@ -1,7 +1,7 @@
 //! Retargeting as the poses come, with the contact fixes made frame by frame from the poses so far: a character driven
 //! by motion capture streaming in, a networked player, another animation system's output.
 
-use crate::contact::{self, Ahead, Body, Feet, Hands, OnHead, Scratch, Touch, Travel};
+use crate::contact::{self, Ahead, Body, Feet, Floor, Hands, OnHead, Scratch, Touch, Travel};
 use crate::held::{self, Held};
 use crate::shape::Shape;
 use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
@@ -44,6 +44,7 @@ pub struct Live {
     /// The target playing the source's pose without its travel, if the travel is taken off.
     still: Vec<Transform>,
     feet: Option<Feet>,
+    floor: Option<Floor>,
     /// The target's body, if arms are kept out of it or hands meet.
     body: Option<Body>,
     /// The bones to place for the body, if arms are kept out of it.
@@ -126,6 +127,7 @@ impl Live {
             treadmill: !fixes.travel,
             still: target.rest(),
             feet: fixes.feet.then(|| Feet::new(map, rigs)).flatten(),
+            floor: fixes.floor.then(|| Floor::new(map, rigs)).flatten(),
             push_out,
             body: t_body,
             hands,
@@ -150,14 +152,15 @@ impl Live {
         let empty: &[usize] = &[];
         let travel = self.travel.as_ref().map_or(empty, Travel::path);
         let feet = self.feet.as_ref().map_or(empty, Feet::s_path);
+        let floor = self.floor.as_ref().map_or(empty, Floor::s_path);
         let hands = self.hands.as_ref().map_or(empty, Hands::s_path);
         let head = self.head.as_ref().map_or(empty, OnHead::s_path);
         let touch = self.touch.as_ref().map_or(empty, Touch::s_path);
         if self.kept.is_empty() {
-            self.s_now = contact::union(&[travel, feet, hands, head, touch]);
+            self.s_now = contact::union(&[travel, feet, floor, hands, head, touch]);
             self.s_due = Vec::new();
         } else {
-            self.s_now = contact::union(&[travel, feet]);
+            self.s_now = contact::union(&[travel, feet, floor]);
             self.s_due = contact::union(&[hands, head, touch]);
         }
     }
@@ -286,8 +289,14 @@ impl Live {
             }
         };
         self.player.pose(from, out)?;
+        if let Some(f) = &self.floor {
+            f.pose(&self.target, out, &mut self.scratch);
+        }
         if let Some(f) = &mut self.feet {
             f.pose(&self.target, dt, out, &mut self.scratch);
+            if let Some(f) = &self.floor {
+                f.knees(&self.target, out, &mut self.scratch);
+            }
         }
         if self.treadmill && self.travel.is_some() {
             self.player.pose(source, &mut self.still)?;
@@ -320,6 +329,9 @@ impl Live {
             }
         }
         self.player.pose(walked, played)?;
+        if let Some(f) = &self.floor {
+            f.pose(&self.target, played, &mut self.scratch);
+        }
         let treadmill = self.treadmill && self.travel.is_some();
         if treadmill {
             self.player.pose(source, still)?;
@@ -333,6 +345,9 @@ impl Live {
         out.copy_from_slice(played);
         if let Some(a) = &mut self.ahead {
             a.fix(&self.target, due, out, &mut self.scratch);
+            if let Some(f) = &self.floor {
+                f.knees(&self.target, out, &mut self.scratch);
+            }
         }
         if treadmill {
             keep_translations(out, still);
