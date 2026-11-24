@@ -330,13 +330,23 @@ fn body(rig: &Rig) -> Option<[Vec3; 3]> {
     (up != Vec3::ZERO && left != Vec3::ZERO).then(|| [left, up, left.cross(up)])
 }
 
+/// Each segment's direction in the body's frame. A foot's is where it points, the way it points at rest across the
+/// floor turned as the foot has turned from rest: every rig stands flat at rest, and how steeply its ankle comes down
+/// to its toes is anatomy, so matching that slope would push one rig's toes into the floor; a foot should turn as the
+/// source's does.
 fn angles(rig: &Rig, frame: &[Vec3; 3], pose: &[Transform]) -> Vec<Option<Vec3>> {
-    let world = rig.model.skeleton.world(pose);
+    let s = &rig.model.skeleton;
+    let (world, rest) = (s.world(pose), s.world(&s.rest()));
     SEGMENTS
         .iter()
-        .map(|(a, b)| {
-            let (a, b) = (*rig.labels.get(*a)?, *rig.labels.get(*b)?);
-            let d = world[b].position() - world[a].position();
+        .map(|(ja, jb)| {
+            let (a, b) = (*rig.labels.get(*ja)?, *rig.labels.get(*jb)?);
+            let d = if ja.ends_with("_foot") {
+                let d = rest[b].position() - rest[a].position();
+                world[a].rotation * rest[a].rotation.inverse() * (d - frame[1] * frame[1].dot(d))
+            } else {
+                world[b].position() - world[a].position()
+            };
             let d = Vec3::new(frame[0].dot(d), frame[1].dot(d), frame[2].dot(d)).normalize_or_zero();
             (d != Vec3::ZERO).then_some(d)
         })
@@ -532,9 +542,11 @@ fn height(s: &Skeleton) -> f32 {
 
 /// Every clip played on every other rig with each fix alone, all of them and none. While a source foot stays put
 /// (within 5% of its height of the lowest it gets, moving under a tenth of its height a second, once a walk in place
-/// is given the travel its feet imply by `contact::travel`): how far the target's
-/// foot slides each frame, and how far it is from the height it should be at (as far above its rest height as the
-/// source's is above its own, scaled), both over the target's height. And what each costs in limb directions.
+/// is given the travel its feet imply by `contact::travel`): how far the target's foot slides each frame, and how far
+/// its sole is from the height it should be at, both over the target's height. The sole is whichever of the foot and
+/// toe joints is lowest against where the source's are, each counted from where it stands at rest and the source's
+/// scaled: a foot flat stands on its ankle's height, one rolled onto its toes on its toes', and ankles stand higher
+/// over the toes on some rigs than on others. And what each fix costs in limb directions.
 fn contact(rigs: &[Rig]) {
     const RUNS: [(&str, Fixes); 5] = [
         ("none (`apply`)", Fixes::NONE),
@@ -613,6 +625,10 @@ fn contact(rigs: &[Rig]) {
                     .collect();
                 for foot in feet {
                     let (a, b) = (s.labels[foot], t.labels[foot]);
+                    let toe = foot.replace("foot", "toe");
+                    let sole: Vec<(usize, usize)> = std::iter::once((a, b))
+                        .chain(s.labels.get(&toe).zip(t.labels.get(&toe)).map(|(&a, &b)| (a, b)))
+                        .collect();
                     let ground = src.iter().map(|w| w[a].position().y).fold(f32::MAX, f32::min);
                     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
                     let still = |f: usize| {
@@ -624,11 +640,17 @@ fn contact(rigs: &[Rig]) {
                     };
                     for f in (0..n - 1).filter(|&f| still(f)) {
                         planted += 1;
-                        let want = t_rest[b].position().y + (src[f][a].position().y - s_rest[a].position().y) * ht / hs;
                         for m in 0..ROWS {
                             let d = flat(tgt[m][f + 1][b].position() - tgt[m][f][b].position()).length();
                             slid[m] += f64::from(d / ht);
-                            off[m] += f64::from((tgt[m][f][b].position().y - want).abs() / ht);
+                            let over = sole
+                                .iter()
+                                .map(|&(a, b)| {
+                                    let want = (src[f][a].position().y - s_rest[a].position().y) * ht / hs;
+                                    tgt[m][f][b].position().y - t_rest[b].position().y - want
+                                })
+                                .fold(f32::MAX, f32::min);
+                            off[m] += f64::from(over.abs() / ht);
                         }
                     }
                 }
@@ -653,7 +675,7 @@ fn contact(rigs: &[Rig]) {
 height off are per planted frame, over the target's height"
     );
     println!(
-        "| Fixes | Foot slide | Foot height off | Limb directions, mean |
+        "| Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |"
     );
     for (m, name) in names.iter().enumerate() {

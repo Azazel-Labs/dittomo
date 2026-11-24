@@ -77,7 +77,7 @@ pub fn legs(skeleton: &Skeleton) -> Vec<Limb> {
     legs_of(skeleton, &Shape::light(skeleton))
 }
 
-fn legs_of(skeleton: &Skeleton, s: &Shape) -> Vec<Limb> {
+pub(crate) fn legs_of(skeleton: &Skeleton, s: &Shape) -> Vec<Limb> {
     trunk(skeleton, s).map_or_else(Vec::new, |t| legs_in(skeleton, s, &t))
 }
 
@@ -469,8 +469,15 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             .iter()
             .map(|&(a, b)| t_at[a..b].iter().sum::<Vec3>() / (b - a) as f32)
             .collect();
-        let rest_y = t.rest[leg.end].position().y;
-        let s_rest_y = s.rest[a].position().y;
+        let sole = sole(map, [(source, s), (target, t)], &leg, a);
+        let s_ys: Vec<Vec<f32>> = sole
+            .iter()
+            .map(|p| track(source, from, p.source).iter().map(|v| v.y).collect())
+            .collect();
+        let t_ys: Vec<Vec<f32>> = sole
+            .iter()
+            .map(|p| track(target, out, p.target).iter().map(|v| v.y).collect())
+            .collect();
         for f in 0..n {
             let (d, r) = runs
                 .iter()
@@ -483,7 +490,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             }
             let x = 1.0 - d as f32 / (ramp + 1) as f32;
             let w = x * x * (3.0 - 2.0 * x);
-            let y = rest_y + (s_at[f].y - s_rest_y) * k;
+            let y = height(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
             let goal = t_at[f].lerp(Vec3::new(locks[r].x, y, locks[r].z), w);
             let pose = &mut out.poses[f];
             place(target, pose, &path, &mut world);
@@ -499,6 +506,50 @@ const SETTLE: f32 = 0.12;
 fn smooth(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
     x * x * (3.0 - 2.0 * x)
+}
+
+/// A target foot, or a mapped bone under it, and the source bone it plays, with how high each stands at rest.
+#[derive(Clone, Copy)]
+struct Pair {
+    source: usize,
+    target: usize,
+    s_rest_y: f32,
+    t_rest_y: f32,
+}
+
+/// The target leg's foot and the mapped bones under it whose source is under the source's foot `a`, foot first.
+fn sole(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2], leg: &Limb, a: usize) -> Vec<Pair> {
+    let under = |skeleton: &Skeleton, mut b: usize, top: usize| loop {
+        match skeleton.bones()[b].parent {
+            Some(p) if p == top => break true,
+            Some(p) => b = p,
+            None => break false,
+        }
+    };
+    let pair = |a: usize, b: usize| Pair {
+        source: a,
+        target: b,
+        s_rest_y: s.rest[a].position().y,
+        t_rest_y: t.rest[b].position().y,
+    };
+    let toes = (leg.end + 1..target.len()).filter_map(|b| {
+        let a2 = map.source_of(b)?;
+        (under(target, b, leg.end) && under(source, a2, a)).then(|| pair(a2, b))
+    });
+    std::iter::once(pair(a, leg.end)).chain(toes).collect()
+}
+
+/// How high to bring a target foot ([`sole`]): as far from where it stands at rest as the source's has come from its
+/// own, scaled, or higher if one of the bones under it would otherwise come lower from its rest than the source's does.
+/// Ankles stand at different heights over the toes on different rigs, so a foot rolled onto its toes needs its ankle
+/// lifted by more or less than the source's to keep the toes on the floor. `s_y` and `t_y` give each pair's height in
+/// the source's pose and in the target's as played; the target's foot keeps its turn as the leg reaches.
+fn height(sole: &[Pair], k: f32, s_y: impl Fn(usize) -> f32, t_y: impl Fn(usize) -> f32) -> f32 {
+    let ankle = t_y(0);
+    sole.iter()
+        .enumerate()
+        .map(|(i, p)| p.t_rest_y + (s_y(i) - p.s_rest_y) * k - (t_y(i) - ankle))
+        .fold(f32::MIN, f32::max)
 }
 
 /// Where each of the source's feet comes down to, worked out as the poses come from those so far. Feet that walk on
@@ -581,10 +632,12 @@ impl Ground {
 /// Feet kept still while the source's are planted, worked out as the poses come from those so far, with nothing ahead
 /// to look at. A source foot plants as soon as it is down and nearly still, and lifts once it moves off or rises a little
 /// higher, so it doesn't flicker between the two. The target's is held where it was the pose before it planted, moved on
-/// as far as the source's has since (scaled), at the height the source's stands scaled, and let go over [`SETTLE`]. A foot coming down to the floor is brought to the source's
-/// height scaled as it nears it, so it lands without a jump.
+/// as far as the source's has since (scaled), at the height the source's stands scaled ([`height`]), and let go over
+/// [`SETTLE`]. A foot coming down to the floor is brought to that height as it nears it, so it lands without a jump.
 pub(crate) struct Feet {
     feet: Vec<Foot>,
+    /// Each foot's [`sole`].
+    soles: Vec<Vec<Pair>>,
     ground: Ground,
     s_path: Vec<usize>,
     t_path: Vec<usize>,
@@ -598,7 +651,6 @@ struct Foot {
     leg: Limb,
     source: usize,
     s_rest_y: f32,
-    t_rest_y: f32,
     last: Option<Vec3>,
     /// The source foot's speed across the floor.
     speed: f32,
@@ -622,7 +674,6 @@ impl Feet {
                     leg,
                     source: a,
                     s_rest_y: s.rest[a].position().y,
-                    t_rest_y: t.rest[leg.end].position().y,
                     last: None,
                     speed: 0.0,
                     down: false,
@@ -632,11 +683,16 @@ impl Feet {
                 })
             })
             .collect();
+        let soles: Vec<Vec<Pair>> = feet
+            .iter()
+            .map(|f| sole(map, [(source, s), (target, t)], &f.leg, f.source))
+            .collect();
         (!feet.is_empty()).then(|| Self {
             ground: Ground::new(feet.iter().map(|f| f.s_rest_y).collect(), s.height),
-            s_path: paths(source, feet.iter().map(|f| f.source)),
-            t_path: paths(target, feet.iter().map(|f| f.leg.end)),
+            s_path: paths(source, soles.iter().flatten().map(|p| p.source)),
+            t_path: paths(target, soles.iter().flatten().map(|p| p.target)),
             feet,
+            soles,
             k: t.height / s.height,
             s_height: s.height,
         })
@@ -712,7 +768,13 @@ impl Feet {
             } else {
                 f.lock.unwrap_or(free)
             };
-            let y = f.t_rest_y + (at.y - f.s_rest_y) * self.k;
+            let sole = &self.soles[l];
+            let y = height(
+                sole,
+                self.k,
+                |i| sw[sole[i].source].position().y,
+                |i| tw[sole[i].target].position().y,
+            );
             let goal = Vec3::new(
                 free.x + (lock.x - free.x) * ease,
                 free.y + (y - free.y) * up,
@@ -732,6 +794,7 @@ impl Feet {
 /// many as are in sight.
 pub(crate) struct Ahead {
     feet: Vec<Foot>,
+    soles: Vec<Vec<Pair>>,
     ground: Ground,
     t_path: Vec<usize>,
     k: f32,
@@ -739,9 +802,11 @@ pub(crate) struct Ahead {
     delay: usize,
     /// For each pose kept (the `delay` ahead of the one fixed, it and the two before it), by its number modulo how
     /// many are kept: when it came, and where each foot is in the source and in the target before any fix.
+    /// and how high the target's foot is to be brought ([`height`]).
     times: Vec<f32>,
     s_at: Vec<Vec3>,
     t_at: Vec<Vec3>,
+    t_y: Vec<f32>,
     /// Each foot's contact the poses fixed are in or have just left: where it is held, and the pose it ended at.
     held: Vec<Option<(Vec3, Option<usize>)>>,
     seen: usize,
@@ -758,6 +823,7 @@ impl Ahead {
         let n = feet.feet.len();
         let mut ahead = Self {
             feet: feet.feet.clone(),
+            soles: feet.soles.clone(),
             ground: feet.ground.clone(),
             t_path: feet.t_path.clone(),
             k: feet.k,
@@ -766,6 +832,7 @@ impl Ahead {
             times: vec![0.0; kept],
             s_at: vec![Vec3::ZERO; kept * n],
             t_at: vec![Vec3::ZERO; kept * n],
+            t_y: vec![0.0; kept * n],
             held: vec![None; n],
             seen: 0,
             clock: 0.0,
@@ -800,6 +867,13 @@ impl Ahead {
             let at = sw[f.source].position();
             self.s_at[slot * n + i] = at;
             self.t_at[slot * n + i] = tw[f.leg.end].position();
+            let sole = &self.soles[i];
+            self.t_y[slot * n + i] = height(
+                sole,
+                self.k,
+                |j| sw[sole[j].source].position().y,
+                |j| tw[sole[j].target].position().y,
+            );
         }
         self.seen += 1;
     }
@@ -874,7 +948,7 @@ impl Ahead {
                 place(target, played, &self.t_path, tw);
                 placed = true;
             }
-            let y = f.t_rest_y + (self.s_at[slot(o) * n + i].y - f.s_rest_y) * self.k;
+            let y = self.t_y[slot(o) * n + i];
             let free = tw[f.leg.end].position();
             // Legs hang apart, so reaching one leaves the other placed as it was.
             reach_in(target, played, tw, &f.leg, free.lerp(Vec3::new(lock.x, y, lock.z), w));

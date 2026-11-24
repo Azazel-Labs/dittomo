@@ -101,7 +101,9 @@ the engine running.
 The same rigs' own 35 clips (Mixamo dances, walks, runs and gestures, RobotExpressive's 14, CesiumMan's and
 RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four) played on every other rig: 385 clip and rig pairs.
 Each labelled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each
-in its own body's frame. The other rows are what a clip gets without a retargeter, even given the right bones: an
+in its own body's frame. A foot is judged by where it points, the way it points across the floor at rest turned as it
+has turned from rest: every rig stands flat at rest, and how steeply an ankle comes down to the toes is anatomy. The
+other rows are what a clip gets without a retargeter, even given the right bones: an
 engine's animation mixer plays a clip on another rig by copying each bone's local rotation, and a hand-written script
 commonly copies each bone's turn from rest in the world.
 
@@ -109,8 +111,8 @@ commonly copies each bone's turn from rest in the world.
 | --- | ---: | ---: | ---: | ---: |
 | dittomo | 2.3° | 0.2° | 5.1° | 97% |
 | dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.2° | 0.2° | 3.3° | 100% |
-| World turns from rest copied onto the right bones | 22.0° | 11.2° | 64.6° | 56% |
-| Local rotations copied onto the right bones | 74.7° | 83.8° | 151.4° | 22% |
+| World turns from rest copied onto the right bones | 21.3° | 10.1° | 64.6° | 60% |
+| Local rotations copied onto the right bones | 73.8° | 82.3° | 150.9° | 22% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
 both rigs when the bones between are in other ratios. The upper arms are the biggest gap between dittomo and the hand
@@ -123,26 +125,28 @@ own rest look and take only the turn away from it; that costs chest → head 1.6
 
 The same pairs again, with each contact fix alone and all together, over the 23,420 frames where a source foot is
 planted (within 5% of its height of the lowest it gets, moving under a tenth of its height a second). Slide is how far
-the target's foot moves each such frame; height off is how far it is from the source foot's height over the floor,
-scaled; both are over the target's height. Clips walked in place are judged on the travel their feet imply.
+the target's foot moves each such frame; sole height off is how far its sole is from where the source's is, scaled; both
+are over the target's height. The sole is whichever of the foot and toe joints is lowest against the source's, each
+counted from where it stands at rest: a flat foot stands on its ankle's height and one rolled onto its toes on its
+toes'. Clips walked in place are judged on the travel their feet imply.
 
-| Fixes | Foot slide | Foot height off | Limb directions, mean |
+| Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
 | none (`apply`) | 0.00390 | 0.0098 | 2.1° |
-| travel | 0.00100 | 0.0098 | 2.1° |
+| travel | 0.00100 | 0.0098 | 2.2° |
 | planted feet | 0.00313 | 0.0022 | 3.2° |
 | push-out | 0.00390 | 0.0098 | 2.1° |
-| all (`apply_with`) | 0.00004 | 0.0014 | 3.4° |
-| all, live (`Live`) | 0.00005 | 0.0015 | 3.6° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00006 | 0.0014 | 3.4° |
+| all (`apply_with`) | 0.00003 | 0.0014 | 3.4° |
+| all, live (`Live`) | 0.00004 | 0.0015 | 3.6° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0014 | 3.4° |
 
-Together they cut foot slide about 100 times and the height error 7 times. The degree they cost is the legs bending to keep
-feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
-slide is cut about 80 times: a foot is held from the pose it lands, where the target's was the pose before, so it doesn't
-slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six poses late it is cut
-about 65 times, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on, judged by how
-fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses, keep their
-feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
+Together they cut foot slide about 130 times and the height error 7 times. The degree they cost is the legs bending to
+keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
+slide is cut about 100 times: a foot is held from the pose it lands, where the target's was the pose before, so it
+doesn't slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six poses late it
+is cut about 80 times, with limbs as close as the whole clip's. A foot is planted from the first pose it stands on,
+judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses,
+keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,671 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
@@ -172,7 +176,7 @@ set; `cargo bench --bench san` scores it with SAN's own formula.
 | PMnet (BMVC 2019), from SAN's table | yes | 5.72 | – |
 | CycleGAN-style, from SAN's table | yes | 7.66 | 8.97 |
 | SAN, from SAN's table | yes | 2.76 | 2.25 |
-| **dittomo** (`apply`, no fixes) | no | **1.60** | **0.85** |
+| **dittomo** (`apply`, no fixes) | no | **1.57** | **0.94** |
 | Local rotations copied by bone name, root moved as the source's | no | 43.0 | 24.9 |
 | Local rotations copied by bone name, root scaled by hips height | no | 1.37 | 0.70 |
 
@@ -304,9 +308,12 @@ don't count. The arms are the chains off the one spine bone whose chains end in 
 tails are left out, and fingers hanging low aren't taken for feet.
 
 - **Travel.** A clip walked in place gets the travel its planted feet imply. A clip that already travels is left alone.
-- **Planted feet.** Where the source's foot is planted, the target's is held where it lands, at the height the source's
-  foot is over the floor, scaled to the target. Two-bone IK (`contact::reach`) bends the knee and swings the hip to put
-  it there, keeping the foot's turn, easing in and out over about a tenth of a second.
+- **Planted feet.** Where the source's foot is planted, the target's is held where it lands, as high over where it
+  stands at rest as the source's is over its own, scaled to the target, or higher if a toe would otherwise come lower
+  than the source's does: ankles stand higher over the toes on some rigs than others, so a foot rolled onto its toes
+  needs its ankle lifted more or less than the source's to keep them on the floor. Two-bone IK (`contact::reach`) bends
+  the knee and swings the hip to put it there, keeping the foot's turn, easing in and out over about a tenth of a
+  second.
 - **Push-out.** Spheres along the spine and one round the head stand for the body; elbows, hands and forearms inside
   them are turned out, the upper arm first, then the forearm. Short arms raised overhead go round the head, not
   through it.
@@ -361,8 +368,11 @@ Each mapped bone takes its source bone's turn away from rest, in the world. That
 target's frame and corrected for the two rest poses: at rest, the source bone and the next mapped bones below it point
 one way, and the target's point another, and the turn that best lines up all of them at once is undone. All of them,
 not the one with most below it: one rig's collarbones start above its chest and another's beside it, and lining up
-either alone would tip the chest. So the target's bones point where the source's
-do, frame by frame, whatever each rig's rest pose (A-pose or T-pose) or bone axes.
+either alone would tip the chest. So the target's bones point where the source's do, frame by frame, whatever each
+rig's rest pose (A-pose or T-pose) or bone axes. The neck and head, and the feet and toes, are matched rest to rest
+instead (the feet turned about the vertical to point the same way), as every rig looks ahead and stands flat at rest:
+where a head bone points, or how steeply an ankle comes down to the toes, is anatomy, and lining those up would tip
+the gaze or push the toes into the floor.
 
 A target bone between two mapped ones takes its share of their turns by how far along it is, so a short spine bends a
 long one smoothly. Other unmapped bones keep their rest pose under their parent. The topmost mapped bones, and any whose

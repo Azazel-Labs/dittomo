@@ -185,6 +185,99 @@ fn planted_feet_stay_still_on_the_mannequin() {
     assert!(after < 1e-3, "{after}");
 }
 
+/// The same rig with each ankle `by` lower and its toes where they were, so the foot comes down to them less steeply.
+fn low_ankles(sk: &Skeleton, by: f32) -> Skeleton {
+    let mut world: Vec<Vec3> = sk.world(&sk.rest()).iter().map(dittomo::Placed::position).collect();
+    let mut bones = sk.bones().to_vec();
+    for (b, bone) in bones.iter().enumerate() {
+        if bone.name.ends_with("Foot") {
+            world[b].y -= by;
+        }
+    }
+    let turns: Vec<_> = sk.world(&sk.rest()).iter().map(|p| p.rotation).collect();
+    for b in 0..bones.len() {
+        if let Some(p) = bones[b].parent {
+            bones[b].rest.translation = turns[p].inverse() * (world[b] - world[p]);
+        }
+    }
+    Skeleton::new(bones).unwrap()
+}
+
+/// The rig standing at rest while each foot rolls onto its toes and back, heel up to `most` radians, the toes kept
+/// where they stand.
+fn rolls_onto_toes(sk: &Skeleton, most: f32, frames: usize) -> Clip {
+    let legs = contact::legs(sk);
+    let toe = |foot: usize| (0..sk.len()).find(|&b| sk.bones()[b].parent == Some(foot)).unwrap();
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let poses = (0..frames)
+        .map(|f| {
+            let angle = most * (std::f32::consts::PI * f as f32 / (frames - 1) as f32).sin();
+            let mut pose = rest.clone();
+            for leg in &legs {
+                let (foot, toe) = (leg.end, toe(leg.end));
+                // Turned in the world about the body's side, toes down: (y, z) to (y cos - z sin, y sin + z cos).
+                let turn = dittomo::Quat::from_rotation_x(angle);
+                let above = world[sk.bones()[foot].parent.unwrap()].rotation;
+                pose[foot].rotation = above.inverse() * turn * world[foot].rotation;
+                let now = sk.world(&pose);
+                let goal = now[foot].position() + world[toe].position() - now[toe].position();
+                contact::reach(sk, &mut pose, leg, goal);
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn toes_stay_on_the_floor_when_a_foot_rolls_onto_them() {
+    // The target's ankles stand lower over its toes. A foot is matched flat at rest, so it pitches as far as the
+    // source's from there; lifted only as far as the source's ankle is, the target's would push its toes into the
+    // floor.
+    let source = common::mixamo();
+    let target = low_ankles(&source, 3.0);
+    let roll = rolls_onto_toes(&source, 0.35, 40);
+    let map = Mapping::new(&source, &target);
+    let (hs, ht) = (height(&source), height(&target));
+    let lowest = |sk: &Skeleton, clip: &Clip, h: f32| {
+        let floor = sk
+            .world(&sk.rest())
+            .iter()
+            .map(|p| p.position().y)
+            .fold(f32::MAX, f32::min);
+        let toes: Vec<usize> = (0..sk.len())
+            .filter(|&b| sk.bones()[b].name.ends_with("ToeBase"))
+            .collect();
+        clip.poses
+            .iter()
+            .flat_map(|p| {
+                let w = sk.world(p);
+                toes.iter()
+                    .map(move |&b| (w[b].position().y - floor) / h)
+                    .collect::<Vec<_>>()
+            })
+            .fold(f32::MAX, f32::min)
+    };
+    let source_low = lowest(&source, &roll, hs);
+    assert!(
+        source_low.abs() < 1e-3,
+        "the source's toes stay on the floor ({source_low})"
+    );
+    let plain = map.apply(&source, &target, &roll).unwrap();
+    let whole = map.apply_with(&source, &target, &roll, feet_only()).unwrap();
+    let online = live(&map, &source, &target, &roll, feet_only());
+    let later = late(&map, &source, &target, &roll, feet_only(), 6);
+    let [none, whole, online, later] = [&plain, &whole, &online, &later].map(|c| lowest(&target, c, ht));
+    eprintln!("lowest toe over height: none {none:.4}, whole clip {whole:.4}, live {online:.4}, late {later:.4}");
+    for low in [whole, online, later] {
+        assert!(low > -2e-3, "{low}");
+    }
+}
+
 /// A walk played in steps, each pose held for `hold` frames, as clips keyed with stepped curves play.
 fn stepped(clip: &Clip, hold: usize) -> Clip {
     let poses: Vec<Vec<Transform>> = clip

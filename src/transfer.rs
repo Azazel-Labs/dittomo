@@ -2,10 +2,12 @@
 //!
 //! A mapped bone takes its source bone's turn away from rest in the world, carried into the target's frame and
 //! corrected for the two rest poses: at rest the source bone and its next mapped bones point one way, the target's
-//! another, and the turn that best takes the one set of directions to the other (`fix`) is undone first. So the target's bones point where the source's do, frame
-//! by frame, whatever each rig's rest pose and bone axes. A bone between two mapped bones takes its share of their turns
-//! by how far along it is; any other keeps its rest pose under its parent. The topmost mapped bones and any whose source
-//! moves (not just turns) travel as their source does, scaled by how high each stands.
+//! another, and the turn that best takes the one set of directions to the other (`fix`) is undone first. So the
+//! target's bones point where the source's do, frame by frame, whatever each rig's rest pose and bone axes; the head
+//! and the feet, which every rig holds alike at rest, are matched rest to rest (`plan`). A bone between two mapped
+//! bones takes its share of their turns by how far along it is; any other keeps its rest pose under its parent. The
+//! topmost mapped bones and any whose source moves (not just turns) travel as their source does, scaled by how high
+//! each stands.
 //!
 //! [`Player`] does the work that depends only on the two rigs and the mapping once, then poses frame after frame without
 //! allocating. Rotations are chained as quaternions; whole transforms are chained only down the paths to bones that
@@ -310,11 +312,14 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// with how far each would travel if its source moved.
 ///
 /// The neck and head are matched rest to rest, not by direction: where a head bone points to the top of the skull, or a
-/// neck to the head, is anatomy (one rig's skull leans back, another's neck forward), but every rig looks ahead at rest.
-/// Fitting their directions would tilt the target's gaze by the difference; matching rests keeps it looking where the
-/// source looks. Limbs differ at rest by pose (arms down or out), so they are matched by direction. The hips and chest
-/// are matched by the spine and neck rising from them alone: where the legs and arms hang from them is anatomy too (one
-/// rig's hip joints sit behind its pelvis bone, another's below), and fitting those would tip the pelvis or the chest.
+/// neck to the head, is anatomy (one rig's skull leans back, another's neck forward), but every rig looks ahead at
+/// rest. Fitting their directions would tilt the target's gaze by the difference; matching rests keeps it looking where
+/// the source looks. Feet and toes are matched rest to rest too, turned only about the vertical to point the same way:
+/// every rig stands flat at rest, and how steeply the ankle comes down to the toes is anatomy (a high ankle over a
+/// short foot), so fitting it would tip the target's toes into the floor or its heels off it. Limbs differ at rest by
+/// pose (arms down or out), so they are matched by direction. The hips and chest are matched by the spine and neck
+/// rising from them alone: where the legs and arms hang from them is anatomy too (one rig's hip joints sit behind its
+/// pelvis bone, another's below), and fitting those would tip the pelvis or the chest.
 fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Vec<(usize, usize, f32)>) {
     let n = t.children.len();
     let (s_neck, t_neck) = (contact::above_chest(source, s), contact::above_chest(target, t));
@@ -323,6 +328,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
     let (s_ends, t_ends) = (ends(&s_spine), ends(&t_spine));
     let girdle = |a: usize, b: usize| (0..2).any(|i| s_ends[i] == Some(a) && t_ends[i] == Some(b));
     let trunk = |spine: &[usize], neck: &[bool], b: usize| neck[b] || spine.contains(&b);
+    let (s_feet, t_feet) = (feet(source, s), feet(target, t));
     let turn = map.turn();
     let mapped = |b: usize| map.source_of(b);
     // The first mapped bones down each path from every bone, and how many bones are under each.
@@ -395,6 +401,16 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         let pairs: Vec<(Vec3, Vec3)> = pairs.into_iter().map(|(u, v, _)| (u, v)).collect();
         let fix = match pairs.as_slice() {
             _ if s_neck[a] && t_neck[b] => Quat::IDENTITY,
+            _ if s_feet[a] && t_feet[b] => {
+                let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+                pairs
+                    .iter()
+                    .map(|&(u, v)| (flat(u), flat(v)))
+                    .find(|(u, v)| u.length() > 1e-9 && v.length() > 1e-9)
+                    .map_or(Quat::IDENTITY, |(u, v)| {
+                        Quat::from_rotation_y(u.cross(v).y.atan2(u.dot(v)))
+                    })
+            }
             [] => above(b).and_then(|p| fixes[p]).unwrap_or(Quat::IDENTITY),
             [(u, v)] => Quat::from_rotation_arc(u.normalize(), v.normalize()),
             [(u1, v1), rest @ ..] => {
@@ -463,6 +479,20 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         };
     }
     (plans, moving)
+}
+
+/// Whether each bone is a foot (the end of a leg) or under one.
+fn feet(skeleton: &Skeleton, s: &Shape) -> Vec<bool> {
+    let mut feet = vec![false; skeleton.len()];
+    for leg in contact::legs_of(skeleton, s) {
+        feet[leg.end] = true;
+    }
+    for (b, bone) in skeleton.bones().iter().enumerate() {
+        if let Some(p) = bone.parent {
+            feet[b] |= feet[p];
+        }
+    }
+    feet
 }
 
 /// The rotation taking each `u` nearest its `v`'s direction, all at once (Wahba's problem), by Newton's method from

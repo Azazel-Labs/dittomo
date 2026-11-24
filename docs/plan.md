@@ -132,6 +132,19 @@ Phase 1 so far (November 2026):
   found the arm finder taking a forearm twist bone for the elbow (pushing a seed-san avatar's arms out by up to 60°)
   and a cartoon robot's fingers for feet. Limbs are now picked along each chain by distance from the spine and the
   end, legs must reach the floor, and arms are the chains off the one spine bone whose chains end in the most bones.
+- **Toes in the floor**: a samba from Mixamo played on a VRM avatar put the avatar's toes 2.9% of its height into the
+  floor, on nine frames in ten, while the source's stayed on it. Feet were matched like limbs, by the direction from
+  ankle to toes at rest, and the avatar's ankle stands lower over a longer foot (22° down to the toes, against Mixamo's
+  40°), so every foot pitched 18° further down; and a planted foot's ankle was lifted only as far as the source's, which
+  is too little for a low ankle once the foot rolls onto its toes. Feet and toes are now matched rest to rest, turned
+  about the vertical only, and a planted foot is lifted till no mapped toe comes lower than the source's: toes below the
+  floor on 98 frames of 10,849 rather than 9,924 (the source's own on 38). The rig bench scored a foot by its raw
+  direction and its height by the ankle alone, which is what had hidden this; it now scores where a foot points, turned
+  from rest, and the lowest of foot and toe. Scored so, feet point 0.6° from the source's against 10°, limbs overall
+  2.3° against 3.3° (97% within 15° against 94%), and soles come out 0.0014 of the height off with every fix on against
+  0.0054. SAN's Mixamo test goes from 1.58 to 1.57 intra-structural and 1.03 to 0.94 cross-structural; matching the hips
+  and chest by the spine alone had taken cross from 0.85 to 1.03, as BigVegas's pelvis hub tips its spine unlike the
+  others' and Mixamo's own clips copy rotations as they are.
 - **Gaze**: the head's facing, against the source's in each body's frame, was off by 11.8°, as the neck and head took
   their source's turns as they are and tipped the face of rigs whose head bone isn't built facing forward. They now keep
   the target's rest look and take only the turn away from it: 1.3°, for chest → head going from 4.6° to 6.2°.
@@ -372,8 +385,8 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       downloads twelve rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
       `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching, then plays every rig's clips
       on every other and scores limb directions against copying rotations and foot contact with each fix. SAN's
-      Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`): dittomo scores 1.60 intra-structural
-      and 0.85 cross-structural against SAN's published 2.76 and 2.25, untrained (README, Against the learned
+      Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`): dittomo scores 1.57 intra-structural
+      and 0.94 cross-structural against SAN's published 2.76 and 2.25, untrained (README, Against the learned
       retargeters). R2ET's test pairs exist only in its code, and Godot, Unity and Unreal are still to come.
 - [ ] **Measure where dittomo stands** on every row of the Goal table. Mapping accuracy is measured on real rigs;
       per-frame cost and mapping time on made-up rigs (see Where things stand); limb directions and foot contact on real
