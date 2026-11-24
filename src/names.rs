@@ -118,9 +118,21 @@ const SAME: &[(&str, &str)] = &[
 
 const FINGERS: &[&str] = &["thumb", "index", "middle", "ring", "pinky"];
 
-/// Words for bones that help others bend or carry what hangs off the body, as twist, roll, aim and secondary bones,
-/// rather than being joints of the body.
-const HELPERS: &[&str] = &["twist", "roll", "aim", "sec", "helper", "aux"];
+/// Words for bones that help others bend or carry what hangs off the body, as twist, roll, aim and secondary bones, or
+/// that steer them, as IK goals, pole targets and corrective bones (`ik_foot_l`, `PoleTarget.L`,
+/// `thigh_correctiveRoot_l`), rather than being joints of the body.
+const HELPERS: &[&str] = &[
+    "twist",
+    "roll",
+    "aim",
+    "sec",
+    "helper",
+    "aux",
+    "ik",
+    "pole",
+    "target",
+    "corrective",
+];
 
 /// Words for bones that only mark where a chain ends, as the top of the head or the tips of the toes (`HeadTop_End`,
 /// `Bip01 L Toe0Nub`), rather than joints that turn.

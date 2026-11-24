@@ -918,6 +918,72 @@ fn a_rig_stopping_at_the_base_of_the_head_in_an_a_pose_with_numbered_limbs() {
 }
 
 #[test]
+fn ik_goals_at_the_hands_and_feet_play_nothing() {
+    // Laid out as Unreal's mannequins are: beside the body's own bones, IK goals for the feet and hands under the root,
+    // each standing where its foot or hand stands and named for it.
+    let from = mixamo_like();
+    let mut j: Joints = vec![
+        joint("root", None, [0.0, 0.0, 0.0]),
+        joint("pelvis", Some("root"), [0.0, 1.0, 0.0]),
+        joint("spine_01", Some("pelvis"), [0.0, 1.1, 0.0]),
+        joint("spine_02", Some("spine_01"), [0.0, 1.22, 0.0]),
+        joint("spine_03", Some("spine_02"), [0.0, 1.35, 0.0]),
+        joint("neck_01", Some("spine_03"), [0.0, 1.5, 0.0]),
+        joint("head", Some("neck_01"), [0.0, 1.6, 0.02]),
+        joint("ik_foot_root", Some("root"), [0.0, 0.0, 0.0]),
+        joint("ik_hand_root", Some("root"), [0.0, 0.0, 0.0]),
+        joint("ik_hand_gun", Some("ik_hand_root"), [-0.72, 1.45, 0.0]),
+    ];
+    for (side, x) in [("l", 1.0f32), ("r", -1.0)] {
+        let n = |s: &str| format!("{s}_{side}");
+        j.push(joint(n("clavicle"), Some("spine_03"), [0.06 * x, 1.45, 0.0]));
+        j.push(joint(n("upperarm"), Some(&n("clavicle")), [0.18 * x, 1.45, 0.0]));
+        j.push(joint(n("lowerarm"), Some(&n("upperarm")), [0.46 * x, 1.45, 0.0]));
+        j.push(joint(n("hand"), Some(&n("lowerarm")), [0.72 * x, 1.45, 0.0]));
+        j.push(joint(n("index_01"), Some(&n("hand")), [0.82 * x, 1.45, 0.02]));
+        j.push(joint(n("index_02"), Some(&n("index_01")), [0.86 * x, 1.45, 0.02]));
+        j.push(joint(n("thigh"), Some("pelvis"), [0.09 * x, 0.95, 0.0]));
+        j.push(joint(n("calf"), Some(&n("thigh")), [0.09 * x, 0.52, 0.0]));
+        j.push(joint(n("foot"), Some(&n("calf")), [0.09 * x, 0.08, -0.02]));
+        j.push(joint(n("ball"), Some(&n("foot")), [0.09 * x, 0.0, 0.08]));
+        j.push(joint(n("ik_foot"), Some("ik_foot_root"), [0.09 * x, 0.08, -0.02]));
+        j.push(joint(n("ik_hand"), Some("ik_hand_gun"), [0.72 * x, 1.45, 0.0]));
+    }
+    let to = placed(&j);
+    let map = Mapping::new(&from, &to);
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[
+            ("Hips", "pelvis"),
+            ("LeftHand", "hand_l"),
+            ("RightHand", "hand_r"),
+            ("LeftFoot", "foot_l"),
+            ("RightFoot", "foot_r"),
+            ("LeftToeBase", "ball_l"),
+        ],
+    );
+    for goal in ["ik_foot_l", "ik_foot_r", "ik_hand_l", "ik_hand_r", "ik_hand_gun"] {
+        let b = to.index_of(goal).unwrap();
+        assert_eq!(map.source_of(b), None, "{goal}");
+    }
+    // And the other way, the body's bones are played from the body's, not the goals.
+    let back = Mapping::new(&to, &from);
+    assert_plays(
+        &to,
+        &from,
+        &back,
+        &[
+            ("hand_l", "LeftHand"),
+            ("hand_r", "RightHand"),
+            ("foot_l", "LeftFoot"),
+            ("foot_r", "RightFoot"),
+        ],
+    );
+}
+
+#[test]
 fn a_chest_just_above_the_hips_is_still_the_chest() {
     // As a robot's might be: one short bone from the hips up to where the arms and the neck hang, far below where a
     // chest stands on a person, and no names to go by. The arms hang from it, so it plays the chest, not the spine.
