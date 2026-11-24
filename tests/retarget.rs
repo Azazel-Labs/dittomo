@@ -3,7 +3,7 @@
 
 use std::f32::consts::TAU;
 
-use dittomo::{Bone, Clip, Crowd, Mapping, Player, Quat, Skeleton, Transform, Vec3};
+use dittomo::{Bone, Clip, Crowd, Fixes, Mapping, Player, Quat, Skeleton, Transform, Vec3};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Side {
@@ -1323,6 +1323,47 @@ fn hips_with_the_legs_above_them_play_hips_with_the_legs_below_untwisted() {
         let played = dog.world(pose)[back].rotation * dog_rest[back].rotation.inverse();
         let off = swayed.angle_between(played).to_degrees();
         assert!(off < 1.0, "frame {f}: the husky's hips {off}° from the fox's sway");
+    }
+}
+
+#[test]
+fn legs_bent_otherwise_at_rest_keep_their_paws_out_of_the_floor() {
+    // The fox's hind legs stand straighter than the husky's: played at the fox's angles, the husky's hind paws reached
+    // under the floor, and weren't planted at all, as their IK handles pair with nothing (the toes under them do).
+    let (fox, dog) = (fox(), dog("Neck3"));
+    let map = Mapping::new(&fox, &dog);
+    let thighs = ["b_LeftLeg01", "b_RightLeg01"].map(|n| fox.index_of(n).unwrap());
+    let n = 24;
+    let clip = Clip {
+        times: (0..n).map(|f| f as f32 / 24.0).collect(),
+        poses: (0..n)
+            .map(|f| {
+                let t = f as f32 / n as f32 * TAU;
+                let mut pose = fox.rest();
+                for (i, &thigh) in thighs.iter().enumerate() {
+                    pose[thigh].rotation = Quat::from_rotation_x(0.35 * (t + i as f32 * std::f32::consts::PI).sin());
+                }
+                pose
+            })
+            .collect(),
+    };
+    let out = map.apply_with(&fox, &dog, &clip, Fixes::default()).expect("plays");
+    let (fox_rest, dog_rest) = (fox.world(&fox.rest()), dog.world(&dog.rest()));
+    let paw = fox.index_of("b_LeftFoot02").unwrap();
+    let dipped = clip
+        .poses
+        .iter()
+        .map(|p| fox_rest[paw].position().y - fox.world(p)[paw].position().y)
+        .fold(0.0f32, f32::max);
+    for side in ["L", "R"] {
+        let ik = dog.index_of(&format!("IKBackLeg.{side}")).unwrap();
+        for (f, pose) in out.poses.iter().enumerate() {
+            let sunk = dog_rest[ik].position().y - dog.world(pose)[ik].position().y;
+            assert!(
+                sunk < dipped + 1e-3,
+                "frame {f}: IKBackLeg.{side} {sunk} under rest, the fox's paw {dipped}"
+            );
+        }
     }
 }
 

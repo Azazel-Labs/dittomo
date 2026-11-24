@@ -448,7 +448,14 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         .get(gaps.len() / 2)
         .map_or(4, |dt| ((0.12 / dt).round() as usize).clamp(1, 10));
     for leg in legs_of(target, t) {
-        let Some(a) = map.source_of(leg.end) else { continue };
+        // A foot left unpaired plants with the first paired bone under it, as a paw held for IK above a toe that is.
+        let Some(a) = map.source_of(leg.end).or_else(|| {
+            (leg.end + 1..target.len())
+                .filter(|&b| below(target, b, leg.end))
+                .find_map(|b| map.source_of(b))
+        }) else {
+            continue;
+        };
         let s_at = track(source, from, a);
         let down = contacts(&s_at, &from.times, s.rest[a].position().y, s.height);
         let mut runs = Vec::new();
@@ -464,9 +471,6 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             } else {
                 f += 1;
             }
-        }
-        if runs.is_empty() {
-            continue;
         }
         let t_at = track(target, out, leg.end);
         let path = paths(target, [leg.end]);
@@ -490,13 +494,21 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
                 .map(|(r, &(a, b))| (if f < a { a - f } else { (f + 1).saturating_sub(b) }, r))
                 .min()
                 .unwrap_or((usize::MAX, 0));
-            if d > ramp {
-                continue;
-            }
-            let x = 1.0 - d as f32 / (ramp + 1) as f32;
-            let w = x * x * (3.0 - 2.0 * x);
-            let y = height(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
-            let goal = t_at[f].lerp(Vec3::new(locks[r].x, y, locks[r].z), w);
+            // Never deeper under where it stands at rest than the source's foot comes under its own, scaled: legs
+            // bent more or less at rest, played at the source's angles, can reach below the floor.
+            let low = floor(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
+            let free = Vec3::new(t_at[f].x, t_at[f].y.max(low), t_at[f].z);
+            let goal = if d > ramp {
+                if free.y - t_at[f].y < 1e-5 * t.height {
+                    continue;
+                }
+                free
+            } else {
+                let x = 1.0 - d as f32 / (ramp + 1) as f32;
+                let w = x * x * (3.0 - 2.0 * x);
+                let y = height(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
+                free.lerp(Vec3::new(locks[r].x, y, locks[r].z), w)
+            };
             let pose = &mut out.poses[f];
             place(target, pose, &path, &mut world);
             reach_in(target, pose, &world, &leg, goal);
@@ -524,13 +536,6 @@ struct Pair {
 
 /// The target leg's foot and the mapped bones under it whose source is under the source's foot `a`, foot first.
 fn sole(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2], leg: &Limb, a: usize) -> Vec<Pair> {
-    let under = |skeleton: &Skeleton, mut b: usize, top: usize| loop {
-        match skeleton.bones()[b].parent {
-            Some(p) if p == top => break true,
-            Some(p) => b = p,
-            None => break false,
-        }
-    };
     let pair = |a: usize, b: usize| Pair {
         source: a,
         target: b,
@@ -539,7 +544,7 @@ fn sole(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2], leg
     };
     let toes = (leg.end + 1..target.len()).filter_map(|b| {
         let a2 = map.source_of(b)?;
-        (under(target, b, leg.end) && under(source, a2, a)).then(|| pair(a2, b))
+        (below(target, b, leg.end) && below(source, a2, a)).then(|| pair(a2, b))
     });
     std::iter::once(pair(a, leg.end)).chain(toes).collect()
 }
@@ -555,6 +560,27 @@ fn height(sole: &[Pair], k: f32, s_y: impl Fn(usize) -> f32, t_y: impl Fn(usize)
         .enumerate()
         .map(|(i, p)| p.t_rest_y + (s_y(i) - p.s_rest_y) * k - (t_y(i) - ankle))
         .fold(f32::MIN, f32::max)
+}
+
+/// How low a target foot ([`sole`]) may come: as far under where it stands at rest as the source's has come under its
+/// own, scaled, and no farther, for each of the bones under it too.
+fn floor(sole: &[Pair], k: f32, s_y: impl Fn(usize) -> f32, t_y: impl Fn(usize) -> f32) -> f32 {
+    let ankle = t_y(0);
+    sole.iter()
+        .enumerate()
+        .map(|(i, p)| p.t_rest_y + ((s_y(i) - p.s_rest_y) * k).min(0.0) - (t_y(i) - ankle))
+        .fold(f32::MIN, f32::max)
+}
+
+/// Whether `b` is under `top`.
+fn below(skeleton: &Skeleton, mut b: usize, top: usize) -> bool {
+    while let Some(p) = skeleton.bones()[b].parent {
+        if p == top {
+            return true;
+        }
+        b = p;
+    }
+    false
 }
 
 /// Where each of the source's feet comes down to, worked out as the poses come from those so far. Feet that walk on

@@ -363,9 +363,9 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// well: every rig stands upright at rest, and how far its chest sits ahead of its hips or behind, or where the legs
 /// and arms hang from them, is anatomy too (one rig's back curves, another's hip joints sit behind its pelvis bone), so
 /// fitting those would tip the pelvis or hunch the chest of a target standing as the source stands. So is any bone on
-/// the body's middle in both, as a tail or a pelvis bone the spine doesn't reach: its children fan out every way, and
-/// one rig's hips with the legs starting above them and another's with them below fit best with a half turn, legs
-/// swapped and the hips twisted.
+/// the body's middle in both that more than one limb hangs from, as a pelvis bone the spine doesn't reach: its children
+/// fan out every way, and one rig's hips with the legs starting above them and another's with them below fit best with
+/// a half turn, legs swapped and the hips twisted. A tail, on the middle but a limb of its own, goes the source's way.
 fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Vec<(usize, usize, f32)>) {
     let n = t.children.len();
     let (s_neck, t_neck) = (contact::above_chest(source, s), contact::above_chest(target, t));
@@ -458,7 +458,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
             }
             [] => above(b).and_then(|p| fixes[p]).unwrap_or(Quat::IDENTITY),
             // As a fox's hips, its legs starting above them, onto a husky's, its legs starting below.
-            _ if middle(s, a, turn.inverse() * left) && middle(t, b, left) => Quat::IDENTITY,
+            _ if pairs.len() > 1 && middle(s, a, turn.inverse() * left) && middle(t, b, left) => Quat::IDENTITY,
             [(u, v)] => Quat::from_rotation_arc(u.normalize(), v.normalize()),
             [(u1, v1), rest @ ..] => {
                 let second = rest.iter().find(|(u2, v2)| {
