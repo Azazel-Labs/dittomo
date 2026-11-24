@@ -1095,8 +1095,9 @@ fn fox() -> Skeleton {
 type Chain<'a> = (&'a str, &'a [(&'a str, [f32; 3])]);
 
 /// A dog as the Quaternius animals are laid out: front legs hanging ahead of and below a spine bone, ears of four bones
-/// rising from the neck beside the head, and handles for IK and its poles at the ground, named for a side and an end.
-fn dog() -> Skeleton {
+/// rising from `ears` (the neck beside the head, or the head), and handles for IK and its poles at the ground, named
+/// for a side and an end.
+fn dog(ears: &str) -> Skeleton {
     let mut j: Joints = vec![
         joint("AnimalArmature", None, [0.0, 0.0, 0.0]),
         joint("Body", Some("AnimalArmature"), [0.0, 0.135, 0.0]),
@@ -1116,7 +1117,7 @@ fn dog() -> Skeleton {
     for (side, s) in [("L", 1.0), ("R", -1.0)] {
         let chains: [Chain; 5] = [
             (
-                "Neck3",
+                ears,
                 &[
                     ("Ear1", [0.059, 0.913, 0.607]),
                     ("Ear2", [0.075, 0.945, 0.594]),
@@ -1177,7 +1178,7 @@ fn a_fox_and_a_dog_built_by_different_hands_find_each_others_legs() {
     // Measured from the Khronos Fox and the Quaternius Husky. Before, the dog's front legs, hanging ahead of the bone
     // they hang from, weren't taken for limbs; its ears were taken for the arms, and its IK handles, a front one on
     // one side and a back one on the other, for a pair of legs.
-    let (fox, dog) = (fox(), dog());
+    let (fox, dog) = (fox(), dog("Neck3"));
     // Which leg a bone is in, and on which side; none for the trunk, ears, tail and IK handles.
     let leg = |name: &str| -> Option<(&str, &str)> {
         let side = if name.contains("Left") || name.ends_with(".L") {
@@ -1224,6 +1225,20 @@ fn a_fox_and_a_dog_built_by_different_hands_find_each_others_legs() {
         };
         assert_eq!(source(head.0).as_deref(), Some(head.1));
         assert_eq!(source(chest.0).as_deref(), Some(chest.1));
+    }
+}
+
+#[test]
+fn a_head_with_the_ears_beside_it_plays_one_with_the_ears_on_it() {
+    // The Quaternius husky hangs its ears from the neck beside the head, and the horse from the head. The match keeps
+    // what's under a bone under its partner, so it paired the eight ear bones and left the heads out.
+    let (beside, on) = (dog("Neck3"), dog("Head"));
+    for (from, to) in [(&beside, &on), (&on, &beside)] {
+        let map = Mapping::new(from, to);
+        for (b, bone) in to.bones().iter().enumerate() {
+            let played = map.source_of(b).map(|a| from.bones()[a].name.as_str());
+            assert_eq!(played, Some(bone.name.as_str()), "{} plays {played:?}", bone.name);
+        }
     }
 }
 

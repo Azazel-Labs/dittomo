@@ -490,7 +490,9 @@ fn pairing(rows: &[usize], cols: &[usize], worth: impl Fn(usize, usize) -> f32, 
 /// two source limbs into one target limb (a hand's five fingers into a palm bone holding index and thumb); this pass
 /// can, best likeness first. Then it pairs, though less alike than not, bones held in place by pairs both above and
 /// below them: the match leaves out a bone whose likeness is low, as an odd rig's chest or upper arm, even where the
-/// pairs around it leave it nothing else to play.
+/// pairs around it leave it nothing else to play. A bone with nothing under it may also play, if more alike than not,
+/// one whose paired bones below play its siblings' bones: a head beside the ears on one rig and above them on the other.
+/// Each bone plays its partner's turn in the world, so the ears keep theirs either way.
 fn fill(ka: &[Vec<usize>], kb: &[Vec<usize>], like: &[f32], out: &mut Vec<(usize, usize, f32)>) {
     let (na, nb) = (ka.len(), kb.len());
     let parents = |k: &[Vec<usize>]| {
@@ -580,9 +582,12 @@ fn fill(ka: &[Vec<usize>], kb: &[Vec<usize>], like: &[f32], out: &mut Vec<(usize
                 }
                 let up_a = anchor(&pa, &|x| to[x].is_some(), a);
                 let up_b = anchor(&pb, &|x| from[x].is_some(), b);
+                // Under a leaf more alike than not, the other's paired bones may play bones under their anchor.
+                let leaf_a = l > 0.0 && ka[a].is_empty();
+                let leaf_b = l > 0.0 && kb[b].is_empty();
                 if to[up_a] != Some(up_b)
-                    || !under_all(ka, a, &to, &|y| below(&pb, y, b))
-                    || !under_all(kb, b, &from, &|x| below(&pa, x, a))
+                    || !under_all(ka, a, &to, &|y| below(&pb, y, if leaf_b { up_b } else { b }))
+                    || !under_all(kb, b, &from, &|x| below(&pa, x, if leaf_a { up_a } else { a }))
                     || (l <= 0.0 && !(holds(ka, a, &to) && holds(kb, b, &from)) && !carried(&to, a, b))
                 {
                     continue;

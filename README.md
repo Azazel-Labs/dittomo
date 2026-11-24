@@ -367,6 +367,8 @@ The two trees are then matched as wholes for the most total likeness, keeping th
 bone below the other's, and separate limbs play separate limbs. Any bone on either side can be passed over, so a root
 above the hips, twist helpers, a five-bone spine against a three-bone one, fingers or a tail don't throw off the rest.
 This is the constrained tree mapping of Zhang (1996), with subtrees paired by the Hungarian method.
+Bones left out are then paired where the family allows, as five fingers into a palm bone holding two, and a bone
+with nothing under it may play one whose children play its siblings: a head beside the ears against one above them.
 
 `Mapping::quality` says how much of the target is played and how alike, from 0 to 1. `Mapping::set` corrects a bone
 the match got wrong.
@@ -398,8 +400,9 @@ two to five spine bones, T-pose against A-pose, three conventions for bone axes,
 against meters, and different leg lengths. A sweep of 300 such pairs all map correctly, with every limb within a degree
 of the source's direction. A four-legged animal maps onto an unnamed one with a longer body and tail, and a fox laid out
 as glTF's sample Fox onto a dog laid out as the Quaternius animals (front legs ahead of the spine bone they hang from,
-four-bone ears, IK handles named for a side and an end) and back, each leg on the same leg. A snake mapped from a human
-is found to share little.
+four-bone ears, IK handles named for a side and an end) and back, each leg on the same leg; and that dog onto one with
+its ears hung from the head rather than beside it, as the Quaternius horse has them, each bone on its namesake. A snake
+mapped from a human is found to share little.
 
 <p align="center"><img src="assets/brand/animals.gif" alt="glTF's sample Fox walking; the same walk played by dittomo on a Quaternius husky, which walks it; and the walk's rotations copied onto the husky's paired bones, which tangle its legs" width="720"></p>
 
