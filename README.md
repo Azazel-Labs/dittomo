@@ -10,7 +10,8 @@ where the character looks, where its hands rest on its body, and where its feet 
 
 Pure Rust, no `unsafe`, deterministic, MIT-0. Its only dependency is [glam](https://crates.io/crates/glam); reading
 and writing model files adds [polysmelt](https://github.com/Azazel-Labs/polysmelt), behind a feature. To retarget files
-without writing code, `cargo install dittomo --features fs` installs a `dittomo` command (see Writing clips).
+without writing code, `cargo install dittomo --features fs` installs a `dittomo` command (see Writing clips), or
+[the browser demo](https://azazel-labs.github.io/dittomo/) does it with nothing installed and nothing uploaded.
 
 ```rust
 use dittomo::{Clip, Fixes, Mapping, Skeleton};
@@ -456,7 +457,8 @@ shoulders) and on a rig whose fingers hang below its knees.
 
 ## Browser demo
 
-[demo/](demo) runs dittomo in the browser as plain wasm, with no bindings generator and no JavaScript dependencies. Drop
+[demo/](demo) runs dittomo in the browser as plain wasm, with no bindings generator and no JavaScript dependencies, at
+[azazel-labs.github.io/dittomo](https://azazel-labs.github.io/dittomo/), built from main on every push. Drop
 in two GLB, glTF, VRM, FBX or BVH files, or use the built-in sample. It shows both skeletons playing side by side, the
 quality, how long the match and the clip took, every target bone's match and score, and toggles for each fix. Download
 saves the target with the clip just played, through `write_clip`, as a GLB (a VRM stays a .vrm), with nothing sent

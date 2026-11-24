@@ -1,8 +1,8 @@
 name: CI
 
-# Formatting, clippy with and without model loading, the tests, the browser demo, mapping accuracy
-# on real rigs, and on pull requests a benchmark of the base and the change on the same runner that
-# fails if the change got slower.
+# Formatting, clippy with and without model loading, the tests, the browser demo (deployed to
+# Pages from main), mapping accuracy on real rigs, and on pull requests a benchmark of the base and
+# the change on the same runner that fails if the change got slower.
 #
 # dittomo reads models through polysmelt from crates.io. The bench job still checks polysmelt out
 # beside the base, as bases from before then read it as a path dependency.
@@ -82,6 +82,29 @@ jobs:
         working-directory: dittomo/demo
       - run: sh build.sh && node check.mjs
         working-directory: dittomo/demo
+      # The page as built and checked, published on GitHub Pages from main.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dittomo/demo/www
+
+  # The browser demo at https://azazel-labs.github.io/dittomo/, one deployment at a time.
+  pages:
+    needs: demo
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
 
   # Mapping on real rigs: downloads them (cached on the script, which pins each by commit and
   # SHA-256), writes the accuracy table to the job summary, and fails below the floor.
