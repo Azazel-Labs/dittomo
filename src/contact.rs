@@ -965,7 +965,7 @@ impl Feet {
 /// far and a few ahead: each pose is fixed once the `delay` poses after it have come. Whether a foot is planted is
 /// judged as over a whole clip, over the poses kept; it is held at the average of where it is over the part of its
 /// contact in sight when that contact begins, and eased toward it from as many poses before as [`plant`] would, or as
-/// many as are in sight.
+/// many as are in sight. Between two contacts close together it is held at a point easing from one hold to the next.
 pub(crate) struct Ahead {
     feet: Vec<Foot>,
     soles: Vec<Vec<Pair>>,
@@ -1090,28 +1090,42 @@ impl Ahead {
                     });
                 sum / count
             };
-            let mut near: Option<(usize, Vec3)> = None;
-            if down[at_o] {
+            let near = if down[at_o] {
                 let lock = match self.held[i] {
                     Some((lock, None)) if !apart(at_o) => lock,
                     _ => lock_from(at_o),
                 };
                 self.held[i] = Some((lock, None));
-                near = Some((0, lock));
+                Some((0, lock))
             } else {
                 if let Some((lock, None)) = self.held[i] {
                     self.held[i] = Some((lock, Some(o)));
                 }
-                if let Some((lock, Some(end))) = self.held[i] {
-                    near = Some((o + 1 - end, lock));
-                }
-                if let Some(j) = (at_o + 1..down.len()).find(|&w| down[w]) {
-                    let d = j - at_o;
-                    if near.is_none_or(|(e, _)| d < e) {
-                        near = Some((d, lock_from(j)));
+                let before = match self.held[i] {
+                    Some((lock, Some(end))) => Some((end, lock)),
+                    _ => None,
+                };
+                let after = (at_o + 1..down.len())
+                    .find(|&w| down[w])
+                    .map(|j| (first + j, lock_from(j)));
+                // Between two contacts, held at a point easing from where the one before held it to where the one
+                // after does, from when that comes in sight if the foot was still letting go of the one before then,
+                // as `plant` does, so a quick step never jumps between them.
+                match (before, after) {
+                    (Some((end, a)), Some((start, b))) => {
+                        let from = end.max(start.saturating_sub(self.delay));
+                        let u = if from + 1 - end > ramp {
+                            1.0
+                        } else {
+                            (o + 1 - from) as f32 / (start - from + 1) as f32
+                        };
+                        Some(((o + 1 - end).min(start - o), a.lerp(b, smooth(u))))
                     }
+                    (Some((end, a)), None) => Some((o + 1 - end, a)),
+                    (None, Some((start, b))) => Some((start - o, b)),
+                    (None, None) => None,
                 }
-            }
+            };
             let Some((d, lock)) = near else { continue };
             if d > ramp {
                 continue;

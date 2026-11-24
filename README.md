@@ -171,15 +171,16 @@ moving steadily from the frame before to the one after than the source's is, by 
 | push-out | 0.00388 | 0.0097 | 1.7° | 0.03% |
 | all (`apply_with`) | 0.00004 | 0.0015 | 3.0° | 0.57% |
 | all, live (`Live`) | 0.00006 | 0.0016 | 3.2° | 0.84% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00006 | 0.0015 | 3.0° | 1.20% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00007 | 0.0015 | 3.0° | 0.76% |
 
 Together they cut foot slide about a hundred times and the height error 6.5 times. The degree they cost is the legs
 bending to keep feet down where the target's stride and leg proportions differ from the source's. Played live, with
 nothing ahead, slide is cut about 65 times: a foot is held from the pose it lands, where the target's was the pose
 before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six
-poses late it is cut as much, with limbs as close as the whole clip's. A foot is planted from the first pose it stands
-on, judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between held
-poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the body.
+poses late it is cut nearly as much, with limbs as close as the whole clip's. A foot is planted from the first pose it
+stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between
+held poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the
+body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,572 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,

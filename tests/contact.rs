@@ -241,12 +241,23 @@ fn a_foot_shuffling_forward_is_planted_at_each_stand_without_jumping_between() {
                 .fold(0.0f32, f32::max)
         };
         let plain = map.apply(&source, &target, &clip).unwrap();
-        let fixed = map.apply_with(&source, &target, &clip, feet_only()).unwrap();
-        let (was, now) = (kink(&plain), kink(&fixed));
-        let after = skate(&map, &source, &target, &clip, &fixed);
-        eprintln!("shuffle: foot kinks {was:.4} -> {now:.4} of the height, skate {after:.5}");
-        assert!(now < was + 0.005, "a foot kinks {now} of the height, {was} unfixed");
-        assert!(after < 1e-3, "{after}");
+        let was = kink(&plain);
+        for (name, fixed) in [
+            (
+                "whole clip",
+                map.apply_with(&source, &target, &clip, feet_only()).unwrap(),
+            ),
+            ("6 poses late", late(&map, &source, &target, &clip, feet_only(), 6)),
+        ] {
+            let now = kink(&fixed);
+            let after = skate(&map, &source, &target, &clip, &fixed);
+            eprintln!("shuffle, {name}: foot kinks {was:.4} -> {now:.4} of the height, skate {after:.5}");
+            assert!(
+                now < was + 0.005,
+                "{name}: a foot kinks {now} of the height, {was} unfixed"
+            );
+            assert!(after < 1e-3, "{name}: {after}");
+        }
     }
 }
 
