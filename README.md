@@ -68,7 +68,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 92.7% |
+| dittomo | 95.0% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
@@ -76,10 +76,10 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 | hips | 100% | 38% | | thighs | 95% | 24% |
 | spine | 95% | 38% | | shins | 95% | 24% |
 | chest | 80% | 24% | | feet | 100% | 29% |
-| neck | 100% | 51% | | toes | 93% | 29% |
-| head | 88% | 32% | | clavicles | 100% | 44% |
-| upper arms | 91% / 83% | 23% | | forearms | 91% / 83% | 23% |
-| hands | 91% | 33% | | index fingers | 89% / 92% | 42% |
+| neck | 100% | 51% | | toes | 100% | 29% |
+| head | 94% | 32% | | clavicles | 100% | 44% |
+| upper arms | 91% / 88% | 23% | | forearms | 91% / 88% | 23% |
+| hands | 100% | 33% | | index fingers | 94% | 42% |
 
 What it gets wrong:
 
@@ -105,8 +105,8 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 3.4° | 0.2° | 7.7° | 94% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.1° | 0.2° | 5.3° | 97% |
+| dittomo | 2.9° | 0.2° | 6.5° | 96% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.3° | 0.2° | 4.0° | 99% |
 | World turns from rest copied onto the right bones | 22.0° | 11.2° | 64.6° | 56% |
 | Local rotations copied onto the right bones | 74.7° | 83.8° | 151.4° | 22% |
 
@@ -126,13 +126,13 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 
 | Fixes | Foot slide | Foot height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00389 | 0.0093 | 3.0° |
-| travel | 0.00099 | 0.0093 | 3.0° |
-| planted feet | 0.00313 | 0.0019 | 4.0° |
-| push-out | 0.00389 | 0.0093 | 3.0° |
-| all (`apply_with`) | 0.00003 | 0.0011 | 4.2° |
-| all, live (`Live`) | 0.00004 | 0.0012 | 4.4° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0011 | 4.2° |
+| none (`apply`) | 0.00389 | 0.0093 | 2.6° |
+| travel | 0.00099 | 0.0093 | 2.6° |
+| planted feet | 0.00313 | 0.0019 | 3.6° |
+| push-out | 0.00389 | 0.0093 | 2.6° |
+| all (`apply_with`) | 0.00003 | 0.0011 | 3.8° |
+| all, live (`Live`) | 0.00004 | 0.0012 | 4.0° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0011 | 3.8° |
 
 Together they cut foot slide 119 times and the height error 8.4 times. The degree they cost is the legs bending to keep
 feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,

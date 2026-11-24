@@ -382,10 +382,13 @@ fn motion(rigs: &[Rig], show: bool) -> f32 {
             let mut fixed = map.clone();
             for (joint, &tb) in &t.labels {
                 if let Some(&sb) = s.labels.get(joint) {
-                    for (b, p) in map.pairs().iter().enumerate() {
-                        if p.is_some_and(|p| p.source == sb) && b != tb {
-                            fixed.set(b, None);
-                        }
+                    // Whatever else plays the labelled source bone by now, not as first matched: that would undo a
+                    // label set before this one.
+                    let others: Vec<usize> = (0..ts.len())
+                        .filter(|&b| b != tb && fixed.source_of(b) == Some(sb))
+                        .collect();
+                    for b in others {
+                        fixed.set(b, None);
                     }
                     fixed.set(tb, Some(sb));
                 }

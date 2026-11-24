@@ -89,13 +89,19 @@ Phase 1 so far (November 2026):
   names is weighed against each other once, not once per pair of bones, and a bone with one child pairs it without
   solving an assignment.
 - **Bone-finding on twelve real rigs** (Mixamo, Ready Player Me, VRM, Khronos samples, three.js and Babylon
-  characters; 132 ordered pairs, 2558 hand-labelled joints): dittomo finds 92.7% of joints; matching by exact name, as
+  characters; 132 ordered pairs, 2558 hand-labelled joints): dittomo finds 95.0% of joints; matching by exact name, as
   three.js and Babylon do, finds 30.3%. Testing on them found and fixed: VRM's `J_Bip_C_` names, a bare `Arm`/`Leg`
   against numbered `arm_joint_2`, rigs that stop at the base of the head (height now also comes from the shoulders),
   a palm bone holding two fingers, mirrored limbs with uneven bone counts, and bones left out though pinned by the pairs
-  around them. polysmelt's skin reader had an accessor-offset bug that the VRMs exposed.
-- **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 3.4°
-  from the source's on average (median 0.2°, 90th percentile 7.7°). Copying world turns from rest onto the right bones
+  around them. polysmelt's skin reader had an accessor-offset bug that the VRMs exposed. Later fixes took it from
+  92.7% to 95.0%: a bone with nothing beyond it (a hand on a rig that stops at the wrist) no longer counts against a
+  bone with fingers beyond it, as how much body lies past it says nothing then; twist, roll and other helper bones and
+  bones only marking where a chain ends (`HeadTop_End`, `Toe0Nub`) are told from joints by name; a bone left over that
+  is the only child of a bone playing the only child of the other rig's (a hand at the end of each forearm) is paired
+  however unlike their rests; and Rigify's `f_index` reads as a finger. The bench's labelled run had let a later label
+  undo an earlier one; fixed, it gives 1.3° rather than 2.1°.
+- **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 2.9°
+  from the source's on average (median 0.2°, 90th percentile 6.5°). Copying world turns from rest onto the right bones
   gives 22°, and copying local rotations, as an animation mixer does with a clip from another rig, 75°. Measuring this
   found the chest tipped by up to 50° on rigs whose collarbones sit beside the chest instead of above it: the rest
   correction lined up only the child with most below it, and now fits all of them at once (Wahba's problem, a few
@@ -130,8 +136,7 @@ frame in 3.6 µs, setup included, against `SkeletonUtils.retargetClip`'s 221 µs
 on a busy machine, best of five runs each, dittomo played a frame in 7.0 µs against its 50 µs (7×), or 143 µs with the
 hips' path scaled (20×). Babylon corrects for rests that differ but only bakes whole clips.
 
-Missing: engine humanoid profiles (Unity, Godot, Unreal) in the rig benchmark, and the structure-of-arrays path for many
-characters.
+Missing: engine humanoid profiles (Unity, Godot, Unreal) in the rig benchmark.
 
 ## Open-source landscape
 
@@ -219,7 +224,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 92.7% of joints found on 12 real rigs (exact names: 30.3%); limbs within 3.3° of the source's on their 35 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 95.0% of joints found on 12 real rigs (exact names: 30.3%); limbs within 2.9° of the source's on their 35 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their
@@ -360,8 +365,8 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       at a point both arms reach, searched for round the spine and head spheres; the head is a push-out collider too,
       so short arms go round it. **Hands on head** (covering the ears, on top) land on the same place on a head of any
       size, sliding over it where short arms can't reach, the elbow swung out so the arm stays out of it.
-- [ ] **Speed:** no allocation in `apply` (done: `Player`), a structure-of-arrays path that retargets many characters
-      per call (not started), and a per-frame cost benchmark in CI that fails on regressions (done).
+- [x] **Speed:** no allocation in `apply` (done: `Player`), a structure-of-arrays path that retargets many characters
+      per call (done: `Crowd`), and a per-frame cost benchmark in CI that fails on regressions (done).
 - [ ] **Publish the results table** in the README, regenerated by CI. The numbers are in the README; CI writes the
       real-rig table and the speed table to each run's summary and fails on a drop, but doesn't commit them back.
 - [x] **Browser demo** (wasm): drop in two glTF or FBX files, see the mapping and its quality, play the clip.

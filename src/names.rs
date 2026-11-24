@@ -106,6 +106,8 @@ const SAME: &[(&str, &str)] = &[
     ("toes", "toe"),
     ("ball", "toe"),
     ("toebase", "toe"),
+    // Rigify's fingers (`f_index.01.L`).
+    ("f", "finger"),
     ("pointer", "index"),
     ("mid", "middle"),
     ("pinkie", "pinky"),
@@ -115,6 +117,26 @@ const SAME: &[(&str, &str)] = &[
 ];
 
 const FINGERS: &[&str] = &["thumb", "index", "middle", "ring", "pinky"];
+
+/// Words for bones that help others bend or carry what hangs off the body, as twist, roll, aim and secondary bones,
+/// rather than being joints of the body.
+const HELPERS: &[&str] = &["twist", "roll", "aim", "sec", "helper", "aux"];
+
+/// Words for bones that only mark where a chain ends, as the top of the head or the tips of the toes (`HeadTop_End`,
+/// `Bip01 L Toe0Nub`), rather than joints that turn.
+const ENDS: &[&str] = &["end", "nub", "tip", "headtop"];
+
+impl Name {
+    /// Whether the name marks a bone that helps another rather than a joint of the body.
+    pub(crate) fn helper(&self) -> bool {
+        self.words.iter().any(|w| HELPERS.contains(&w.as_str()))
+    }
+
+    /// Whether the name marks where a chain ends rather than a joint.
+    pub(crate) fn end(&self) -> bool {
+        self.words.iter().any(|w| ENDS.contains(&w.as_str()))
+    }
+}
 
 /// Parts that are near each other, for partial likeness.
 const NEAR: &[(&str, &str, f32)] = &[
@@ -368,5 +390,37 @@ mod tests {
         assert_eq!(l("Bone.001", "hand_l"), None);
         assert!(l("leg_joint_L_1", "thigh_l").unwrap() > 0.5);
         assert!(l("arm_joint_L_2", "lowerarm_l").unwrap() > 0.5);
+        // Rigify spells a finger `f`.
+        assert!(l("f_index.01.L", "mixamorig:LeftHandIndex1").unwrap() > 0.5);
+    }
+
+    #[test]
+    fn helpers_and_ends_are_told_from_joints() {
+        for name in [
+            "upperarm_twist_01_l",
+            "CC_Base_L_ForearmTwist02",
+            "DEF-forearm_roll.L",
+            "thigh_aux_r",
+        ] {
+            assert!(parse(name).helper(), "{name}");
+        }
+        for name in [
+            "HeadTop_End",
+            "Bip01 L Toe0Nub",
+            "mixamorig:LeftHandIndex4_end",
+            "toe_tip_l",
+        ] {
+            assert!(parse(name).end(), "{name}");
+        }
+        for name in [
+            "mixamorig:LeftForeArm",
+            "upperarm_l",
+            "mixamorig:Head",
+            "Bip01 L Toe0",
+            "spine_03",
+        ] {
+            let n = parse(name);
+            assert!(!n.helper() && !n.end(), "{name}");
+        }
     }
 }

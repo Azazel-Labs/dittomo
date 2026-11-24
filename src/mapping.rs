@@ -212,6 +212,14 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     if names::opposed(na, nb) {
         v -= 3.0;
     }
+    // A twist bone sits along a limb near a joint, so where it stands says it could be one: only its name says not.
+    if na.helper() != nb.helper() {
+        v -= 0.6;
+    }
+    // A bone marking where a chain ends lies past the last joint, where a rig without one has its last joint.
+    if na.end() != nb.end() {
+        v -= 0.3;
+    }
     // On opposite sides of the body.
     let (la, lb) = (s.at[a].x, t.at[b].x);
     if la * lb < 0.0 && la.abs() > 0.03 && lb.abs() > 0.03 {
@@ -232,7 +240,14 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     v += 0.4 * way(s.dir[a], t.dir[b]);
     v += 0.4 * way(s.inward[a], t.inward[b]);
     v += 0.4 * bell(s.at[a].y - t.at[b].y, 0.1);
-    v += 0.4 * bell(s.beyond[a] - t.beyond[b], 0.1);
+    // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with nothing
+    // beyond it says nothing of how much body would be.
+    v += 0.4
+        * if s.children[a].is_empty() || t.children[b].is_empty() {
+            0.5
+        } else {
+            bell(s.beyond[a] - t.beyond[b], 0.1)
+        };
     let (la, lb) = (s.length[a], t.length[b]);
     v += 0.4
         * match (la > 1e-4, lb > 1e-4) {
@@ -525,7 +540,13 @@ fn fill(ka: &[Vec<usize>], kb: &[Vec<usize>], like: &[f32], out: &mut Vec<(usize
         }
         false
     }
-    // First the bones more alike than not; then, less alike, bones held in place by pairs above and below both.
+    // Each the only child of bones that play each other, as hands at the ends of forearms: nothing else could play
+    // either, however unlike their rest poses leave them.
+    let only = |k: &[Vec<usize>], p: &[usize], x: usize| p[x] != 0 && k[p[x]].len() == 1;
+    let carried =
+        |to: &[Option<usize>], a: usize, b: usize| only(ka, &pa, a) && only(kb, &pb, b) && to[pa[a]] == Some(pb[b]);
+    // First the bones more alike than not; then, less alike, bones held in place by pairs above and below both, or
+    // carrying on a pair's chain alone.
     for sandwiched in [false, true] {
         loop {
             let mut added = false;
@@ -539,7 +560,7 @@ fn fill(ka: &[Vec<usize>], kb: &[Vec<usize>], like: &[f32], out: &mut Vec<(usize
                 if to[up_a] != Some(up_b)
                     || !under_all(ka, a, &to, &|y| below(&pb, y, b))
                     || !under_all(kb, b, &from, &|x| below(&pa, x, a))
-                    || (l <= 0.0 && !(holds(ka, a, &to) && holds(kb, b, &from)))
+                    || (l <= 0.0 && !(holds(ka, a, &to) && holds(kb, b, &from)) && !carried(&to, a, b))
                 {
                     continue;
                 }
