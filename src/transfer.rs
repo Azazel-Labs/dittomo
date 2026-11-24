@@ -5,9 +5,9 @@
 //! another, and the turn that best takes the one set of directions to the other (`fix`) is undone first. So the
 //! target's bones point where the source's do, frame by frame, whatever each rig's rest pose and bone axes; the spine,
 //! head and feet, which every rig holds alike at rest, are matched rest to rest (`plan`). A bone between two mapped
-//! bones takes its share of their turns by how far along it is; any other keeps its rest pose under its parent. The
-//! topmost mapped bones and any whose source moves (not just turns) travel as their source does, scaled by how high
-//! each stands.
+//! bones takes its share of their turns by how far along it is, and one beside a mapped bone, starting where it starts
+//! and pointing along it, turns with it; any other keeps its rest pose under its parent. The topmost mapped bones and
+//! any whose source moves (not just turns) travel as their source does, scaled by how high each stands.
 //!
 //! [`Player`] does the work that depends only on the two rigs and the mapping once, then poses frame after frame without
 //! allocating. Rotations are chained as quaternions; whole transforms are chained only down the paths to bones that
@@ -511,6 +511,44 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
             below: low,
             along,
         };
+    }
+    // A bone with nothing mapped under it that starts where a mapped sibling starts and points along it, as VRoid's
+    // sleeve and roll helpers do beside the upper arm, turns as that sibling does: kept at rest, a sleeve would stay
+    // out in a T-pose as the arm comes down.
+    for b in 0..n {
+        if plans[b] != Plan::Rest || !next[b].is_empty() {
+            continue;
+        }
+        let Some(p) = parent[b] else { continue };
+        let at = t.rest[b].position();
+        let reach = {
+            let (mut far, mut stack) = (Vec3::ZERO, t.children[b].clone());
+            while let Some(c) = stack.pop() {
+                let d = t.rest[c].position() - at;
+                if d.length() > far.length() {
+                    far = d;
+                }
+                stack.extend(t.children[c].iter().copied());
+            }
+            far
+        };
+        let beside = t.children[p].iter().copied().find(|&l| {
+            let Some(&low) = (l != b && mapped(l).is_some()).then(|| next[l].first()).flatten() else {
+                return false;
+            };
+            let along = t.rest[low].position() - t.rest[l].position();
+            let length = along.length();
+            length > 1e-6
+                && t.rest[l].position().distance(at) <= 0.1 * length
+                && (reach.length() < 0.05 * length || reach.normalize().dot(along / length) > 0.87)
+        });
+        if let Some(l) = beside {
+            plans[b] = Plan::Between {
+                above: l,
+                below: l,
+                along: 0.0,
+            };
+        }
     }
     (plans, moving)
 }

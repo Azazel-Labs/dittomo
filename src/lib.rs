@@ -10,7 +10,7 @@
 //!
 //! [`Mapping::apply`] then plays the clip: each mapped bone takes the source bone's turn away from its rest pose in the
 //! world, corrected for the two rigs' rest poses differing (an A-pose against a T-pose, bones' axes pointing different
-//! ways, rigs facing different ways, centimetres against metres). A target bone between two mapped ones takes its share
+//! ways, rigs facing different ways, centimeters against meters). A target bone between two mapped ones takes its share
 //! of the turn, so a three-bone spine bends a five-bone one smoothly. The hips' travel is scaled by how high they stand.
 //!
 //! A skeleton mapped onto itself plays its clip unchanged.

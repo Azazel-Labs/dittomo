@@ -14,7 +14,7 @@ pub enum Axes {
     XAlong,
 }
 
-/// A skeleton from joints named with their parents and world positions, in centimetres.
+/// A skeleton from joints named with their parents and world positions, in centimeters.
 fn build(joints: &[(String, Option<String>, Vec3)], axes: Axes) -> Skeleton {
     let index = |n: &str| joints.iter().position(|j| j.0 == n).expect("parent listed");
     let parents: Vec<Option<usize>> = joints.iter().map(|j| j.1.as_deref().map(index)).collect();
@@ -61,7 +61,7 @@ fn j(name: impl Into<String>, parent: Option<&str>, at: Vec3) -> (String, Option
     (name.into(), parent.map(str::to_owned), at)
 }
 
-/// Mixamo's humanoid: 65 bones, T-pose, y along each bone, centimetres.
+/// Mixamo's humanoid: 65 bones, T-pose, y along each bone, centimeters.
 #[must_use]
 pub fn mixamo() -> Skeleton {
     let m = |s: &str| format!("mixamorig:{s}");
@@ -118,7 +118,7 @@ pub fn mixamo() -> Skeleton {
 }
 
 /// A game-engine mannequin: a root on the floor, a five-bone spine, two neck bones, twist bones
-/// beside each limb, metacarpals; A-pose, x along each bone and rolled, centimetres, a little
+/// beside each limb, metacarpals; A-pose, x along each bone and rolled, centimeters, a little
 /// shorter than [`mixamo`]. 76 bones.
 #[must_use]
 pub fn mannequin() -> Skeleton {

@@ -691,7 +691,7 @@ fn a_hand_resting_on_a_thin_body_rests_on_a_thick_one() {
             .remove(0)
     };
 
-    // The hand on the thin body's hip, about a centimetre off it.
+    // The hand on the thin body's hip, about a centimeter off it.
     let mut rest_on_hip = sk.rest();
     contact::reach(&sk, &mut rest_on_hip, &arm, Vec3::new(x * 11.5, 105.0, 0.0));
     let source = gap(&thin, &rest_on_hip);

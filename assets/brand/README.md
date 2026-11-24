@@ -12,7 +12,7 @@ in the source's coral, and the two *t*s share one crossbar.
 
 The wordmark is drawn from strokes, not set in a font, so it looks the same everywhere and needs nothing installed.
 
-## Colour
+## Color
 
 | | | |
 | --- | --- | --- |

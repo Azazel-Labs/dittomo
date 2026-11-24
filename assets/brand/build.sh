@@ -75,8 +75,20 @@ ffmpeg -y -loglevel error -i "$tmp/demo.mp4" -vf "crop=960:720:0:0,fps=12,scale=
 # On all fours: the fox's walk onto a husky built by someone else, against copying rotations by bone name.
 sh "$root/bench/animals/fetch.sh" >/dev/null
 animals="$root/bench/animals/data"
+gif() { # video, gif
+	ffmpeg -y -loglevel error -i "$1" -vf "fps=12,scale=720:-1:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" "$2"
+}
 "$video" "$animals/fox.glb" "$animals/husky.gltf" "$tmp/animals.mp4" --clip Walk --seconds 3 2>/dev/null
-ffmpeg -y -loglevel error -i "$tmp/animals.mp4" -vf "fps=12,scale=720:-1:flags=lanczos,split[a][b];\
-[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
-	"$here/animals.gif"
+gif "$tmp/animals.mp4" "$here/animals.gif"
+
+# Hard cases, each against copying rotations by bone name: a human's samba on a cartoon robot with a huge head, no
+# collarbones and legs that stop at the knee; the robot's wave, long arms and all, on a human; and the samba on a VRoid
+# avatar whose sleeves hang from helpers beside the arms.
+"$video" "$rigs/michelle.glb" "$rigs/robot-expressive.glb" "$tmp/robot.mp4" --start 2 --seconds 4 2>/dev/null
+gif "$tmp/robot.mp4" "$here/hard-robot.gif"
+"$video" "$rigs/robot-expressive.glb" "$rigs/hvgirl.glb" "$tmp/wave.mp4" --clip Wave --seconds 3.667 2>/dev/null
+gif "$tmp/wave.mp4" "$here/hard-wave.gif"
+"$video" "$rigs/michelle.glb" "$rigs/vrm-twist.vrm" "$tmp/vroid.mp4" --start 8 --seconds 4 2>/dev/null
+gif "$tmp/vroid.mp4" "$here/hard-vroid.gif"
 ls -la "$here"

@@ -58,6 +58,30 @@ copied by name, side by side, skinned and drawn on the CPU and piped to `ffmpeg`
 cargo run --release --features fs --example video -- source.glb target.vrm out.mp4 [--clip NAME] [--seconds S]
 ```
 
+`--start S` begins that far into the clip, and `--against none` puts dittomo with its fixes off in the third panel
+instead of the copied rotations.
+
+## Hard cases
+
+Each against the same clip with its rotations copied bone by bone, which is what a retarget without dittomo's matching
+gives.
+
+<p align="center"><img src="assets/brand/hard-robot.gif" alt="Michelle's samba; the same samba played by dittomo on Three.js's cartoon robot, which dances it upright with its arms out of its body; and the samba's rotations copied onto the robot, which lies tumbled on the floor" width="720"></p>
+
+A human's samba on a cartoon robot: a head as wide as its body, no collarbones, short legs and feet hung from the root
+for IK. dittomo pairs 34 of its 45 bones, plays the feet as the ends of the legs, and keeps the arms clear of the body
+and head.
+
+<p align="center"><img src="assets/brand/hard-wave.gif" alt="The cartoon robot waving its long arm; the same wave played by dittomo on HVGirl, who waves standing; and the wave's rotations copied onto HVGirl, who lies flat in the air" width="720"></p>
+
+The other way: the robot's wave, made for its long arms and hunched rest pose, on a human. The robot's bones point
+other ways at rest, so copying its rotations lays her flat; dittomo plays each bone's turn from rest, and she waves.
+
+<p align="center"><img src="assets/brand/hard-vroid.gif" alt="Michelle's samba from behind; the same samba played by dittomo on a VRoid avatar whose sleeves follow her arms; and the samba's rotations copied onto the avatar, which turns upside down" width="720"></p>
+
+The samba on a VRoid avatar of 155 bones, 54 of them paired: hair and shirt bones for physics, twist bones, and sleeves
+hung from helpers beside the upper arms, which turn with the arms rather than staying out in a T-pose.
+
 ## Results
 
 ### Finding the right bones on real rigs
@@ -91,9 +115,9 @@ What it gets wrong:
   the arm as the robot's elbow, and each of its arm bones is taken for the one before it on the robot.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
-CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather than committed; each keeps its own license.
-Engines' own humanoid matchers (Unity's Avatar, Godot's `BoneMap`, Unreal's IK Retargeter) aren't in the table: they need
-the engine running.
+CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather
+than committed; each keeps its own license. Engines' own humanoid matchers (Unity's Avatar, Godot's `BoneMap`, Unreal's
+IK Retargeter) aren't in the table: they need the engine running.
 
 ### Playing real clips
 
@@ -390,7 +414,9 @@ stands flat at rest: how a back curves, where a head bone points, or how steeply
 anatomy, and lining those up would hunch the chest, tip the gaze or push the toes into the floor.
 
 A target bone between two mapped ones takes its share of their turns by how far along it is, so a short spine bends a
-long one smoothly. Other unmapped bones keep their rest pose under their parent. The topmost mapped bones, and any whose
+long one smoothly. A bone beside a mapped one, starting where it starts and pointing along it, turns with it, as
+VRoid's sleeve and roll helpers beside the upper arm need: left at rest, the sleeves stayed out in a T-pose as the arms
+came down. Other unmapped bones keep their rest pose under their parent. The topmost mapped bones, and any whose
 source moves rather than only turns, travel as their source does, scaled by how high each stands.
 
 Some rigs hang a foot or paw from the root rather than from its leg, for IK to place it at the leg's end. Played as it

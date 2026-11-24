@@ -5,10 +5,12 @@
 //!
 //! ```text
 //! cargo run --release --features fs --example video -- SOURCE TARGET OUT.mp4 [--clip N|NAME] [--seconds S]
-//!     [--still FRAME OUT.png] [--fixes none|all|notouch] [--bare]
+//!     [--start S] [--still FRAME OUT.png] [--fixes none|all|notouch] [--against none] [--bare]
 //! ```
 //!
-//! `--bare` leaves the labels off, for frames to lay out elsewhere.
+//! `--against none` puts dittomo with no contact fixes in the third panel instead of the copied rotations, to show what
+//! the fixes do. `--start` begins that many seconds into the clip. `--bare` leaves the labels off, for frames to lay out
+//! elsewhere.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -31,11 +33,13 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut free = Vec::new();
     let (mut clip_arg, mut seconds, mut still, mut fixes) = (None, None, None, Fixes::default());
-    let mut bare = false;
+    let (mut bare, mut unfixed, mut from) = (false, false, 0.0f32);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--clip" => clip_arg = it.next().cloned(),
+            "--start" => from = it.next().and_then(|s| s.parse().ok()).expect("--start S"),
+            "--against" => unfixed = it.next().map(String::as_str) == Some("none"),
             "--seconds" => seconds = it.next().and_then(|s| s.parse::<f32>().ok()),
             "--still" => {
                 let f: usize = it.next().and_then(|s| s.parse().ok()).expect("--still FRAME OUT.png");
@@ -52,7 +56,9 @@ fn main() {
         }
     }
     let [source, target, out] = free.as_slice() else {
-        eprintln!("usage: video SOURCE TARGET OUT.mp4 [--clip N|NAME] [--seconds S] [--still FRAME OUT.png] [--bare]");
+        eprintln!(
+            "usage: video SOURCE TARGET OUT.mp4 [--clip N|NAME] [--seconds S] [--start S] [--still FRAME OUT.png] [--against none] [--bare]"
+        );
         std::process::exit(2);
     };
     let (src, tgt) = (Character::load(Path::new(source)), Character::load(Path::new(target)));
@@ -72,6 +78,10 @@ fn main() {
     let played = map
         .apply_touching(ss, ts, [&src.model.skin, &tgt.model.skin], clip, fixes)
         .expect("plays");
+    let unfixed = unfixed.then(|| {
+        map.apply_touching(ss, ts, [&src.model.skin, &tgt.model.skin], clip, Fixes::NONE)
+            .expect("plays")
+    });
     eprintln!("skin points: {} {}", src.model.skin.len(), tgt.model.skin.len());
     let mapped = map.pairs().iter().filter(|p| p.is_some()).count();
     eprintln!(
@@ -101,10 +111,13 @@ fn main() {
             format!("{} {}", src.name, clip_name.as_deref().unwrap_or("")),
         ),
         (
-            "DITTOMO".to_string(),
+            if fixes.travel { "DITTOMO + TRAVEL" } else { "DITTOMO" }.to_string(),
             format!("{}  {mapped}/{} BONES", tgt.name, ts.len()),
         ),
-        ("ROTATIONS COPIED".to_string(), format!("{}  BY BONE PAIR", tgt.name)),
+        match unfixed {
+            Some(_) => ("NO FIXES".to_string(), format!("{}  DITTOMO, FIXES OFF", tgt.name)),
+            None => ("ROTATIONS COPIED".to_string(), format!("{}  BY BONE PAIR", tgt.name)),
+        },
     ];
     let mut panels = [Panel::new(&src), Panel::new(&tgt), Panel::new(&tgt)];
     let mut ffmpeg = still.is_none().then(|| {
@@ -146,7 +159,7 @@ fn main() {
         None => 0..=frames - 1,
     };
     for f in range {
-        let t = start + (f as f32 / FPS) % length.max(f32::EPSILON);
+        let t = start + (from + f as f32 / FPS) % length.max(f32::EPSILON);
         let s_pose = sample(clip, t);
         let dittomo_pose = sample(&played, t);
         // The same travel as dittomo's for bones whose source moves, so only the rotations differ; the rest stay where
@@ -164,6 +177,9 @@ fn main() {
             if !moves {
                 copied[b].translation = bone.rest.translation;
             }
+        }
+        if let Some(u) = &unfixed {
+            copied = sample(u, t);
         }
         let draw = still.as_ref().is_none_or(|(s, _)| *s == f);
         // Each panel skinned and drawn on its own thread.

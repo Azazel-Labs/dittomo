@@ -473,7 +473,7 @@ fn names_on_one_side_only_still_match() {
 }
 
 #[test]
-fn a_character_facing_another_way_in_centimetres_plays_the_same() {
+fn a_character_facing_another_way_in_centimeters_plays_the_same() {
     let from = humanoid(Style::default());
     let to = humanoid(Style {
         facing: 90.0,
@@ -1498,6 +1498,65 @@ fn a_nameless_rig_stopping_at_the_base_of_the_head_with_one_hand_missing() {
             ("RightForeArm", &r_forearm),
         ],
     );
+}
+
+#[test]
+fn a_sleeve_beside_the_upper_arm_comes_down_with_it() {
+    // VRoid hangs each sleeve from a helper beside the upper arm, under the collarbone, which its app turns with the
+    // arm. Left at rest, the sleeves stayed out in a T-pose as the arms came down.
+    let from = mixamo_like();
+    let to = {
+        let mut bones = from.bones().to_vec();
+        for side in ["Left", "Right"] {
+            let (shoulder, arm) = (
+                from.index_of(&format!("{side}Shoulder")).unwrap(),
+                from.index_of(&format!("{side}Arm")).unwrap(),
+            );
+            let out = from.bones()[from.index_of(&format!("{side}ForeArm")).unwrap()]
+                .rest
+                .translation
+                * 0.5;
+            let at = bones[arm].rest.translation;
+            bones.push(Bone {
+                name: format!("{side}Sleeve"),
+                parent: Some(shoulder),
+                rest: Transform::new(at, Quat::IDENTITY),
+            });
+            let sleeve = bones.len() - 1;
+            bones.push(Bone {
+                name: format!("{side}SleeveEnd"),
+                parent: Some(sleeve),
+                rest: Transform::new(out, Quat::IDENTITY),
+            });
+            bones.push(Bone {
+                name: format!("{side}Roll"),
+                parent: Some(shoulder),
+                rest: Transform::new(at, Quat::IDENTITY),
+            });
+        }
+        Skeleton::new(bones).unwrap()
+    };
+    let map = Mapping::new(&from, &to);
+    let mut pose = from.rest();
+    for (side, down) in [("Left", -1.2f32), ("Right", 1.2)] {
+        pose[from.index_of(&format!("{side}Arm")).unwrap()].rotation = Quat::from_rotation_z(down);
+    }
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![pose],
+    };
+    let played = map.apply(&from, &to, &clip).unwrap();
+    let w = to.world(&played.poses[0]);
+    let at = |n: &str| w[to.index_of(n).unwrap()];
+    for side in ["Left", "Right"] {
+        let n = |s: &str| format!("{side}{s}");
+        let arm = (at(&n("ForeArm")).position() - at(&n("Arm")).position()).normalize();
+        let sleeve = (at(&n("SleeveEnd")).position() - at(&n("Sleeve")).position()).normalize();
+        let off = arm.dot(sleeve).clamp(-1.0, 1.0).acos().to_degrees();
+        assert!(off < 1.0, "the {side} sleeve is {off:.1}° off the arm");
+        let roll = at(&n("Roll")).rotation.dot(at(&n("Arm")).rotation).abs();
+        assert!(roll > 0.9999, "the {side} roll bone didn't turn with the arm");
+    }
 }
 
 #[test]
