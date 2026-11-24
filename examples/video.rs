@@ -302,8 +302,13 @@ impl Texture {
 struct Panel {
     /// The way the character faces at rest, for the camera to stand in front of it.
     forward: Vec3,
+    /// How far round from the front the camera stands: a little for an upright body, near the side for a long one.
+    turn: f32,
     floor: f32,
     height: f32,
+    /// For a long body, the rest mesh's width as the camera sees it; zero for an upright one, framed by its height
+    /// alone (arms held out at rest needn't shrink it).
+    across: f32,
     center: Vec3,
     /// Each material's color texture, decoded once.
     textures: Vec<Option<Texture>>,
@@ -312,9 +317,9 @@ struct Panel {
     srgb: Vec<u8>,
 }
 
-/// The camera: looking down a little, from the character's front left.
-fn axes(forward: Vec3) -> (Vec3, Vec3, Vec3) {
-    let yaw = forward.x.atan2(forward.z) + 25f32.to_radians();
+/// The camera: looking down a little, from `turn` round to the character's left from its front.
+fn axes(forward: Vec3, turn: f32) -> (Vec3, Vec3, Vec3) {
+    let yaw = forward.x.atan2(forward.z) + turn;
     let pitch = 12f32.to_radians();
     let toward = Vec3::new(pitch.cos() * yaw.sin(), pitch.sin(), pitch.cos() * yaw.cos());
     let f = -toward;
@@ -344,10 +349,26 @@ fn linear_to_srgb(c: f32) -> f32 {
 impl Panel {
     fn new(c: &Character) -> Self {
         let rest = c.textured.flatten(Pose::Rest).expect("draws").expect("has triangles");
+        let forward = c.model.skeleton.forward();
         let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        let (mut back, mut front) = (f32::MAX, f32::MIN);
         for p in rest.prims.iter().flat_map(|p| &p.positions) {
             lo = lo.min(p[1]);
             hi = hi.max(p[1]);
+            let along = Vec3::from_array(*p).dot(forward);
+            back = back.min(along);
+            front = front.max(along);
+        }
+        let height = (hi - lo).max(1e-3);
+        // A body longer than it's tall (on all fours) is seen from nearer the side, to show its legs and its length.
+        let long = front - back > 0.8 * height;
+        let turn = if long { 65f32 } else { 25f32 }.to_radians();
+        let (_, r, _) = axes(forward, turn);
+        let (mut left, mut right) = (f32::MAX, f32::MIN);
+        for p in rest.prims.iter().flat_map(|p| &p.positions) {
+            let x = Vec3::from_array(*p).dot(r);
+            left = left.min(x);
+            right = right.max(x);
         }
         let lut: Vec<f32> = (0..=255u8).map(srgb_to_linear).collect();
         let textures = rest
@@ -369,9 +390,11 @@ impl Panel {
             })
             .collect();
         Self {
-            forward: c.model.skeleton.forward(),
+            forward,
+            turn,
             floor: lo,
-            height: (hi - lo).max(1e-3),
+            height,
+            across: if long { right - left } else { 0.0 },
             center: Vec3::ZERO,
             textures,
             color: vec![[0.0; 3]; W * SS * H * SS],
@@ -394,8 +417,9 @@ impl Panel {
 
     fn render(&mut self, mesh: &Mesh, label: Option<&(String, String)>) {
         let (w, h) = (W * SS, H * SS);
-        let (f, r, u) = axes(self.forward);
-        let k = h as f32 / (self.height * 1.35);
+        let (f, r, u) = axes(self.forward, self.turn);
+        // The whole body in the panel, with room to move: its height, and for a long body its length.
+        let k = (h as f32 / (self.height * 1.35)).min(w as f32 / (self.across * 1.5));
         let (cx, cy) = (w as f32 / 2.0, h as f32 * 0.5);
         let c = self.center;
         let screens: Vec<Vec<[f32; 3]>> = mesh

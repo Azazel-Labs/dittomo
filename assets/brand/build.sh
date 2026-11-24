@@ -1,10 +1,10 @@
 #!/bin/sh
-# Rebuilds dittomo's brand files here: the SVG logos, the retarget frames the cards show, the PNGs and the demo GIF.
+# Rebuilds dittomo's brand files here: the SVG logos, the retarget frames the cards show, the PNGs and the demo GIFs.
 #
 #     sh assets/brand/build.sh
 #
-# Needs python, ffmpeg and Chrome or Edge, and the bench rigs (`sh bench/rigs/fetch.sh`). Set BROWSER to the browser's
-# path if it isn't found.
+# Needs python, ffmpeg, curl and Chrome or Edge, and the bench rigs (`sh bench/rigs/fetch.sh`; the animals are fetched
+# here). Set BROWSER to the browser's path if it isn't found.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -71,4 +71,12 @@ svgshot "$here/dittomo-logo-light.svg" "$1" "$2" "$here/dittomo-logo-light.png" 
 ffmpeg -y -loglevel error -i "$tmp/demo.mp4" -vf "crop=960:720:0:0,fps=12,scale=560:-1:flags=lanczos,split[a][b];\
 [a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
 	"$here/demo.gif"
+
+# On all fours: the fox's walk onto a husky built by someone else, against copying rotations by bone name.
+sh "$root/bench/animals/fetch.sh" >/dev/null
+animals="$root/bench/animals/data"
+"$video" "$animals/fox.glb" "$animals/husky.gltf" "$tmp/animals.mp4" --clip Walk --seconds 3 2>/dev/null
+ffmpeg -y -loglevel error -i "$tmp/animals.mp4" -vf "fps=12,scale=720:-1:flags=lanczos,split[a][b];\
+[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
+	"$here/animals.gif"
 ls -la "$here"

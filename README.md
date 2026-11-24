@@ -401,6 +401,13 @@ as glTF's sample Fox onto a dog laid out as the Quaternius animals (front legs a
 four-bone ears, IK handles named for a side and an end) and back, each leg on the same leg. A snake mapped from a human
 is found to share little.
 
+<p align="center"><img src="assets/brand/animals.gif" alt="glTF's sample Fox walking; the same walk played by dittomo on a Quaternius husky, which walks it; and the walk's rotations copied onto the husky's paired bones, which tangle its legs" width="720"></p>
+
+The real ones, as `sh bench/animals/fetch.sh` fetches them: the Fox's walk played by dittomo on the husky, and copied
+onto the same bones as rotations. 18 of the husky's 50 bones are paired, spine, head, legs and the tail's first three;
+its ears, the tail's tip and the IK handles the fox has no match for keep their rest pose. Fox: mesh CC0 by PixelMannen,
+rig and animation CC-BY 4.0 by @tomkranis, glTF by @AsoboStudio and @scurest. Husky: Quaternius, CC0.
+
 The contact tests walk a procedural gait (planted feet, swing, bobbing hips) on these rigs and on a longer-legged copy,
 and push a hand placed inside the chest back out. Their limb finding is tested on an avatar laid out as VRM exports
 are (twist bones between forearm and hand, helper bones off the collarbones, a ponytail, the chest bone well below the
