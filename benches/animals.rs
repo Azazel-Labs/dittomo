@@ -5,7 +5,7 @@
 //! sh bench/animals/fetch.sh                        # download the animals (once)
 //! cargo bench --features fs --bench animals        # print the table
 //! cargo bench --features fs --bench animals -- --pairs   # print each pair's misses
-//! cargo bench --features fs --bench animals -- --min 100 --max-posture 1 --max-floor 1 --max-body 2   # fail past these (CI)
+//! cargo bench --features fs --bench animals -- --min 100 --max-posture 1 --max-floor 0.5 --max-body 0.5   # fail past these (CI)
 //! ```
 //!
 //! `bench/animals/labels.txt` names, for each rig, the bones playing 17 joints of a four-legged body. Each ordered pair

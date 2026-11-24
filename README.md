@@ -343,9 +343,11 @@ tails are left out, and fingers hanging low aren't taken for feet.
 - **Planted feet.** Where the source's foot is planted, the target's is held where it lands, as high over where it
   stands at rest as the source's is over its own, scaled to the target, or higher if a toe would otherwise come lower
   than the source's does: ankles stand higher over the toes on some rigs than others, so a foot rolled onto its toes
-  needs its ankle lifted more or less than the source's to keep them on the floor. Two-bone IK (`contact::reach`) bends
-  the knee and swings the hip to put it there, keeping the foot's turn, easing in and out over about a tenth of a
-  second.
+  needs its ankle lifted more or less than the source's to keep them on the floor. Nor does it come further under the
+  floor than the source's comes under its own: the Quaternius horse stands at rest with its hooves well above its root
+  and walks with them on the root's level, and a paw brought down as far from where it stands went through the floor.
+  Two-bone IK (`contact::reach`) bends the knee and swings the hip to put it there, keeping the foot's turn, easing in
+  and out over about a tenth of a second.
 - **Push-out.** Spheres along the spine and one round the head stand for the body; elbows, hands and forearms inside
   them are turned out, the upper arm first, then the forearm. Short arms raised overhead go round the head, not
   through it.
@@ -438,7 +440,7 @@ foot, so the foot stays put. A leg that can't fold as far as the source's, its p
 reach, folds flat with its hock pointing down, and no swing about hip to foot lifts it: it turns about the hip instead,
 as it bends, and rests on its hock as a crouching dog does, its paw coming up a little. Over every Quaternius and Fox
 clip played on each other animal, the worst bone under the floor past the source's went from 11% of the target's height
-to 1.2%.
+to under a hundredth of a percent.
 
 ## Tested on
 

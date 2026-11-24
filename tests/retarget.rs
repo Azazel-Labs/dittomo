@@ -1491,6 +1491,53 @@ fn legs_bent_otherwise_at_rest_keep_their_paws_out_of_the_floor() {
 }
 
 #[test]
+fn a_paw_coming_down_from_above_the_floor_at_rest_stops_on_it() {
+    // The Quaternius horse stands at rest with its hooves above its root, and plays its clips with them down on the
+    // root's level. The fox's hind paws, its lowest bones, stand nearly on its floor at rest; planted as far down from
+    // there as the horse's hooves came, they went through it. They come no further under the floor than the hooves do.
+    let mut bones = dog("Neck3").bones().to_vec();
+    let raised = 0.04;
+    for b in &mut bones {
+        if b.name.starts_with("IKBackLeg") {
+            b.rest.translation.y += raised;
+        }
+    }
+    let (dog, fox) = (Skeleton::new(bones).unwrap(), fox());
+    let map = Mapping::new(&dog, &fox);
+    let n = 20;
+    let clip = Clip {
+        times: (0..n).map(|f| f as f32 / 30.0).collect(),
+        poses: (0..n)
+            .map(|f| {
+                let mut pose = dog.rest();
+                for b in 0..dog.len() {
+                    if dog.bones()[b].name.starts_with("IKBackLeg") {
+                        pose[b].translation.y -= raised * (f as f32 / (n - 1) as f32).min(1.0);
+                    }
+                }
+                pose
+            })
+            .collect(),
+    };
+    let out = map.apply_with(&dog, &fox, &clip, Fixes::default()).expect("plays");
+    let paw = fox.index_of("b_LeftFoot02").unwrap();
+    let fox_rest = fox.world(&fox.rest());
+    let floor = fox_rest.iter().map(|w| w.position().y).fold(f32::MAX, f32::min);
+    for (f, pose) in out.poses.iter().enumerate() {
+        let y = fox.world(pose)[paw].position().y;
+        assert!(
+            y > floor - 1e-3,
+            "frame {f}: the fox's paw {y} under the floor at {floor}"
+        );
+    }
+    let y = fox.world(&out.poses[n - 1])[paw].position().y;
+    assert!(
+        y < fox_rest[paw].position().y - 0.01,
+        "the fox's paw {y} didn't come down"
+    );
+}
+
+#[test]
 fn a_head_with_the_ears_beside_it_plays_one_with_the_ears_on_it() {
     // The Quaternius husky hangs its ears from the neck beside the head, and the horse from the head. The match keeps
     // what's under a bone under its partner, so it paired the eight ear bones and left the heads out.

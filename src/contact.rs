@@ -590,13 +590,25 @@ fn smooth(x: f32) -> f32 {
     x * x * (3.0 - 2.0 * x)
 }
 
-/// A target foot, or a mapped bone under it, and the source bone it plays, with how high each stands at rest.
+/// A target foot, or a mapped bone under it, and the source bone it plays, with how high each stands at rest and how
+/// high its rig's floor is (where its lowest bone stands at rest).
 #[derive(Clone, Copy)]
 struct Pair {
     source: usize,
     target: usize,
     s_rest_y: f32,
     t_rest_y: f32,
+    s_floor: f32,
+    t_floor: f32,
+}
+
+impl Pair {
+    /// How low the target bone may come with the source's at `s_y`: no further under the target's floor than the
+    /// source's comes under its own, scaled by `k`. A paw standing nearly on the floor at rest may play a hoof standing
+    /// well above its own, as the Quaternius horse's do over its root, that comes down onto it as the clip plays.
+    fn lowest(&self, k: f32, s_y: f32) -> f32 {
+        self.t_floor - ((self.s_floor - s_y) * k).max(0.0)
+    }
 }
 
 /// The target leg's foot and the mapped bones under it whose source is under the source's foot `a`, foot first.
@@ -606,6 +618,8 @@ fn sole(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2], leg
         target: b,
         s_rest_y: s.rest[a].position().y,
         t_rest_y: t.rest[b].position().y,
+        s_floor: s.floor,
+        t_floor: t.floor,
     };
     let toes = (leg.end + 1..target.len()).filter_map(|b| {
         let a2 = map.source_of(b)?;
@@ -618,22 +632,29 @@ fn sole(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2], leg
 /// own, scaled, or higher if one of the bones under it would otherwise come lower from its rest than the source's does.
 /// Ankles stand at different heights over the toes on different rigs, so a foot rolled onto its toes needs its ankle
 /// lifted by more or less than the source's to keep the toes on the floor. `s_y` and `t_y` give each pair's height in
-/// the source's pose and in the target's as played; the target's foot keeps its turn as the leg reaches.
+/// the source's pose and in the target's as played; the target's foot keeps its turn as the leg reaches. None comes
+/// further under the floor than its source does ([`Pair::lowest`]).
 fn height(sole: &[Pair], k: f32, s_y: impl Fn(usize) -> f32, t_y: impl Fn(usize) -> f32) -> f32 {
     let ankle = t_y(0);
     sole.iter()
         .enumerate()
-        .map(|(i, p)| p.t_rest_y + (s_y(i) - p.s_rest_y) * k - (t_y(i) - ankle))
+        .map(|(i, p)| {
+            let s_y = s_y(i);
+            (p.t_rest_y + (s_y - p.s_rest_y) * k).max(p.lowest(k, s_y)) - (t_y(i) - ankle)
+        })
         .fold(f32::MIN, f32::max)
 }
 
 /// How low a target foot ([`sole`]) may come: as far under where it stands at rest as the source's has come under its
-/// own, scaled, and no farther, for each of the bones under it too.
+/// own, scaled, and no farther, for each of the bones under it too, nor further under the floor than its source does.
 fn floor(sole: &[Pair], k: f32, s_y: impl Fn(usize) -> f32, t_y: impl Fn(usize) -> f32) -> f32 {
     let ankle = t_y(0);
     sole.iter()
         .enumerate()
-        .map(|(i, p)| p.t_rest_y + ((s_y(i) - p.s_rest_y) * k).min(0.0) - (t_y(i) - ankle))
+        .map(|(i, p)| {
+            let s_y = s_y(i);
+            (p.t_rest_y + ((s_y - p.s_rest_y) * k).min(0.0)).max(p.lowest(k, s_y)) - (t_y(i) - ankle)
+        })
         .fold(f32::MIN, f32::max)
 }
 
