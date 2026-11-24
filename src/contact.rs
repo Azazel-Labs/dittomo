@@ -591,10 +591,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         }
         let t_at = track(target, out, leg.end);
         let mut goals = vec![None; n];
-        let locks: Vec<Vec3> = runs
-            .iter()
-            .map(|&(a, b)| t_at[a..b].iter().sum::<Vec3>() / (b - a) as f32)
-            .collect();
+        let locks = locks(&runs, &t_at);
         let sole = sole(map, [(source, s), (target, t)], &leg, a);
         let s_ys: Vec<Vec<f32>> = sole
             .iter()
@@ -604,20 +601,30 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             .iter()
             .map(|p| track(target, out, p.target).iter().map(|v| v.y).collect())
             .collect();
+        // How far each run moves the foot from where it is played, at its first frame and at its last.
+        let off: Vec<(Vec3, Vec3)> = runs
+            .iter()
+            .zip(&locks)
+            .map(|(&(a, b), &lock)| (lock - t_at[a], lock - t_at[b - 1]))
+            .collect();
         for f in 0..n {
-            // Held where the run it is in holds it; between two runs, held at a point easing from where the one before
-            // held it to where the one after does, so a foot that lifts and plants again within a ramp's length never
-            // jumps from one hold to the next halfway.
+            // Held where the run it is in holds it. Off a run, moved as it is played, and as far again as the run
+            // nearest moves it at its end nearest, eased out: a foot eased from a hold toward where it is played would
+            // lag behind one swinging off, and jerk. Between two runs, the move eases from the one before's to the one
+            // after's, so a foot that lifts and plants again within a ramp's length isn't jerked halfway.
             let next = runs.partition_point(|&(a, _)| a <= f);
             let (d, held) = match (next.checked_sub(1), (next < runs.len()).then_some(next)) {
                 (Some(p), _) if f < runs[p].1 => (0, locks[p]),
                 (Some(p), Some(q)) => {
                     let ((_, end), (start, _)) = (runs[p], runs[q]);
                     let u = (f + 1 - end) as f32 / (start - end + 1) as f32;
-                    ((f + 1 - end).min(start - f), locks[p].lerp(locks[q], smooth(u)))
+                    (
+                        (f + 1 - end).min(start - f),
+                        t_at[f] + off[p].1.lerp(off[q].0, smooth(u)),
+                    )
                 }
-                (Some(p), None) => (f + 1 - runs[p].1, locks[p]),
-                (None, Some(q)) => (runs[q].0 - f, locks[q]),
+                (Some(p), None) => (f + 1 - runs[p].1, t_at[f] + off[p].1),
+                (None, Some(q)) => (runs[q].0 - f, t_at[f] + off[q].0),
                 (None, None) => (usize::MAX, Vec3::ZERO),
             };
             // Never deeper under where it stands at rest than the source's foot comes under its own, scaled: legs
@@ -661,6 +668,36 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             reach_in(target, pose, &world, leg, goal);
         }
     }
+}
+
+/// Where to hold a target foot, played at `at`, over each of `runs`: where it is on average. A run split where the
+/// source's foot slips, the next starting at once, holds the foot where the one before did but for how far it slips as
+/// played, and the runs so chained are held where the foot is on average over them all: each held at its own average,
+/// a foot drifting as it is played would jump from one to the next by far more than it slips.
+fn locks(runs: &[(usize, usize)], at: &[Vec3]) -> Vec<Vec3> {
+    let mut locks = Vec::with_capacity(runs.len());
+    let mut i = 0;
+    while i < runs.len() {
+        let mut j = i + 1;
+        while j < runs.len() && runs[j].0 == runs[j - 1].1 {
+            j += 1;
+        }
+        let mut slips = vec![Vec3::ZERO; j - i];
+        for q in i + 1..j {
+            let f = runs[q].0;
+            slips[q - i] = slips[q - i - 1] + at[f] - at[f - 1];
+        }
+        let (a, b) = (runs[i].0, runs[j - 1].1);
+        let mean = runs[i..j]
+            .iter()
+            .zip(&slips)
+            .map(|(&(a, b), &slip)| at[a..b].iter().map(|&p| p - slip).sum::<Vec3>())
+            .sum::<Vec3>()
+            / (b - a) as f32;
+        locks.extend(slips.iter().map(|&slip| mean + slip));
+        i = j;
+    }
+    locks
 }
 
 /// How far to lower the target's body, frame by frame, so that each leg reaches where its foot goes ([`plant`]) bent
@@ -1033,6 +1070,8 @@ struct Foot {
     down: bool,
     /// Where the target's foot is held, if it is or is letting go.
     lock: Option<Vec3>,
+    /// How far the hold moved the foot from where it was played, the last pose it was held.
+    off: Vec3,
     /// Where the target's foot was shown the pose before.
     shown: Option<Vec3>,
     /// Seconds since the foot planted or lifted.
@@ -1054,6 +1093,7 @@ impl Feet {
                     speed: 0.0,
                     down: false,
                     lock: None,
+                    off: Vec3::ZERO,
                     shown: None,
                     since: 0.0,
                 })
@@ -1084,6 +1124,7 @@ impl Feet {
                 speed: 0.0,
                 down: false,
                 lock: None,
+                off: Vec3::ZERO,
                 shown: None,
                 since: 0.0,
                 ..*f
@@ -1125,9 +1166,10 @@ impl Feet {
                 (f.down, f.since) = (true, 0.0);
                 f.lock = f.shown.map(|p| p + step * self.k);
             }
-            // Held across the floor at once, as the foot is where it planted, and let go over SETTLE. Its height is
-            // the source's scaled while planted, and on the way down to the floor from twice the height a foot plants
-            // at, so it doesn't jump on landing.
+            // Held across the floor at once, as the foot is where it planted, and let go over SETTLE: moved as it is
+            // played, and as far again as the hold last moved it, eased out, as a foot eased toward where it is played
+            // would lag behind one swinging off. Its height is the source's scaled while planted, and on the way down
+            // to the floor from twice the height a foot plants at, so it doesn't jump on landing.
             let ease = match (f.down, f.lock) {
                 (true, _) => 1.0,
                 (false, Some(_)) if f.since < SETTLE => smooth(1.0 - f.since / SETTLE),
@@ -1144,9 +1186,11 @@ impl Feet {
                 continue;
             }
             let lock = if f.down {
-                *f.lock.get_or_insert(free)
+                let lock = *f.lock.get_or_insert(free);
+                f.off = lock - free;
+                lock
             } else {
-                f.lock.unwrap_or(free)
+                free + f.off
             };
             let sole = &self.soles[l];
             let y = height(
@@ -1199,11 +1243,15 @@ fn reach_all<'a>(
     }
 }
 
+/// The pose a contact ended at, and how far it moved the foot from where it was played the pose before.
+type Ended = (usize, Vec3);
+
 /// Feet kept still while the source's are planted, as [`plant`] keeps them over a whole clip, but from the poses so
 /// far and a few ahead: each pose is fixed once the `delay` poses after it have come. Whether a foot is planted is
 /// judged as over a whole clip, over the poses kept; it is held at the average of where it is over the part of its
 /// contact in sight when that contact begins, and eased toward it from as many poses before as [`plant`] would, or as
-/// many as are in sight. Between two contacts close together it is held at a point easing from one hold to the next.
+/// many as are in sight; off a contact it is moved as [`plant`] moves it, as played and as far again as the contact
+/// nearest moves it at its end nearest, eased out, and between two close together, that easing from one to the next.
 pub(crate) struct Ahead {
     feet: Vec<Foot>,
     soles: Vec<Vec<Pair>>,
@@ -1219,8 +1267,8 @@ pub(crate) struct Ahead {
     s_at: Vec<Vec3>,
     t_at: Vec<Vec3>,
     t_y: Vec<f32>,
-    /// Each foot's contact the poses fixed are in or have just left: where it is held, and the pose it ended at.
-    held: Vec<Option<(Vec3, Option<usize>)>>,
+    /// Each foot's contact the poses fixed are in or have just left: where it is held, and when it ended ([`Ended`]).
+    held: Vec<Option<(Vec3, Option<Ended>)>>,
     seen: usize,
     clock: f32,
     w_at: Vec<Vec3>,
@@ -1314,7 +1362,8 @@ impl Ahead {
         let tw = &mut scratch.tw;
         place(target, played, &self.t_path, tw);
         for (i, f) in self.feet.iter().enumerate() {
-            self.goals[i] = (tw[f.leg.end].position(), None);
+            let free = tw[f.leg.end].position();
+            self.goals[i] = (free, None);
             self.w_at.clear();
             self.w_times.clear();
             for g in first..=last {
@@ -1335,26 +1384,30 @@ impl Ahead {
                 sum / count
             };
             let near = if down[at_o] {
+                // A contact split where the source's foot slips holds the foot where the one before did but for how
+                // far it slips as played, as `plant` holds it ([`locks`]).
                 let lock = match self.held[i] {
                     Some((lock, None)) if !apart(at_o) => lock,
+                    Some((lock, None)) => lock + t_at[slot(o) * n + i] - t_at[slot(o - 1) * n + i],
                     _ => lock_from(at_o),
                 };
                 self.held[i] = Some((lock, None));
                 Some((0, lock))
             } else {
                 if let Some((lock, None)) = self.held[i] {
-                    self.held[i] = Some((lock, Some(o)));
+                    let off = lock - t_at[slot(o - 1) * n + i];
+                    self.held[i] = Some((lock, Some((o, off))));
                 }
                 let before = match self.held[i] {
-                    Some((lock, Some(end))) => Some((end, lock)),
+                    Some((_, Some(end))) => Some(end),
                     _ => None,
                 };
                 let after = (at_o + 1..down.len())
                     .find(|&w| down[w])
-                    .map(|j| (first + j, lock_from(j)));
-                // Between two contacts, held at a point easing from where the one before held it to where the one
-                // after does, from when that comes in sight if the foot was still letting go of the one before then,
-                // as `plant` does, so a quick step never jumps between them.
+                    .map(|j| (first + j, lock_from(j) - t_at[slot(first + j) * n + i]));
+                // Between two contacts, moved as far as one easing from how far the one before moved it to how far
+                // the one after does, from when that comes in sight if the foot was still letting go of the one
+                // before then, as `plant` does, so a quick step never jerks between them.
                 match (before, after) {
                     (Some((end, a)), Some((start, b))) => {
                         let from = end.max(start.saturating_sub(self.delay));
@@ -1363,10 +1416,10 @@ impl Ahead {
                         } else {
                             (o + 1 - from) as f32 / (start - from + 1) as f32
                         };
-                        Some(((o + 1 - end).min(start - o), a.lerp(b, smooth(u))))
+                        Some(((o + 1 - end).min(start - o), free + a.lerp(b, smooth(u))))
                     }
-                    (Some((end, a)), None) => Some((o + 1 - end, a)),
-                    (None, Some((start, b))) => Some((start - o, b)),
+                    (Some((end, a)), None) => Some((o + 1 - end, free + a)),
+                    (None, Some((start, b))) => Some((start - o, free + b)),
                     (None, None) => None,
                 }
             };
@@ -1377,7 +1430,6 @@ impl Ahead {
             let x = 1.0 - d as f32 / (ramp + 1) as f32;
             let w = x * x * (3.0 - 2.0 * x);
             let y = self.t_y[slot(o) * n + i];
-            let free = self.goals[i].0;
             self.goals[i].1 = Some(free.lerp(Vec3::new(lock.x, y, lock.z), w));
         }
         let dt = if o > first {

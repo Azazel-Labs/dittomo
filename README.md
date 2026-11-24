@@ -167,24 +167,28 @@ moving steadily from the frame before to the one after than the source's is, by 
 | --- | ---: | ---: | ---: | ---: |
 | none (`apply`) | 0.00388 | 0.0097 | 1.7° | 0.03% |
 | travel | 0.00118 | 0.0097 | 1.7° | 0.03% |
-| planted feet | 0.00266 | 0.0001 | 2.6° | 0.41% |
+| planted feet | 0.00266 | 0.0001 | 2.5° | 0.08% |
 | push-out | 0.00388 | 0.0097 | 1.7° | 0.03% |
-| all (`apply_with`) | 0.00000 | 0.0001 | 2.8° | 0.50% |
-| all, live (`Live`) | 0.00002 | 0.0001 | 2.8° | 0.78% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00004 | 0.0001 | 2.7° | 0.71% |
+| all (`apply_with`) | 0.00001 | 0.0001 | 2.7° | 0.17% |
+| all, live (`Live`) | 0.00004 | 0.0001 | 2.7° | 0.20% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00004 | 0.0001 | 2.6° | 0.16% |
 
 Together they leave next to no foot slide and cut the height error nearly a hundred times. The degree they cost is the
 legs bending to keep feet down where the target's stride and leg proportions differ from the source's. Where a planted
 foot is further below the hip than the target's leg reaches, bent as it was played, the body is lowered, eased in and
-out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001 and the pops from 0.57% to
-0.50%. The body is lowered a tenth of the leg at most, and never so far that a bone but the feet goes under the floor.
-Played live, with nothing ahead, slide is cut nearly two hundred times: a foot is held from the pose it lands, where the
-target's was the pose before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a little
-more to hold it. The body is lowered there too, at once as far as the legs need, then eased back up over a tenth of a
-second. Six poses late slide is cut about a hundred times, with limbs closer than the whole clip's. A foot is planted
-from the first pose it stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in steps,
-whose feet jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips
-put a hand through the body.
+out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001. The body is lowered a
+tenth of the leg at most, and never so far that a bone but the feet goes under the floor. A foot let go, or about to
+plant, is moved as it is played, and as far again as the hold moves it at that end, eased out, rather than eased from
+the hold toward where it is played: that lagged behind a foot swinging off and jerked the leg, and cut the pops from
+0.50% to 0.17%. A contact split where the source's foot slips holds the foot where the part before did, moved on as far
+as it slips as played, rather than each part at its own average: a foot drifting as it is played jumped from one to the
+next. Played live, with nothing ahead, slide is cut about a hundred times: a foot is held from the pose it lands, where
+the target's was the pose before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a
+little more to hold it. The body is lowered there too, at once as far as the legs need, then eased back up over a tenth
+of a second. Six poses late slide is cut as much, with limbs closer and fewer pops than the whole clip's. A foot is
+planted from the first pose it stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in
+steps, whose feet jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of
+these clips put a hand through the body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,572 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
