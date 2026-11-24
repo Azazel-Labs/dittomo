@@ -35,6 +35,15 @@ impl Turns {
         }
     }
 
+    fn each(f: impl Fn(usize) -> Quat) -> Self {
+        let mut o = Self::IDENTITY;
+        for i in 0..LANES {
+            let q = f(i);
+            (o.x[i], o.y[i], o.z[i], o.w[i]) = (q.x, q.y, q.z, q.w);
+        }
+        o
+    }
+
     fn get(&self, i: usize) -> Quat {
         Quat::from_xyzw(self.x[i], self.y[i], self.z[i], self.w[i])
     }
@@ -264,8 +273,23 @@ impl Crowd {
                     let w = self.turned[b].mul(&rest_rot);
                     (up_r.back().mul(&w).whole(), w, travel.map(|k| (a, k)))
                 }
-                Plan::Between { above, below, along } => {
+                Plan::Between {
+                    above,
+                    below,
+                    along,
+                    twist: None,
+                } => {
                     let w = self.turned[above].lerp(&self.turned[below], along).mul(&rest_rot);
+                    (up_r.back().mul(&w).whole(), w, None)
+                }
+                Plan::Between {
+                    above,
+                    below,
+                    along,
+                    twist: Some(axis),
+                } => {
+                    let (a, z) = (&self.turned[above], &self.turned[below]);
+                    let w = Turns::each(|i| super::twisted(a.get(i), z.get(i), axis, along)).mul(&rest_rot);
                     (up_r.back().mul(&w).whole(), w, None)
                 }
             };

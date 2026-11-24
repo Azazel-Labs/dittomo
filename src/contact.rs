@@ -136,16 +136,37 @@ fn split(
     pos: impl Fn(usize) -> Vec3,
     spine: impl Fn(usize) -> f32,
 ) -> Option<(usize, usize)> {
-    let spans = |(u, l): (usize, usize)| {
-        let (a, b) = (chain[u], chain[l]);
-        let mut s = [spine(a), pos(a).distance(pos(b)), pos(b).distance(end)];
-        s.sort_by(f32::total_cmp);
-        s
-    };
-    (1..chain.len())
+    pick(chain.len(), |u, l| spans(chain, end, &pos, &spine, (u, l))).map(|(u, l)| (chain[u], chain[l]))
+}
+
+/// The three spans of [`split`] for the `u`th and `l`th bones of the chain as its upper and lower, shortest first.
+fn spans(
+    chain: &[usize],
+    end: Vec3,
+    pos: &impl Fn(usize) -> Vec3,
+    spine: &impl Fn(usize) -> f32,
+    (u, l): (usize, usize),
+) -> [f32; 3] {
+    let (a, b) = (chain[u], chain[l]);
+    // An upper whose next bone starts right by it is a stub before the joint, as RobotExpressive's shoulders are: it
+    // holds none of the limb's length, so it is the next bone that turns at the shoulder.
+    if l > u + 1 && pos(chain[u + 1]).distance(pos(a)) < 0.1 * pos(a).distance(end) {
+        return [0.0; 3];
+    }
+    let mut s = [spine(a), pos(a).distance(pos(b)), pos(b).distance(end)];
+    s.sort_by(f32::total_cmp);
+    s
+}
+
+/// The places in a chain of `n` bones for the upper and the lower whose spans are best, as [`split`] judges them.
+fn pick(n: usize, spans: impl Fn(usize, usize) -> [f32; 3]) -> Option<(usize, usize)> {
+    (1..n)
         .flat_map(|l| (0..l).map(move |u| (u, l)))
-        .max_by(|&p, &q| spans(p).partial_cmp(&spans(q)).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(u, l)| (chain[u], chain[l]))
+        .max_by(|&(u1, l1), &(u2, l2)| {
+            spans(u1, l1)
+                .partial_cmp(&spans(u2, l2))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
 /// The body's trunk: how many bones each bone holds (itself included), and the spine, from the biggest root to the
@@ -235,21 +256,48 @@ pub fn arms(skeleton: &Skeleton) -> Vec<Limb> {
         .unwrap_or_default()
 }
 
-/// The body's axis, found from its rest pose: the spine from the hips to the chest, and by bone, whether it stands on
-/// the spine above the chest (the neck and head, up to the highest bone). The chest is where the arms branch, or on a
-/// body with none, where the highest legs do: a four-legged animal's shoulders, its neck and head above them however
-/// it carries them. A skeleton with neither has no axis.
-pub(crate) fn axis(skeleton: &Skeleton, s: &Shape) -> (Vec<usize>, Vec<bool>) {
-    let mut above = vec![false; skeleton.len()];
-    let Some(trunk) = trunk(skeleton, s) else {
-        return (Vec::new(), above);
+/// A skeleton's parts, found from its rest pose.
+pub(crate) struct Frame {
+    /// The spine from the hips to the chest. The chest is where the arms branch, or on a body with none, where the
+    /// highest legs do: a four-legged animal's shoulders, its neck and head above them however it carries them. A
+    /// skeleton with neither has none.
+    pub(crate) spine: Vec<usize>,
+    /// By bone, whether it stands on the spine above the chest (the neck and head, up to the highest bone).
+    pub(crate) above: Vec<bool>,
+    pub(crate) legs: Vec<Limb>,
+    pub(crate) arms: Vec<Limb>,
+    /// By bone, whether it is a collarbone: on an arm's way out from the chest, before the bone turning at the shoulder.
+    pub(crate) collar: Vec<bool>,
+}
+
+/// The skeleton's spine, neck and head, legs, arms and collarbones, each found once.
+pub(crate) fn frame(skeleton: &Skeleton, s: &Shape) -> Frame {
+    let n = skeleton.len();
+    let mut frame = Frame {
+        spine: Vec::new(),
+        above: vec![false; n],
+        legs: Vec::new(),
+        arms: Vec::new(),
+        collar: vec![false; n],
     };
-    let spine = if let Some(body) = body(skeleton, s) {
+    let Some(trunk) = trunk(skeleton, s) else {
+        return frame;
+    };
+    frame.legs = legs_in(skeleton, s, &trunk);
+    frame.spine = if let Some(body) = body_in(skeleton, s, &trunk, &frame.legs) {
+        for arm in &body.arms {
+            frame.arms.push(arm.limb);
+            let mut b = skeleton.bones()[arm.limb.upper].parent;
+            while let Some(c) = b.filter(|c| !body.spine.contains(c)) {
+                frame.collar[c] = true;
+                b = skeleton.bones()[c].parent;
+            }
+        }
         body.spine
     } else {
         // Each spine bone some leg hangs from, off the spine: the lowest is the hips, the highest the shoulders.
-        let mut legged = vec![false; skeleton.len()];
-        for l in legs_in(skeleton, s, &trunk) {
+        let mut legged = vec![false; n];
+        for l in &frame.legs {
             legged[l.end] = true;
         }
         for b in (0..skeleton.len()).rev() {
@@ -263,14 +311,14 @@ pub(crate) fn axis(skeleton: &Skeleton, s: &Shape) -> (Vec<usize>, Vec<bool>) {
             _ => Vec::new(),
         }
     };
-    if let Some(&chest) = spine.last()
+    if let Some(&chest) = frame.spine.last()
         && let Some(i) = trunk.spine.iter().position(|&b| b == chest)
     {
         for &b in &trunk.spine[i + 1..] {
-            above[b] = true;
+            frame.above[b] = true;
         }
     }
-    (spine, above)
+    frame
 }
 
 /// Turns a limb's upper and lower bones so its end reaches `goal`, or as near as the limb's length allows, bending the
@@ -1180,6 +1228,7 @@ impl Travel {
     }
 }
 
+#[derive(Clone, Copy)]
 struct Arm {
     limb: Limb,
     /// Away from the body at rest, for a point right on the spine.
@@ -1291,13 +1340,17 @@ fn head(above: &[usize], s: &Shape) -> Option<Head> {
 }
 
 pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
+    let trunk = trunk(skeleton, s)?;
+    body_in(skeleton, s, &trunk, &legs_in(skeleton, s, &trunk))
+}
+
+fn body_in(skeleton: &Skeleton, s: &Shape, trunk: &Trunk, legs: &[Limb]) -> Option<Body> {
     let n = skeleton.len();
     let parent = |b: usize| skeleton.bones()[b].parent;
     let pos = |b: usize| s.rest[b].position();
-    let trunk = trunk(skeleton, s)?;
     let (under, spine, on_spine) = (&trunk.under, &trunk.spine, &trunk.on_spine);
     let mut legged = vec![false; n];
-    for l in legs_in(skeleton, s, &trunk) {
+    for l in legs {
         legged[l.end] = true;
     }
     for b in (0..n).rev() {
@@ -1309,6 +1362,11 @@ pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
         .iter()
         .rposition(|&b| s.children[b].iter().any(|&c| !on_spine[c] && legged[c]))
         .unwrap_or(0);
+    // Arms are measured out from the spine across, as a chest bone can sit well below the shoulders.
+    let across = |sb: usize, b: usize| {
+        let d = pos(b) - pos(sb);
+        Vec3::new(d.x, 0.0, d.z).length()
+    };
     let mut found = Vec::new();
     for (i, &sb) in spine.iter().enumerate().skip(hips + 1) {
         for &c in &s.children[sb] {
@@ -1335,12 +1393,7 @@ pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
                 chain.push(end);
                 end = next;
             }
-            // Arms are measured out from the spine across, as a chest bone can sit well below the shoulders.
-            let across = |b: usize| {
-                let d = pos(b) - pos(sb);
-                Vec3::new(d.x, 0.0, d.z).length()
-            };
-            let Some((upper, lower)) = split(&chain, pos(end), pos, across) else {
+            let Some((upper, lower)) = split(&chain, pos(end), pos, |b| across(sb, b)) else {
                 continue;
             };
             if pos(upper).distance(pos(end)) < 0.15 * s.height {
@@ -1351,21 +1404,44 @@ pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
                 limb: limb(s, upper, lower, end, -Vec3::Z),
                 out: Vec3::new(side.x, 0.0, side.z).normalize_or(Vec3::X),
             };
-            found.push((arm, sb, i));
+            found.push((arm, sb, i, chain, end));
         }
     }
     // The arms are the chains off one spine bone: the one whose chains end in the most bones, as hands hold fingers,
     // and the lowest of those. Hair off the head and tails of a coat or cape end in nothing.
     let (_, chest) = found
         .iter()
-        .map(|(a, _, i)| (under[a.limb.end], std::cmp::Reverse(*i)))
+        .map(|(a, _, i, ..)| (under[a.limb.end], std::cmp::Reverse(*i)))
         .max()
         .map(|(u, std::cmp::Reverse(i))| (u, i))?;
-    let arms: Vec<(Arm, usize)> = found
-        .into_iter()
-        .filter(|(_, _, i)| *i == chest)
-        .map(|(a, sb, _)| (a, sb))
-        .collect();
+    let found: Vec<_> = found.into_iter().filter(|f| f.2 == chest).collect();
+    let mut arms: Vec<(Arm, usize)> = found.iter().map(|(a, sb, ..)| (*a, *sb)).collect();
+    // An arm and its mirror image, built alike, turn at the same joints: a rest a little lopsided mustn't take one
+    // arm's collarbone for its shoulder, as RobotExpressive's right arm, its upper arm a stub, otherwise is.
+    let mut paired = vec![false; found.len()];
+    for x in 0..found.len() {
+        for y in x + 1..found.len() {
+            let ((ax, sx, _, cx, ex), (ay, sy, _, cy, ey)) = (&found[x], &found[y]);
+            if paired[x] || paired[y] || cx.len() != cy.len() || ax.out.dot(ay.out) >= 0.0 {
+                continue;
+            }
+            let (ex, ey) = (pos(*ex), pos(*ey));
+            let both = |u: usize, l: usize| {
+                let (p, q) = (
+                    spans(cx, ex, &pos, &|b| across(*sx, b), (u, l)),
+                    spans(cy, ey, &pos, &|b| across(*sy, b), (u, l)),
+                );
+                [p[0].min(q[0]), p[1].min(q[1]), p[2].min(q[2])]
+            };
+            let Some((u, l)) = pick(cx.len(), both) else { continue };
+            if pos(cx[u]).distance(ex) < 0.15 * s.height || pos(cy[u]).distance(ey) < 0.15 * s.height {
+                continue;
+            }
+            arms[x].0.limb = limb(s, cx[u], cx[l], found[x].0.limb.end, -Vec3::Z);
+            arms[y].0.limb = limb(s, cy[u], cy[l], found[y].0.limb.end, -Vec3::Z);
+            (paired[x], paired[y]) = (true, true);
+        }
+    }
     let head = head(&spine[chest + 1..], s);
     let spine: Vec<usize> = spine[hips..=chest].to_vec();
     let torso0 = 0.6

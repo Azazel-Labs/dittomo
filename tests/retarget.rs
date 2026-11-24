@@ -2294,3 +2294,109 @@ fn a_body_rolled_over_by_a_bone_the_target_lacks_lies_down() {
     let (from, to) = (rest[hips].position().y, now[hips].position().y);
     assert!(to < 0.5 * from, "the fox's hips stay {to:.2} high of {from:.2}");
 }
+
+/// [`mixamo_like`] with its collarbones built otherwise: `collar` gives where each upper arm starts, on the left, and
+/// `split` adds a bone halfway along each collarbone.
+fn collared(collar: [f32; 3], split: bool) -> Skeleton {
+    let mut j: Joints = vec![
+        joint("Hips", None, [0.0, 1.0, 0.0]),
+        joint("Spine", Some("Hips"), [0.0, 1.1, 0.0]),
+        joint("Spine1", Some("Spine"), [0.0, 1.22, 0.0]),
+        joint("Spine2", Some("Spine1"), [0.0, 1.35, 0.0]),
+        joint("Neck", Some("Spine2"), [0.0, 1.5, 0.0]),
+        joint("Head", Some("Neck"), [0.0, 1.6, 0.02]),
+        joint("HeadTop_End", Some("Head"), [0.0, 1.82, 0.02]),
+    ];
+    for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+        let n = |s: &str| format!("{side}{s}");
+        let start = [0.06 * x, 1.45, 0.0];
+        let [cx, cy, cz] = collar;
+        let end = [cx * x, cy, cz];
+        let mut parent = n("Shoulder");
+        j.push(joint(n("Shoulder"), Some("Spine2"), start));
+        if split {
+            let mid = [
+                0.5 * (start[0] + end[0]),
+                0.5 * (start[1] + end[1]),
+                0.5 * (start[2] + end[2]),
+            ];
+            j.push(joint(n("Shoulder_split"), Some(&parent), mid));
+            parent = n("Shoulder_split");
+        }
+        let (ax, ay, az) = (end[0], end[1], end[2]);
+        j.push(joint(n("Arm"), Some(&parent), end));
+        j.push(joint(n("ForeArm"), Some(&n("Arm")), [ax + 0.28 * x, ay, az]));
+        j.push(joint(n("Hand"), Some(&n("ForeArm")), [ax + 0.54 * x, ay, az]));
+        j.push(joint(n("HandMiddle1"), Some(&n("Hand")), [ax + 0.66 * x, ay, az]));
+        j.push(joint(n("UpLeg"), Some("Hips"), [0.09 * x, 0.95, 0.0]));
+        j.push(joint(n("Leg"), Some(&n("UpLeg")), [0.09 * x, 0.52, 0.0]));
+        j.push(joint(n("Foot"), Some(&n("Leg")), [0.09 * x, 0.08, -0.02]));
+        j.push(joint(n("ToeBase"), Some(&n("Foot")), [0.09 * x, 0.0, 0.08]));
+    }
+    placed(&j)
+}
+
+/// A clip of `from` turning its left `bone` in the world by each of `turns`, the rest held.
+fn turning(from: &Skeleton, bone: &str, turns: &[Quat]) -> Clip {
+    let b = from.index_of(bone).expect("bone");
+    let mut clip = Clip::default();
+    for (k, &q) in turns.iter().enumerate() {
+        let mut pose = from.rest();
+        pose[b].rotation = q;
+        clip.times.push(k as f32);
+        clip.poses.push(pose);
+    }
+    clip
+}
+
+#[test]
+fn a_collarbone_sloped_back_at_rest_turns_as_the_source_turns() {
+    // One rig's collarbones run straight out to the shoulders, another's back to them. A shrug lifts both as it lifts
+    // the source's; it isn't turned about another axis to make up for how the bones were built.
+    let from = collared([0.18, 1.45, 0.0], false);
+    let to = collared([0.16, 1.45, -0.08], false);
+    let map = Mapping::new(&from, &to);
+    let shrugs = [
+        Quat::from_rotation_z(0.35),
+        Quat::from_rotation_x(0.3) * Quat::from_rotation_z(0.2),
+    ];
+    let clip = turning(&from, "LeftShoulder", &shrugs);
+    let out = map.apply(&from, &to, &clip).unwrap();
+    let (s, t) = (
+        from.index_of("LeftShoulder").unwrap(),
+        to.index_of("LeftShoulder").unwrap(),
+    );
+    let (s0, t0) = (from.world(&from.rest())[s].rotation, to.world(&to.rest())[t].rotation);
+    for (pose, played) in clip.poses.iter().zip(&out.poses) {
+        let ds = from.world(pose)[s].rotation * s0.inverse();
+        let dt = to.world(played)[t].rotation * t0.inverse();
+        let off = ds.angle_between(dt).to_degrees();
+        assert!(off < 0.5, "the collarbone turns {off:.1}° off the source's turn");
+    }
+}
+
+#[test]
+fn a_collarbone_in_two_stays_put_as_the_arm_rises() {
+    // A collarbone split halfway, as Mixamo's skeletons in SAN's test set have, sits between the collarbone and the
+    // upper arm. It stays with the collarbone as the arm rises, twisting only as the arm twists about it.
+    let from = mixamo_like();
+    let to = collared([0.18, 1.45, 0.0], true);
+    let map = Mapping::new(&from, &to);
+    let clip = turning(
+        &from,
+        "LeftArm",
+        &[Quat::from_rotation_z(1.2), Quat::from_rotation_y(0.8)],
+    );
+    let out = map.apply(&from, &to, &clip).unwrap();
+    let (split, arm) = (
+        to.index_of("LeftShoulder_split").unwrap(),
+        to.index_of("LeftArm").unwrap(),
+    );
+    let rest = to.world(&to.rest());
+    let way = |w: &[dittomo::Placed]| (w[arm].position() - w[split].position()).normalize();
+    for played in &out.poses {
+        let w = to.world(played);
+        let off = way(&w).angle_between(way(&rest)).to_degrees();
+        assert!(off < 0.5, "the split collarbone swings {off:.1}° with the arm");
+    }
+}

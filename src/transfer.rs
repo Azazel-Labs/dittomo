@@ -4,8 +4,9 @@
 //! corrected for the two rest poses: at rest the source bone and its next mapped bones point one way, the target's
 //! another, and the turn that best takes the one set of directions to the other (`fix`) is undone first. So the
 //! target's bones point where the source's do, frame by frame, whatever each rig's rest pose and bone axes; the spine,
-//! head and feet, which every rig holds alike at rest, are matched rest to rest (`plan`). A bone between two mapped
-//! bones takes its share of their turns by how far along it is, and one beside a mapped bone, starting where it starts
+//! head, collarbones and feet, which every rig holds alike at rest, are matched rest to rest (`plan`). A bone between
+//! two mapped bones takes its share of their turns by how far along it is (only of the twist, if the bone below is a
+//! limb's joint), and one beside a mapped bone, starting where it starts
 //! and pointing along it, turns with it; any other keeps its rest pose under its parent. The topmost mapped bones and
 //! any whose source moves (not just turns) travel as their source does, scaled by how high each stands.
 //!
@@ -38,6 +39,9 @@ enum Plan {
         above: usize,
         below: usize,
         along: f32,
+        /// Where the bone below is a limb's joint, the line from this bone to it at rest: the bone keeps the turn of
+        /// the one above, taking only its share of the twist about this line.
+        twist: Option<Vec3>,
     },
 }
 
@@ -356,8 +360,15 @@ impl Player {
                     });
                     (whole(up_r.inverse() * w), at, w)
                 }
-                Plan::Between { above, below, along } => {
-                    let w = self.turned[above].lerp(self.turned[below], along) * self.t_rest_rot[b];
+                Plan::Between {
+                    above,
+                    below,
+                    along,
+                    twist,
+                } => {
+                    let (a, z) = (self.turned[above], self.turned[below]);
+                    let w =
+                        twist.map_or_else(|| a.lerp(z, along), |axis| twisted(a, z, axis, along)) * self.t_rest_rot[b];
                     (whole(up_r.inverse() * w), rest.translation, w)
                 }
             };
@@ -378,6 +389,22 @@ impl Player {
     pub(crate) fn held(&self) -> &[Option<Held>; 2] {
         &self.held
     }
+}
+
+/// `above` turned on by `along` of the twist about `axis` that `below` has from it. A bone partway down to a limb's
+/// joint lies along the bone above it in the source, so it turns with that one: blended toward the one below, a split
+/// collarbone would take half the upper arm's raise and lift the shoulder, and a twist bone in a forearm half the
+/// wrist's bend. A twist about the line to the joint leaves the joint where it is, and spreads a forearm's roll.
+fn twisted(above: Quat, below: Quat, axis: Vec3, along: f32) -> Quat {
+    let d = above.inverse() * below;
+    let roll = Vec3::new(d.x, d.y, d.z).dot(axis) * axis;
+    let t = Quat::from_xyzw(roll.x, roll.y, roll.z, d.w);
+    let t = if t.length_squared() > 1e-12 {
+        t.normalize()
+    } else {
+        Quat::IDENTITY
+    };
+    (above * Quat::IDENTITY.lerp(t, along)).normalize()
 }
 
 /// A turn that is whole but for rounding (a product of whole turns) made whole again, with a step of Newton's method
@@ -419,7 +446,8 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// the source looks. Feet and toes are matched rest to rest too, turned only about the vertical to point the same way:
 /// every rig stands flat at rest, and how steeply the ankle comes down to the toes is anatomy (a high ankle over a
 /// short foot), so fitting it would tip the target's toes into the floor or its heels off it. Limbs differ at rest by
-/// pose (arms down or out), so they are matched by direction. The spine, hips to chest, is matched rest to rest as
+/// pose (arms down or out), so they are matched by direction, but for the collarbones, matched rest to rest: how one
+/// slopes up or back to the shoulder is anatomy. The spine, hips to chest, is matched rest to rest as
 /// well: every rig stands upright at rest, and how far its chest sits ahead of its hips or behind, or where the legs
 /// and arms hang from them, is anatomy too (one rig's back curves, another's hip joints sit behind its pelvis bone), so
 /// fitting those would tip the pelvis or hunch the chest of a target standing as the source stands. So is any bone on
@@ -428,8 +456,16 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// a half turn, legs swapped and the hips twisted. A tail, on the middle but a limb of its own, goes the source's way.
 fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Vec<(usize, usize, f32)>) {
     let n = t.children.len();
-    let ((s_spine, s_neck), (t_spine, t_neck)) = (contact::axis(source, s), contact::axis(target, t));
-    let (s_feet, t_feet) = (feet(source, s), feet(target, t));
+    let (sf, tf) = (contact::frame(source, s), contact::frame(target, t));
+    let (s_spine, s_neck, s_collar) = (&sf.spine, &sf.above, &sf.collar);
+    let (t_spine, t_neck, t_collar) = (&tf.spine, &tf.above, &tf.collar);
+    let (s_feet, t_feet) = (feet(source, &sf.legs), feet(target, &tf.legs));
+    let mut joint = vec![false; n];
+    for l in tf.legs.iter().chain(&tf.arms) {
+        for b in [l.upper, l.lower, l.end] {
+            joint[b] = true;
+        }
+    }
     let turn = map.turn();
     let mapped = |b: usize| map.source_of(b);
     let left = map.left();
@@ -505,6 +541,9 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
             .collect();
         let fix = match pairs.as_slice() {
             _ if s_neck[a] && t_neck[b] || s_spine.contains(&a) && t_spine.contains(&b) => Quat::IDENTITY,
+            // A collarbone is matched rest to rest too: how it slopes up or back to the shoulder is anatomy, where
+            // rigs differ at rest by pose in the upper arm (down or out), not there.
+            _ if s_collar[a] && t_collar[b] => Quat::IDENTITY,
             _ if s_feet[a] && t_feet[b] => {
                 let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
                 pairs
@@ -582,6 +621,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
             above: top,
             below: low,
             along,
+            twist: joint[low].then(|| (t.rest[low].position() - t.rest[b].position()).normalize_or_zero()),
         };
     }
     // A bone with nothing mapped under it that starts where a mapped sibling starts and points along it, as VRoid's
@@ -619,6 +659,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
                 above: l,
                 below: l,
                 along: 0.0,
+                twist: None,
             };
         }
     }
@@ -626,9 +667,9 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
 }
 
 /// Whether each bone is a foot (the end of a leg) or under one.
-fn feet(skeleton: &Skeleton, s: &Shape) -> Vec<bool> {
+fn feet(skeleton: &Skeleton, legs: &[contact::Limb]) -> Vec<bool> {
     let mut feet = vec![false; skeleton.len()];
-    for leg in contact::legs_of(skeleton, s) {
+    for leg in legs {
         feet[leg.end] = true;
     }
     for (b, bone) in skeleton.bones().iter().enumerate() {

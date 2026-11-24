@@ -335,7 +335,8 @@ fn body(rig: &Rig) -> Option<[Vec3; 3]> {
 /// to its toes is anatomy, so matching that slope would push one rig's toes into the floor; a foot should turn as the
 /// source's does. The trunk's (hips to chest, chest to head) is how it leans: straight up, tilted as the segment has
 /// tilted from rest. Every rig stands upright at rest, and how far its chest sits ahead of its hips or behind, or its
-/// head ahead of its chest, is anatomy too.
+/// head ahead of its chest, is anatomy too. So is how a collarbone slopes up or back to the shoulder: its is straight
+/// out to its side, tilted as it has tilted from rest. Rigs differ at rest in their upper arms (down or out), not there.
 fn angles(rig: &Rig, frame: &[Vec3; 3], pose: &[Transform]) -> Vec<Option<Vec3>> {
     let s = &rig.model.skeleton;
     let (world, rest) = (s.world(pose), s.world(&s.rest()));
@@ -346,12 +347,17 @@ fn angles(rig: &Rig, frame: &[Vec3; 3], pose: &[Transform]) -> Vec<Option<Vec3>>
             let d = if ja.ends_with("_foot") {
                 let d = rest[b].position() - rest[a].position();
                 world[a].rotation * rest[a].rotation.inverse() * (d - frame[1] * frame[1].dot(d))
-            } else if matches!(*ja, "hips" | "chest") {
+            } else if let Some(built) = match *ja {
+                "hips" | "chest" => Some(frame[1]),
+                "l_clavicle" => Some(frame[0]),
+                "r_clavicle" => Some(-frame[0]),
+                _ => None,
+            } {
                 let (was, now) = (
                     rest[b].position() - rest[a].position(),
                     world[b].position() - world[a].position(),
                 );
-                Quat::from_rotation_arc(was.normalize(), now.normalize()) * frame[1]
+                Quat::from_rotation_arc(was.normalize(), now.normalize()) * built
             } else {
                 world[b].position() - world[a].position()
             };
