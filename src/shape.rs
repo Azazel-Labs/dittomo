@@ -221,9 +221,18 @@ impl Shape {
             .zip(&inward)
             .map(|(d, w): (Vec3, &Vec3)| if d == Vec3::ZERO { *w } else { d })
             .collect();
+        // A bone marking where a chain ends (a BVH's End Site, Mixamo's `_End`) makes no limb of the one it hangs from,
+        // a twist bone say.
+        let mut joints = vec![0usize; n];
+        for i in (0..n).rev() {
+            joints[i] += usize::from(!names[i].end());
+            if let Some(p) = skeleton.bones()[i].parent {
+                joints[p] += joints[i];
+            }
+        }
         let forks = children
             .iter()
-            .map(|kids| kids.iter().filter(|&&c| under[c] >= 2).count() >= 2)
+            .map(|kids| kids.iter().filter(|&&c| joints[c] >= 2).count() >= 2)
             .collect();
         let length = (0..n)
             .map(|i| {

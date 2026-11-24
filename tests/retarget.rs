@@ -374,6 +374,36 @@ fn names_from_another_tool_extra_bones_and_another_spine_still_match() {
 }
 
 #[test]
+fn end_bones_under_every_leaf_change_nothing() {
+    // As a BVH reads: a bone for each End Site, under twist bones as much as under fingers and toes.
+    let rig = humanoid(Style {
+        naming: Naming::Unreal,
+        twists: true,
+        fingers: true,
+        ..Style::default()
+    });
+    let mut bones = rig.skeleton.bones().to_vec();
+    for (i, b) in rig.skeleton.bones().iter().enumerate() {
+        if rig.skeleton.bones().iter().all(|c| c.parent != Some(i)) {
+            bones.push(Bone {
+                name: format!("{}_end", b.name),
+                parent: Some(i),
+                rest: Transform::new(0.3 * b.rest.translation, Quat::IDENTITY),
+            });
+        }
+    }
+    let ended = Skeleton::new(bones).expect("parents first");
+    for (from, to) in [(&rig.skeleton, &ended), (&ended, &rig.skeleton)] {
+        let map = Mapping::new(from, to);
+        // The end bones themselves play nothing, which costs a little.
+        assert!(map.quality() > 0.93, "quality {}", map.quality());
+        for b in 0..rig.skeleton.len() {
+            assert_eq!(map.source_of(b), Some(b), "{}", rig.skeleton.bones()[b].name);
+        }
+    }
+}
+
+#[test]
 fn legs_hung_off_a_pelvis_both_match() {
     // The pelvis stands between the hips and both legs on one rig; the other hangs its legs and its spine off the
     // hips alike. Both legs must find their match, whichever way round, by names or by shape alone.
