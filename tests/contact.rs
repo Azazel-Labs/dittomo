@@ -1160,6 +1160,68 @@ fn live_gives_a_clip_walked_in_place_its_travel() {
 }
 
 #[test]
+fn by_default_a_clip_walked_in_place_stays_in_place_its_feet_planted_on_the_way() {
+    // A clip made for a game that moves the character itself walks in place, and the target should too, not walk off
+    // where the source doesn't. Its feet are planted on the travel the source's imply, then the travel is taken off
+    // again: the legs are posed as they'd be walking, and the body stays where the source's is.
+    let source = common::mixamo();
+    let target = long_legs(&source, 1.3);
+    let frames = 90;
+    let in_place = common::gait(&source, frames, true);
+    let map = Mapping::new(&source, &target);
+    let kept = map.apply_with(&source, &target, &in_place, Fixes::default()).unwrap();
+    let plain = map.apply(&source, &target, &in_place).unwrap();
+    let walking = Fixes {
+        travel: true,
+        feet: true,
+        ..Fixes::NONE
+    };
+    let walked = map.apply_with(&source, &target, &in_place, walking).unwrap();
+    let feet = Fixes {
+        feet: true,
+        ..Fixes::NONE
+    };
+    let planted = map.apply_with(&source, &target, &in_place, feet).unwrap();
+    let h = height(&target);
+    let (mut stayed, mut turned) = (0.0f32, 0.0f32);
+    for f in 0..frames {
+        for b in 0..target.len() {
+            let (p, q) = (planted.poses[f][b], walked.poses[f][b]);
+            stayed = stayed.max(p.translation.distance(plain.poses[f][b].translation) / h);
+            turned = turned.max(1.0 - p.rotation.dot(q.rotation).abs());
+        }
+    }
+    assert!(
+        stayed < 1e-5,
+        "the body moved {stayed} of its height from where the source's is"
+    );
+    assert!(turned < 1e-6, "posed {turned} off from walking");
+    // Live, the same: planted as it walks, kept where the source is.
+    for delay in [0, 6] {
+        let online = late(&map, &source, &target, &in_place, feet, delay);
+        let walking_live = late(&map, &source, &target, &in_place, walking, delay);
+        let (mut stayed, mut turned) = (0.0f32, 0.0f32);
+        for f in 0..frames {
+            for b in 0..target.len() {
+                let (p, q) = (online.poses[f][b], walking_live.poses[f][b]);
+                stayed = stayed.max(p.translation.distance(plain.poses[f][b].translation) / h);
+                turned = turned.max(1.0 - p.rotation.dot(q.rotation).abs());
+            }
+        }
+        assert!(
+            stayed < 1e-5,
+            "{delay} late: moved {stayed} of its height from where the source is"
+        );
+        assert!(turned < 1e-6, "{delay} late: posed {turned} off from walking");
+    }
+    // The other fixes leave a walk's travel alone too.
+    let root = |c: &Clip| c.poses[frames - 1][0].translation;
+    let off = root(&kept).distance(root(&plain)) / h;
+    assert!(off < 1e-3, "{off}");
+    assert!(root(&walked).distance(root(&plain)) / h > 0.5);
+}
+
+#[test]
 fn live_travel_finds_the_ground_feet_walk_on_above_their_rest() {
     // On tiptoe, say: the feet never come down to where they stand at rest, so the ground is where they come down to.
     let sk = common::mixamo();

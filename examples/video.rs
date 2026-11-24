@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! cargo run --release --features fs --example video -- SOURCE TARGET OUT.mp4 [--clip N|NAME] [--seconds S]
-//!     [--still FRAME OUT.png] [--fixes none|notouch] [--bare]
+//!     [--still FRAME OUT.png] [--fixes none|all|notouch] [--bare]
 //! ```
 //!
 //! `--bare` leaves the labels off, for frames to lay out elsewhere.
@@ -30,7 +30,7 @@ const FPS: f32 = 30.0;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut free = Vec::new();
-    let (mut clip_arg, mut seconds, mut still, mut fixes) = (None, None, None, Fixes::ALL);
+    let (mut clip_arg, mut seconds, mut still, mut fixes) = (None, None, None, Fixes::default());
     let mut bare = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -44,6 +44,7 @@ fn main() {
             "--bare" => bare = true,
             "--fixes" => match it.next().map(String::as_str) {
                 Some("none") => fixes = Fixes::NONE,
+                Some("all") => fixes = Fixes::ALL,
                 Some("notouch") => fixes.touch = false,
                 _ => {}
             },
@@ -148,10 +149,21 @@ fn main() {
         let t = start + (f as f32 / FPS) % length.max(f32::EPSILON);
         let s_pose = sample(clip, t);
         let dittomo_pose = sample(&played, t);
-        // The same travel as dittomo's, so only the rotations differ.
+        // The same travel as dittomo's for bones whose source moves, so only the rotations differ; the rest stay where
+        // they are at rest under their parents, as copying leaves them.
         let mut copied = dittomo_pose.clone();
         for (b, bone) in ts.bones().iter().enumerate() {
-            copied[b].rotation = map.source_of(b).map_or(bone.rest.rotation, |sb| s_pose[sb].rotation);
+            let source = map.source_of(b);
+            copied[b].rotation = source.map_or(bone.rest.rotation, |sb| s_pose[sb].rotation);
+            let moves = source.is_some_and(|sb| {
+                let rest = ss.bones()[sb].rest.translation;
+                clip.poses
+                    .iter()
+                    .any(|p| p[sb].translation.distance(rest) > 1e-4 * rest.length().max(1e-3))
+            });
+            if !moves {
+                copied[b].translation = bone.rest.translation;
+            }
         }
         let draw = still.as_ref().is_none_or(|(s, _)| *s == f);
         // Each panel skinned and drawn on its own thread.

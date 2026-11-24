@@ -1177,9 +1177,9 @@ fn dog(ears: &str) -> Skeleton {
 fn a_fox_and_a_dog_built_by_different_hands_find_each_others_legs() {
     // Measured from the Khronos Fox and the Quaternius Husky. Before, the dog's front legs, hanging ahead of the bone
     // they hang from, weren't taken for limbs; its ears were taken for the arms, and its IK handles, a front one on
-    // one side and a back one on the other, for a pair of legs.
+    // one side and a back one on the other, for a pair of legs. The paws, IK handles under the root, end the legs.
     let (fox, dog) = (fox(), dog("Neck3"));
-    // Which leg a bone is in, and on which side; none for the trunk, ears, tail and IK handles.
+    // Which leg a bone is in, and on which side; none for the trunk, ears, tail and pole targets.
     let leg = |name: &str| -> Option<(&str, &str)> {
         let side = if name.contains("Left") || name.ends_with(".L") {
             "left"
@@ -1188,9 +1188,10 @@ fn a_fox_and_a_dog_built_by_different_hands_find_each_others_legs() {
         } else {
             return None;
         };
-        if name.contains("Arm") || name.contains("Hand") || name.starts_with("Front") {
+        let front = ["Arm", "Hand", "Front", "FF."];
+        if front.iter().any(|f| name.contains(f)) {
             Some(("front", side))
-        } else if name.contains("Leg0") || name.contains("Foot") || name.starts_with("Back") {
+        } else if ["Leg0", "Foot", "Back", "FFB"].iter().any(|f| name.contains(f)) {
             Some(("hind", side))
         } else {
             None
@@ -1229,6 +1230,48 @@ fn a_fox_and_a_dog_built_by_different_hands_find_each_others_legs() {
 }
 
 #[test]
+fn paws_held_from_the_root_go_with_their_legs() {
+    // The Quaternius animals hang each paw from the root, placed by IK at the end of its leg. Played as they were, the
+    // paws stayed where they stood while the body walked off on its legs; played as the ends of their legs, they go
+    // with them, and come back under the root as the rig has them.
+    let (fox, dog) = (fox(), dog("Neck3"));
+    let map = Mapping::new(&fox, &dog);
+    let (hip, thigh) = (fox.index_of("b_Hip_01").unwrap(), fox.index_of("b_LeftLeg01").unwrap());
+    let n = 10;
+    let clip = Clip {
+        times: (0..n).map(|f| f as f32 / 10.0).collect(),
+        poses: (0..n)
+            .map(|f| {
+                let mut pose = fox.rest();
+                pose[hip].translation.z += 0.05 * f as f32;
+                pose[thigh].rotation = Quat::from_rotation_x(0.4 * (f as f32 * 0.7).sin());
+                pose
+            })
+            .collect(),
+    };
+    let out = map.apply(&fox, &dog, &clip).expect("plays");
+    let rest = dog.world(&dog.rest());
+    for side in ["L", "R"] {
+        for (paw, leg) in [("IKFrontLeg", "FrontLowerLeg"), ("IKBackLeg", "BackLowerLeg")] {
+            let (p, l) = (
+                dog.index_of(&format!("{paw}.{side}")).unwrap(),
+                dog.index_of(&format!("{leg}.{side}")).unwrap(),
+            );
+            assert_eq!(dog.bones()[p].parent, Some(0));
+            let reach = rest[p].position().distance(rest[l].position());
+            let mut went = 0.0f32;
+            for pose in &out.poses {
+                let w = dog.world(pose);
+                let off = w[p].position().distance(w[l].position()) - reach;
+                assert!(off.abs() < 1e-4, "{paw}.{side} {off} from the end of its leg");
+                went = went.max(w[p].position().z - rest[p].position().z);
+            }
+            assert!(went > 0.2, "{paw}.{side} went {went}");
+        }
+    }
+}
+
+#[test]
 fn a_head_with_the_ears_beside_it_plays_one_with_the_ears_on_it() {
     // The Quaternius husky hangs its ears from the neck beside the head, and the horse from the head. The match keeps
     // what's under a bone under its partner, so it paired the eight ear bones and left the heads out.
@@ -1245,7 +1288,8 @@ fn a_head_with_the_ears_beside_it_plays_one_with_the_ears_on_it() {
 #[test]
 fn wide_hips_with_legs_that_stop_at_the_knee_still_start_the_legs() {
     // A toy robot's legs hang from far out at the sides of its hips and stop at the knee, its feet hanging from the
-    // root for IK, and its hands reach far forward; a slim figure's legs hang from close in and go on to the toes. By
+    // root for IK (one listed before its leg, one after) and ending the legs all the same, and its hands reach far
+    // forward; a slim figure's legs hang from close in and go on to the toes. By
     // length and reach the figure's shin looks more like the robot's thigh than the figure's thigh does; but the legs
     // start where they hang from the hips. (Both laid out as glTF's CesiumMan and RobotExpressive are.)
     let rig = |j: &[(&str, Option<&str>, [f32; 3])]| placed(&j.iter().map(|&(n, p, at)| joint(n, p, at)).collect());
@@ -1352,8 +1396,10 @@ fn wide_hips_with_legs_that_stop_at_the_knee_still_start_the_legs() {
             [
                 ("leg_joint_L_1", "UpperLeg.L"),
                 ("leg_joint_L_2", "LowerLeg.L"),
+                ("leg_joint_L_3", "Foot.L"),
                 ("leg_joint_R_1", "UpperLeg.R"),
                 ("leg_joint_R_2", "LowerLeg.R"),
+                ("leg_joint_R_3", "Foot.R"),
             ],
         ),
         (
@@ -1362,8 +1408,10 @@ fn wide_hips_with_legs_that_stop_at_the_knee_still_start_the_legs() {
             [
                 ("UpperLeg.L", "leg_joint_L_1"),
                 ("LowerLeg.L", "leg_joint_L_2"),
+                ("Foot.L", "leg_joint_L_3"),
                 ("UpperLeg.R", "leg_joint_R_1"),
                 ("LowerLeg.R", "leg_joint_R_2"),
+                ("Foot.R", "leg_joint_R_3"),
             ],
         ),
     ] {

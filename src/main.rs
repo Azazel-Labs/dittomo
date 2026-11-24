@@ -6,8 +6,8 @@
 //!
 //! Every clip of SOURCE is played on TARGET, or those named by `--clip` (by name, or by number from 0), each named as
 //! in SOURCE. TARGET's own clips are left out unless `--keep` is given. `--fixes none` plays the clips plainly, without
-//! feet kept planted, hands kept out of the body, and the rest; `--pairs` prints which bone of SOURCE each bone of
-//! TARGET follows.
+//! feet kept planted, hands kept out of the body, and the rest; `--fixes all` also gives a clip walked in place the
+//! travel its feet imply; `--pairs` prints which bone of SOURCE each bone of TARGET follows.
 //!
 //! An OUT ending in `.bvh` gets TARGET's skeleton and a clip as BVH motion capture, `--fps` frames a second (by default
 //! the clip's own rate, up to 120); with more than one clip, each goes to a file of its own, named OUT-CLIP.bvh.
@@ -36,7 +36,7 @@ fn main() -> ExitCode {
 
 fn run(args: Vec<String>) -> Result<(), String> {
     let mut files: Vec<PathBuf> = Vec::new();
-    let (mut picks, mut fixes, mut keep, mut pairs, mut fps) = (Vec::new(), Fixes::ALL, false, false, None);
+    let (mut picks, mut fixes, mut keep, mut pairs, mut fps) = (Vec::new(), Fixes::default(), false, false, None);
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         match a.as_str() {

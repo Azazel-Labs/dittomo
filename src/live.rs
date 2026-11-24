@@ -2,6 +2,7 @@
 //! by motion capture streaming in, a networked player, another animation system's output.
 
 use crate::contact::{self, Ahead, Body, Feet, Hands, OnHead, Scratch, Touch, Travel};
+use crate::held::{self, Held};
 use crate::shape::Shape;
 use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 
@@ -11,8 +12,8 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 /// Arms are kept out of the body, hands brought together, kept on the head and, given skins ([`Live::touching`]), kept
 /// at the skin's distance just as the whole clip has them, as those fixes look only at the pose in hand. Planted feet
 /// and travel are worked out as the poses come: a foot plants as soon as the source's is down and nearly still and lets
-/// go once it lifts, held where it was when it planted; a clip walked in place moves on as far as the planted foot
-/// slides back.
+/// go once it lifts, held where it was when it planted. A clip walked in place is planted on the travel its feet imply,
+/// as far as the planted foot slides back, then kept in place unless [`Fixes::travel`] moves it on.
 ///
 /// A foot can be held only once it has landed, where the whole clip eases it toward where it will land, so planted
 /// feet slide more. [`Live::delayed`] plays each pose a few poses late, and plants feet with those few in sight as the
@@ -30,9 +31,18 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 /// ```
 pub struct Live {
     player: Player,
+    /// Feet held from the root in the source and in the target, played as the ends of their legs, and the source's
+    /// and target's poses with their held feet hung.
+    held: [Option<Held>; 2],
+    hung: [Vec<Transform>; 2],
     source: Skeleton,
     target: Skeleton,
+    /// The travel a clip walked in place gets, for travel or for planting its feet.
     travel: Option<Travel>,
+    /// Whether the travel is only for planting feet, taken off again after, so a clip walked in place stays in place.
+    treadmill: bool,
+    /// The target playing the source's pose without its travel, if the travel is taken off.
+    still: Vec<Transform>,
     feet: Option<Feet>,
     /// The target's body, if arms are kept out of it or hands meet.
     body: Option<Body>,
@@ -50,8 +60,9 @@ pub struct Live {
     scratch: Scratch,
     /// If poses are played late, the feet planted with those ahead in sight.
     ahead: Option<Ahead>,
-    /// If poses are played late, the last few: each the source's pose with its travel, and the target playing it.
-    kept: Vec<(Vec<Transform>, Vec<Transform>)>,
+    /// If poses are played late, the last few: each the source's pose with its travel, the target playing it, and the
+    /// target playing it without, if the travel is taken off.
+    kept: Vec<(Vec<Transform>, Vec<Transform>, Vec<Transform>)>,
     /// How many poses have come since the start or the last reset.
     seen: usize,
 }
@@ -81,6 +92,12 @@ impl Live {
         if source.len() != map.sources() || target.len() != map.pairs().len() {
             return Err(Error::NotTheirMapping);
         }
+        let held = [held::held(source), held::held(target)];
+        let source = held[0].as_ref().map_or(source, |h| &h.skeleton);
+        let target = held[1].as_ref().map_or(target, |h| &h.skeleton);
+        let map = &*map.hung([held[0].as_ref(), held[1].as_ref()]);
+        let hung_skins = [0, 1].map(|i| held[i].as_ref().map(|h| h.skin(skins[i])));
+        let skins = [0, 1].map(|i| hung_skins[i].as_ref().unwrap_or(skins[i]));
         let (s, t) = (Shape::light(source), Shape::light(target));
         let rigs = [(source, &s), (target, &t)];
         let player = Player::of_shapes(map, source, target, &s, &t);
@@ -103,7 +120,11 @@ impl Live {
         let push_out = t_body.as_ref().filter(|_| fixes.push_out).map(|b| b.path(target));
         let mut live = Self {
             player,
-            travel: fixes.travel.then(|| Travel::new(source, &s)).flatten(),
+            held: held.clone(),
+            hung: [Vec::new(), Vec::new()],
+            travel: (fixes.travel || fixes.feet).then(|| Travel::new(source, &s)).flatten(),
+            treadmill: !fixes.travel,
+            still: target.rest(),
             feet: fixes.feet.then(|| Feet::new(map, rigs)).flatten(),
             push_out,
             body: t_body,
@@ -151,7 +172,7 @@ impl Live {
             .then(|| self.feet.as_ref().map(|f| Ahead::new(f, poses)))
             .flatten();
         self.kept = if poses > 0 {
-            vec![(self.source.rest(), self.target.rest()); poses + 1]
+            vec![(self.source.rest(), self.target.rest(), self.target.rest()); poses + 1]
         } else {
             Vec::new()
         };
@@ -171,7 +192,9 @@ impl Live {
     /// # Errors
     /// If the clip doesn't pose the source.
     pub fn moving_in(&mut self, clip: &crate::Clip) -> Result<&mut Self, Error> {
-        self.player.moving_in(clip)?;
+        clip.check(self.source.len())?;
+        let hung = self.held[0].as_ref().map(|h| h.hang_clip(clip));
+        self.player.moving_in(hung.as_ref().unwrap_or(clip))?;
         Ok(self)
     }
 
@@ -209,9 +232,42 @@ impl Live {
                 });
             }
         }
-        if !self.kept.is_empty() {
-            return self.pose_late(dt, source, out);
+        let mut hung = std::mem::take(&mut self.hung);
+        let [s_hung, t_hung] = &mut hung;
+        let source = match &self.held[0] {
+            Some(h) => {
+                s_hung.clear();
+                s_hung.extend_from_slice(source);
+                h.hang(source, s_hung);
+                &s_hung[..]
+            }
+            None => source,
+        };
+        let held = self.held[1].take();
+        let target = match &held {
+            Some(h) => {
+                t_hung.clear();
+                t_hung.extend_from_slice(out);
+                h.hang(out, t_hung);
+                &mut t_hung[..]
+            }
+            None => &mut *out,
+        };
+        let done = if self.kept.is_empty() {
+            self.pose_now(dt, source, target)
+        } else {
+            self.pose_late(dt, source, target)
+        };
+        if let Some(h) = &held {
+            h.unhang(t_hung, out);
         }
+        self.held[1] = held;
+        self.hung = hung;
+        done
+    }
+
+    /// [`Self::pose`], played as it comes, with any held feet hung from their legs in both poses.
+    fn pose_now(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<(), Error> {
         let from = match &mut self.travel {
             Some(t) => {
                 t.pose(
@@ -233,6 +289,10 @@ impl Live {
         if let Some(f) = &mut self.feet {
             f.pose(&self.target, dt, out, &mut self.scratch);
         }
+        if self.treadmill && self.travel.is_some() {
+            self.player.pose(source, &mut self.still)?;
+            keep_translations(out, &self.still);
+        }
         if let (Some(path), Some(body)) = (&self.push_out, &self.body) {
             contact::push_pose(&self.target, body, path, out, &mut self.scratch);
         }
@@ -251,7 +311,7 @@ impl Live {
     /// [`Self::pose`], played [`Self::delay`] poses late.
     fn pose_late(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<(), Error> {
         let n = self.kept.len();
-        let (walked, played) = &mut self.kept[self.seen % n];
+        let (walked, played, still) = &mut self.kept[self.seen % n];
         match &mut self.travel {
             Some(t) => t.pose(&self.source, dt, source, walked, &mut self.scratch, Some(&self.s_now)),
             None => {
@@ -260,15 +320,22 @@ impl Live {
             }
         }
         self.player.pose(walked, played)?;
+        let treadmill = self.treadmill && self.travel.is_some();
+        if treadmill {
+            self.player.pose(source, still)?;
+        }
         if let Some(a) = &mut self.ahead {
             a.see(&self.target, dt, played, &mut self.scratch);
         }
         let due = self.seen.saturating_sub(n - 1);
         self.seen += 1;
-        let (from, played) = &self.kept[due % n];
+        let (from, played, still) = &self.kept[due % n];
         out.copy_from_slice(played);
         if let Some(a) = &mut self.ahead {
             a.fix(&self.target, due, out, &mut self.scratch);
+        }
+        if treadmill {
+            keep_translations(out, still);
         }
         if let (Some(path), Some(body)) = (&self.push_out, &self.body) {
             contact::push_pose(&self.target, body, path, out, &mut self.scratch);
@@ -286,5 +353,13 @@ impl Live {
             t.placed(&self.target, out, &mut self.scratch);
         }
         Ok(())
+    }
+}
+
+/// Each bone's translation from a pose played without the travel, its turn kept: the legs stay posed as they were
+/// planted, the body where the source's is.
+fn keep_translations(out: &mut [Transform], still: &[Transform]) {
+    for (b, k) in out.iter_mut().zip(still) {
+        b.translation = k.translation;
     }
 }

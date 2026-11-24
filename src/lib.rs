@@ -31,6 +31,7 @@
 mod assign;
 pub mod bvh;
 pub mod contact;
+mod held;
 mod live;
 #[cfg(feature = "load")]
 pub mod load;

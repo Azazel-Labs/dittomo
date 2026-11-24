@@ -46,9 +46,9 @@ fn stream(source: &Skeleton, target: &Skeleton, poses: impl Iterator<Item = (f32
 
 Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as soon
 as the source's are down and nearly still, held where they were shown the pose before so they don't slide as they
-settle, and a clip walked in place moves on as far as the planted foot slides back. `Live::touching`, given both rigs'
-skins, keeps hands at the skin's distance too, just as the whole clip does. `Live::delayed(6)` plays each pose six poses
-late, a fifth of a second at 30 a second, and plants feet with those six in sight as the whole clip does: eased in
+settle; a clip walked in place is planted on the travel its feet imply, then kept in place. `Live::touching`, given both
+rigs' skins, keeps hands at the skin's distance too, just as the whole clip does. `Live::delayed(6)` plays each pose six
+poses late, a fifth of a second at 30 a second, and plants feet with those six in sight as the whole clip does: eased in
 before they land, held where they stand on average.
 
 The videos are rendered by `examples/video.rs`: the source, dittomo's copy, and the same clip with each bone's rotation
@@ -134,7 +134,7 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 | --- | ---: | ---: | ---: |
 | none (`apply`) | 0.00388 | 0.0097 | 1.3° |
 | travel | 0.00099 | 0.0097 | 1.3° |
-| planted feet | 0.00312 | 0.0022 | 2.3° |
+| planted feet | 0.00327 | 0.0015 | 2.5° |
 | push-out | 0.00388 | 0.0097 | 1.3° |
 | all (`apply_with`) | 0.00003 | 0.0015 | 2.6° |
 | all, live (`Live`) | 0.00004 | 0.0015 | 2.7° |
@@ -192,7 +192,7 @@ dittomo finds the bones itself, needs no training, and beats SAN on both. Three 
 - SAN's paper gives 8.86 for its copy baseline; unscaled, these runs get 43.0, mostly from Mousey being about half
   BigVegas's height. The scaled copy is the fair baseline.
 - The travel fix, which adds the travel an in-place clip's feet imply, does harm here (8.1 and 14.2): Mixamo's in-place
-  dances, like "Dancing Running Man", are meant to stay put.
+  dances, like "Dancing Running Man", are meant to stay put. It is off by default for that reason.
 
 ### Speed
 
@@ -302,15 +302,18 @@ clip, each goes to a file of its own.
 
 ## Contact fixes
 
-`Fixes` turns each on or off; all are on by default. None of them need bone names: legs and arms are found from the rest
-pose alone (`contact::legs`, `contact::arms`). The spine runs from the biggest root to the highest bone. A leg ends in a
-bone near the floor on a chain hanging from the spine; an arm ends at the first bone whose children split the chain
-evenly, as fingers do. The knee or elbow is the joint along the chain standing farthest from both the spine and the
-end, and the hip or shoulder the one above it farthest from both, so twist bones, sleeves and helpers along the way
-don't count. The arms are the chains off the one spine bone whose chains end in the most bones, so hair, capes and
+`Fixes` turns each on or off; all but travel are on by default. None of them need bone names: legs and arms are found
+from the rest pose alone (`contact::legs`, `contact::arms`). The spine runs from the biggest root to the highest bone. A
+leg ends in a bone near the floor on a chain hanging from the spine; an arm ends at the first bone whose children split
+the chain evenly, as fingers do. The knee or elbow is the joint along the chain standing farthest from both the spine
+and the end, and the hip or shoulder the one above it farthest from both, so twist bones, sleeves and helpers along the
+way don't count. The arms are the chains off the one spine bone whose chains end in the most bones, so hair, capes and
 tails are left out, and fingers hanging low aren't taken for feet.
 
 - **Travel.** A clip walked in place gets the travel its planted feet imply. A clip that already travels is left alone.
+  Off by default, as a clip made for a game that moves the character itself should stay in place: its feet are still
+  planted on the travel they imply, then the travel is taken off again, so the legs are posed as they'd be walking and
+  the body stays where the source's is.
 - **Planted feet.** Where the source's foot is planted, the target's is held where it lands, as high over where it
   stands at rest as the source's is over its own, scaled to the target, or higher if a toe would otherwise come lower
   than the source's does: ankles stand higher over the toes on some rigs than others, so a foot rolled onto its toes
@@ -390,6 +393,12 @@ A target bone between two mapped ones takes its share of their turns by how far 
 long one smoothly. Other unmapped bones keep their rest pose under their parent. The topmost mapped bones, and any whose
 source moves rather than only turns, travel as their source does, scaled by how high each stands.
 
+Some rigs hang a foot or paw from the root rather than from its leg, for IK to place it at the leg's end. Played as it
+is, it stays where it stood while the body walks off. A low bone hanging from the root (or a bone holding half the
+skeleton) straight under a limb that stops short of the floor is taken for that limb's end: the clip is played with the
+bone hung from the limb, then put back under the root where it was, so it goes with its leg. The Quaternius animals
+hang their paws this way, and the toy robot its feet.
+
 ## Tested on
 
 The twelve real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
@@ -401,16 +410,17 @@ two to five spine bones, T-pose against A-pose, three conventions for bone axes,
 against meters, and different leg lengths. A sweep of 300 such pairs all map correctly, with every limb within a degree
 of the source's direction. A four-legged animal maps onto an unnamed one with a longer body and tail, and a fox laid out
 as glTF's sample Fox onto a dog laid out as the Quaternius animals (front legs ahead of the spine bone they hang from,
-four-bone ears, IK handles named for a side and an end) and back, each leg on the same leg; and that dog onto one with
-its ears hung from the head rather than beside it, as the Quaternius horse has them, each bone on its namesake. A snake
-mapped from a human is found to share little.
+four-bone ears, paws hung from the root for IK) and back, each leg on the same leg, the paws ending the legs; and that
+dog onto one with its ears hung from the head rather than beside it, as the Quaternius horse has them, each bone on its
+namesake. A snake mapped from a human is found to share little.
 
 <p align="center"><img src="assets/brand/animals.gif" alt="glTF's sample Fox walking; the same walk played by dittomo on a Quaternius husky, which walks it; and the walk's rotations copied onto the husky's paired bones, which tangle its legs" width="720"></p>
 
 The real ones, as `sh bench/animals/fetch.sh` fetches them: the Fox's walk played by dittomo on the husky, and copied
-onto the same bones as rotations. 18 of the husky's 50 bones are paired, spine, head, legs and the tail's first three;
-its ears, the tail's tip and the IK handles the fox has no match for keep their rest pose. Fox: mesh CC0 by PixelMannen,
-rig and animation CC-BY 4.0 by @tomkranis, glTF by @AsoboStudio and @scurest. Husky: Quaternius, CC0.
+onto the same bones as rotations. 23 of the husky's 50 bones are paired, spine, head, legs and the tail's first three;
+the paws, hung from the root for IK, are played as the ends of the legs and walk with them, and its ears and the tail's
+tip keep their rest pose. Fox: mesh CC0 by PixelMannen, rig and animation CC-BY 4.0 by @tomkranis, glTF by @AsoboStudio
+and @scurest. Husky: Quaternius, CC0.
 
 The contact tests walk a procedural gait (planted feet, swing, bobbing hips) on these rigs and on a longer-legged copy,
 and push a hand placed inside the chest back out. Their limb finding is tested on an avatar laid out as VRM exports

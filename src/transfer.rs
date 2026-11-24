@@ -18,6 +18,7 @@ mod crowd;
 use glam::{Affine3A, Mat3, Quat, Vec3};
 
 use crate::contact;
+use crate::held::{self, Held};
 use crate::shape::Shape;
 use crate::{Clip, Error, Mapping, Placed, Skeleton, Transform};
 
@@ -81,6 +82,10 @@ pub struct Player {
     turned: Vec<Quat>,
     t_rot: Vec<Quat>,
     t_mat: Vec<Affine3A>,
+    /// Feet held from the root in the source and in the target, played as the ends of their legs ([`held`]), and the
+    /// source's and target's poses with their held feet hung.
+    held: [Option<Held>; 2],
+    hung: [Vec<Transform>; 2],
 }
 
 impl Player {
@@ -93,13 +98,13 @@ impl Player {
         if source.len() != map.sources() || target.len() != map.pairs().len() {
             return Err(Error::NotTheirMapping);
         }
-        Ok(Self::of_shapes(
-            map,
-            source,
-            target,
-            &Shape::light(source),
-            &Shape::light(target),
-        ))
+        let held = [held::held(source), held::held(target)];
+        let source = held[0].as_ref().map_or(source, |h| &h.skeleton);
+        let target = held[1].as_ref().map_or(target, |h| &h.skeleton);
+        let map = map.hung([held[0].as_ref(), held[1].as_ref()]);
+        let mut player = Self::of_shapes(&map, source, target, &Shape::light(source), &Shape::light(target));
+        player.held = held;
+        Ok(player)
     }
 
     /// [`Player::new`], with each rig's shape already worked out, and the sizes already checked.
@@ -144,6 +149,8 @@ impl Player {
             turned: vec![Quat::IDENTITY; nt],
             t_rot: vec![Quat::IDENTITY; nt],
             t_mat: vec![Affine3A::IDENTITY; nt],
+            held: [None, None],
+            hung: [Vec::new(), Vec::new()],
         };
         player.needs();
         player
@@ -156,6 +163,8 @@ impl Player {
     /// If the clip doesn't pose the source.
     pub fn moving_in(&mut self, clip: &Clip) -> Result<&mut Self, Error> {
         clip.check(self.s_parent.len())?;
+        let hung = self.held[0].as_ref().map(|h| h.hang_clip(clip));
+        let clip = hung.as_ref().unwrap_or(clip);
         for (a, m) in self.moves.iter_mut().enumerate() {
             let r = self.s_rest_translation[a];
             *m = clip
@@ -213,6 +222,35 @@ impl Player {
                 });
             }
         }
+        let mut hung = std::mem::take(&mut self.hung);
+        let [s_hung, t_hung] = &mut hung;
+        let source = match &self.held[0] {
+            Some(h) => {
+                s_hung.clear();
+                s_hung.extend_from_slice(source);
+                h.hang(source, s_hung);
+                &s_hung[..]
+            }
+            None => source,
+        };
+        if let Some(h) = self.held[1].take() {
+            t_hung.clear();
+            t_hung.extend_from_slice(out);
+            h.hang(out, t_hung);
+            self.pose_hung(source, t_hung);
+            h.unhang(t_hung, out);
+            self.held[1] = Some(h);
+        } else {
+            self.pose_hung(source, out);
+        }
+        self.hung = hung;
+        Ok(())
+    }
+
+    /// [`Player::pose`], with any held feet hung from their legs in both poses.
+    fn pose_hung(&mut self, source: &[Transform], out: &mut [Transform]) {
+        let nt = self.t_parent.len();
+        let ns = self.s_parent.len();
         // The source in the world, as far as needed, its turns in the target's frame. Each turn is made whole before
         // it is chained, not after, so the bones down a chain needn't wait on it.
         let turn = self.turn;
@@ -274,7 +312,11 @@ impl Player {
             }
             out[b] = local;
         }
-        Ok(())
+    }
+
+    /// Feet held from the root, in the source and in the target.
+    pub(crate) fn held(&self) -> &[Option<Held>; 2] {
+        &self.held
     }
 }
 

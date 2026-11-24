@@ -13,10 +13,10 @@ use crate::shape::Shape;
 use crate::surface::{Around, Balls, Surface, Toward, under};
 use crate::{Clip, Mapping, Skeleton, Transform};
 
-/// The fixes [`Mapping::apply_with`] makes. All are on by default.
+/// The fixes [`Mapping::apply_with`] makes. All but travel are on by default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fixes {
-    /// Before playing a clip walked in place, give it the travel its planted feet imply ([`travel`]).
+    /// Before playing a clip walked in place, give it the travel its planted feet imply ([`travel`]). Off by default.
     pub travel: bool,
     /// While a source foot is planted, keep the target's still, reaching it with two-bone IK.
     pub feet: bool,
@@ -52,9 +52,14 @@ impl Fixes {
     };
 }
 
+/// Every fix but travel: a clip walked in place stays in place, as one made for a game that moves the character
+/// itself, its planted feet sliding back with the source's.
 impl Default for Fixes {
     fn default() -> Self {
-        Self::ALL
+        Self {
+            travel: false,
+            ..Self::ALL
+        }
     }
 }
 

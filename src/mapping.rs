@@ -15,6 +15,9 @@ use crate::contact::{self, Fixes};
 use crate::names::{self, Lexicon};
 use crate::shape::Shape;
 use crate::surface::Surface;
+use std::borrow::Cow;
+
+use crate::held::{self, Held};
 use crate::{Clip, Error, Skeleton, transfer};
 
 /// A target bone's source bone, and how alike the two were found, from 0 to 1 and over for a likeness better than the
@@ -38,8 +41,10 @@ impl Mapping {
     /// The mapping from `source` to `target` that pairs the most alike bones while keeping the trees' families.
     #[must_use]
     pub fn new(source: &Skeleton, target: &Skeleton) -> Self {
-        let s = Shape::of(source);
-        let t = Shape::of(target);
+        // Feet held from the root are matched as the ends of their legs.
+        let (hs, ht) = (held::held(source), held::held(target));
+        let s = Shape::of(hs.as_ref().map_or(source, |h| &h.skeleton));
+        let t = Shape::of(ht.as_ref().map_or(target, |h| &h.skeleton));
         let found = matched(&s, &t);
         let mut pairs = vec![None; target.len()];
         for (a, b, like) in found {
@@ -56,7 +61,35 @@ impl Mapping {
             turn: t.frame * s.frame.inverse(),
         };
         mapping.quality = mapping.weigh(&t);
+        // Back to the rigs' own orders.
+        mapping.reorder(
+            |a| hs.as_ref().map_or(a, |h| h.real(a)),
+            |b| ht.as_ref().map_or(b, |h| h.real(b)),
+        );
         mapping
+    }
+
+    /// This mapping between the skeletons with their held bones hung, in those skeletons' orders.
+    pub(crate) fn hung(&self, held: [Option<&Held>; 2]) -> Cow<'_, Self> {
+        if !held.iter().flatten().any(|h| h.reordered()) {
+            return Cow::Borrowed(self);
+        }
+        let mut out = self.clone();
+        let [hs, ht] = held;
+        out.reorder(|a| hs.map_or(a, |h| h.hung(a)), |b| ht.map_or(b, |h| h.hung(b)));
+        Cow::Owned(out)
+    }
+
+    /// Renumbers the bones: each source bone `a` becomes `source(a)`, and each target bone `b` becomes `target(b)`.
+    fn reorder(&mut self, source: impl Fn(usize) -> usize, target: impl Fn(usize) -> usize) {
+        let mut pairs = vec![None; self.pairs.len()];
+        for (b, p) in self.pairs.iter().enumerate() {
+            pairs[target(b)] = p.map(|p| Pair {
+                source: source(p.source),
+                ..p
+            });
+        }
+        self.pairs = pairs;
     }
 
     /// The source bone this target bone plays, if any.
@@ -135,18 +168,47 @@ impl Mapping {
             return Err(Error::NotTheirMapping);
         }
         clip.check(source.len())?;
+        // Feet held from the root are played as the ends of their legs, and put back at the end.
+        let (hs, ht) = (held::held(source), held::held(target));
+        let hung = hs.as_ref().map(|h| h.hang_clip(clip));
+        let clip = hung.as_ref().unwrap_or(clip);
+        let source = hs.as_ref().map_or(source, |h| &h.skeleton);
+        let target = ht.as_ref().map_or(target, |h| &h.skeleton);
+        let map = self.hung([hs.as_ref(), ht.as_ref()]);
+        let map = &*map;
+        let skinned = [
+            hs.as_ref().map(|h| h.skin(skins[0])),
+            ht.as_ref().map(|h| h.skin(skins[1])),
+        ];
+        let skins = [0, 1].map(|i| skinned[i].as_ref().unwrap_or(skins[i]));
         let (s, t) = (Shape::light(source), Shape::light(target));
-        let traveled = if fixes.travel {
+        // A clip walked in place is planted on the travel its feet imply, as its feet slide too fast to be taken for
+        // planted otherwise; without the travel fix the travel is taken off again after, so the target walks in place
+        // as the source does, its planted feet sliding back with the source's.
+        let traveled = if fixes.travel || fixes.feet {
             contact::traveled(source, &s, clip)
         } else {
             None
         };
-        let clip = traveled.as_ref().unwrap_or(clip);
-        let mut player = transfer::Player::of_shapes(self, source, target, &s, &t);
-        let mut out = transfer::play_on(&mut player, target, clip)?;
+        let walked = traveled.as_ref().unwrap_or(clip);
+        let mut player = transfer::Player::of_shapes(map, source, target, &s, &t);
+        let mut out = transfer::play_on(&mut player, target, walked)?;
         if fixes.feet {
-            contact::plant(self, [(source, &s), (target, &t)], clip, &mut out);
+            contact::plant(map, [(source, &s), (target, &t)], walked, &mut out);
         }
+        let clip = if fixes.travel {
+            walked
+        } else {
+            if traveled.is_some() {
+                let still = transfer::play_on(&mut player, target, clip)?;
+                for (pose, kept) in out.poses.iter_mut().zip(&still.poses) {
+                    for (b, k) in pose.iter_mut().zip(kept) {
+                        b.translation = k.translation;
+                    }
+                }
+            }
+            clip
+        };
         // Each body (its arms, spine and head), found once for every fix that needs it.
         let both = fixes.touch || fixes.hands || fixes.head;
         let mut t_body = (fixes.push_out || both).then(|| contact::body(target, &t)).flatten();
@@ -163,21 +225,24 @@ impl Mapping {
         if let (Some(sb), Some(tb)) = (&s_body, &t_body) {
             let (rigs, bodies) = ([(source, &s), (target, &t)], [sb, tb]);
             if fixes.hands {
-                contact::hands(self, rigs, bodies, clip, &mut out);
+                contact::hands(map, rigs, bodies, clip, &mut out);
             }
             if fixes.head {
-                contact::on_head(self, rigs, bodies, clip, &mut out);
+                contact::on_head(map, rigs, bodies, clip, &mut out);
             }
             // Last, as it sees the skin: the hands the others placed are brought to the gap the source's have.
             if fixes.touch {
                 contact::touch(
-                    self,
+                    map,
                     [(source, &s, skins[0]), (target, &t, skins[1])],
                     bodies,
                     clip,
                     &mut out,
                 );
             }
+        }
+        if let Some(h) = &ht {
+            h.unhang_clip(&mut out);
         }
         Ok(out)
     }

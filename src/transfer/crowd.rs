@@ -128,6 +128,8 @@ pub struct Crowd {
     turned: Vec<Turns>,
     t_rot: Vec<Turns>,
     t_mat: Vec<[Affine3A; LANES]>,
+    /// The sources' and targets' poses with their held feet hung, if the rigs have any.
+    hung: [Vec<Transform>; 2],
 }
 
 impl Crowd {
@@ -140,6 +142,7 @@ impl Crowd {
             turned: vec![Turns::IDENTITY; nt],
             t_rot: vec![Turns::IDENTITY; nt],
             t_mat: vec![[Affine3A::IDENTITY; LANES]; nt],
+            hung: [Vec::new(), Vec::new()],
             player,
         }
     }
@@ -166,9 +169,39 @@ impl Crowd {
                 });
             }
         }
-        for first in (0..n).step_by(LANES) {
-            self.lanes(first, n, source, out);
+        let mut hung = std::mem::take(&mut self.hung);
+        let [s_hung, t_hung] = &mut hung;
+        let source = match &self.player.held()[0] {
+            Some(h) => {
+                s_hung.clear();
+                s_hung.extend_from_slice(source);
+                for (pose, to) in source.chunks(ns).zip(s_hung.chunks_mut(ns)) {
+                    h.hang(pose, to);
+                }
+                &s_hung[..]
+            }
+            None => source,
+        };
+        let held = self.player.held()[1].is_some();
+        if held {
+            t_hung.clear();
+            t_hung.extend_from_slice(out);
         }
+        if let Some(h) = &self.player.held()[1] {
+            for (pose, to) in out.chunks(nt).zip(t_hung.chunks_mut(nt)) {
+                h.hang(pose, to);
+            }
+        }
+        let target = if held { &mut t_hung[..] } else { &mut *out };
+        for first in (0..n).step_by(LANES) {
+            self.lanes(first, n, source, target);
+        }
+        if let Some(h) = &self.player.held()[1] {
+            for (pose, to) in t_hung.chunks(nt).zip(out.chunks_mut(nt)) {
+                h.unhang(pose, to);
+            }
+        }
+        self.hung = hung;
         Ok(())
     }
 
