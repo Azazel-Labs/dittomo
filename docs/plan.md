@@ -145,6 +145,16 @@ Phase 1 so far (November 2026):
   0.0054. SAN's Mixamo test goes from 1.58 to 1.57 intra-structural and 1.03 to 0.94 cross-structural; matching the hips
   and chest by the spine alone had taken cross from 0.85 to 1.03, as BigVegas's pelvis hub tips its spine unlike the
   others' and Mixamo's own clips copy rotations as they are.
+- **An upright trunk**: the hips and chest were fit by the spine and neck rising from them, so a back that curves (a
+  spine leaning back from the hips, a neck forward from the chest) was straightened to the source's: a test rig's pelvis
+  tipped 22° with the source standing at rest. The spine, hips to chest, is now matched rest to rest like the neck and
+  head, so a target stands as it was built and bends as far from there as the source does. The rig bench scored hips →
+  chest and chest → head by their raw directions, which counts a rig's own posture as error (scored so, they go from
+  2.3° to 6.2° and 4.7° to 7.2°, limbs overall 2.3° to 2.6°); it now scores each by how it leans, tilted as it has from
+  rest. Scored so, hips → chest goes from 5.9° to 3.6°, chest → head from 7.2° to 2.9°, the thighs from 1.7° to 1.1°,
+  and limbs overall from 2.7° to 2.1° (90th percentile 7.4° to 4.3°; with the bones set by hand 1.6° to 1.1°). SAN's
+  Mixamo test goes from 1.57 to 1.48 intra-structural and 0.94 to 0.67 cross-structural, past copying rotations by name
+  across skeletons (0.70).
 - **Gaze**: the head's facing, against the source's in each body's frame, was off by 11.8°, as the neck and head took
   their source's turns as they are and tipped the face of rigs whose head bone isn't built facing forward. They now keep
   the target's rest look and take only the turn away from it: 1.3°, for chest → head going from 4.6° to 6.2°.
@@ -385,8 +395,8 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       downloads twelve rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
       `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching, then plays every rig's clips
       on every other and scores limb directions against copying rotations and foot contact with each fix. SAN's
-      Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`): dittomo scores 1.57 intra-structural
-      and 0.94 cross-structural against SAN's published 2.76 and 2.25, untrained (README, Against the learned
+      Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`): dittomo scores 1.48 intra-structural
+      and 0.67 cross-structural against SAN's published 2.76 and 2.25, untrained (README, Against the learned
       retargeters). R2ET's test pairs exist only in its code, and Godot, Unity and Unreal are still to come.
 - [ ] **Measure where dittomo stands** on every row of the Goal table. Mapping accuracy is measured on real rigs;
       per-frame cost and mapping time on made-up rigs (see Where things stand); limb directions and foot contact on real

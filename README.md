@@ -103,25 +103,26 @@ RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four) played on every
 Each labeled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each
 in its own body's frame. A foot is judged by where it points, the way it points across the floor at rest turned as it
 has turned from rest: every rig stands flat at rest, and how steeply an ankle comes down to the toes is anatomy. The
-other rows are what a clip gets without a retargeter, even given the right bones: an
+trunk, hips to chest and chest to head, is judged by how it leans, tilted as it has tilted from rest, as every rig
+stands upright at rest. The other rows are what a clip gets without a retargeter, even given the right bones: an
 engine's animation mixer plays a clip on another rig by copying each bone's local rotation, and a hand-written script
 commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.3° | 0.2° | 5.1° | 97% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.2° | 0.2° | 3.3° | 100% |
-| World turns from rest copied onto the right bones | 21.3° | 10.1° | 64.6° | 60% |
-| Local rotations copied onto the right bones | 73.8° | 82.3° | 150.9° | 22% |
+| dittomo | 2.1° | 0.2° | 4.3° | 98% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.1° | 0.2° | 3.0° | 99% |
+| World turns from rest copied onto the right bones | 20.8° | 9.6° | 64.6° | 60% |
+| Local rotations copied onto the right bones | 74.0° | 82.4° | 150.7° | 21% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
 both rigs when the bones between are in other ratios. The upper arms are the biggest gap between dittomo and the hand
 labels, from BrainStem's and RobotExpressive's misses above. CI fails if the mean passes 4°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
-It's off by 1.0° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
+It's off by 1.1° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
 turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the target's
-own rest look and take only the turn away from it; that costs chest → head 1.6° of direction, 4.6° to 6.2°.
+own rest look and take only the turn away from it, as the spine below them does.
 
 The same pairs again, with each contact fix alone and all together, over the 23,420 frames where a source foot is
 planted (within 5% of its height of the lowest it gets, moving under a tenth of its height a second). Slide is how far
@@ -132,15 +133,15 @@ toes'. Clips walked in place are judged on the travel their feet imply.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00390 | 0.0098 | 2.1° |
-| travel | 0.00100 | 0.0098 | 2.2° |
-| planted feet | 0.00313 | 0.0022 | 3.2° |
-| push-out | 0.00390 | 0.0098 | 2.1° |
-| all (`apply_with`) | 0.00003 | 0.0014 | 3.4° |
+| none (`apply`) | 0.00388 | 0.0097 | 2.2° |
+| travel | 0.00099 | 0.0097 | 2.2° |
+| planted feet | 0.00312 | 0.0022 | 3.2° |
+| push-out | 0.00388 | 0.0097 | 2.2° |
+| all (`apply_with`) | 0.00003 | 0.0015 | 3.5° |
 | all, live (`Live`) | 0.00004 | 0.0015 | 3.6° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0014 | 3.4° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0015 | 3.5° |
 
-Together they cut foot slide about 130 times and the height error 7 times. The degree they cost is the legs bending to
+Together they cut foot slide about 130 times and the height error 6.5 times. The degree they cost is the legs bending to
 keep feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
 slide is cut about 100 times: a foot is held from the pose it lands, where the target's was the pose before, so it
 doesn't slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six poses late it
@@ -154,12 +155,12 @@ over each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0276 | 0.0621 | 7.1% |
-| all (`apply_touching`) | 0.0091 | 0.0197 | 1.3% |
-| all, live (`Live::touching`) | 0.0091 | 0.0196 | 1.3% |
+| all but touch (`apply_with`) | 0.0282 | 0.0652 | 7.3% |
+| all (`apply_touching`) | 0.0089 | 0.0196 | 1.3% |
+| all, live (`Live::touching`) | 0.0089 | 0.0196 | 1.3% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-2.7 times closer and hands end up inside the body a sixth as often.
+3.2 times closer and hands end up inside the body a sixth as often.
 
 ### Against the learned retargeters
 
@@ -176,21 +177,22 @@ set; `cargo bench --bench san` scores it with SAN's own formula.
 | PMnet (BMVC 2019), from SAN's table | yes | 5.72 | – |
 | CycleGAN-style, from SAN's table | yes | 7.66 | 8.97 |
 | SAN, from SAN's table | yes | 2.76 | 2.25 |
-| **dittomo** (`apply`, no fixes) | no | **1.57** | **0.94** |
+| **dittomo** (`apply`, no fixes) | no | **1.48** | **0.67** |
 | Local rotations copied by bone name, root moved as the source's | no | 43.0 | 24.9 |
 | Local rotations copied by bone name, root scaled by hips height | no | 1.37 | 0.70 |
 
 dittomo finds the bones itself, needs no training, and beats SAN on both. Three caveats:
 
-- Copying local rotations by name and scaling the root does better still, because Mixamo makes these clips by copying
-  rotations onto each character and then adjusting its legs; per joint, the copy is exact above the hips.
+- Copying local rotations by name and scaling the root does better within one skeleton (1.37 against 1.48), because
+  Mixamo makes these clips by copying rotations onto each character and then adjusting its legs; per joint, the copy
+  is exact above the hips.
   [R2ET](https://arxiv.org/abs/2303.08658) ([code](https://github.com/Kebii/R2ET), CVPR 2023) says the same of its own
   table, where copying beats every learned method on position error. This test rewards doing what Mixamo does more than
   looking right. The copy works only because all five skeletons share Mixamo's names, rest axes and T-pose; on the real
-  rigs above it is off by 74.7°.
+  rigs above it is off by 74.0°.
 - SAN's paper gives 8.86 for its copy baseline; unscaled, these runs get 43.0, mostly from Mousey being about half
   BigVegas's height. The scaled copy is the fair baseline.
-- The travel fix, which adds the travel an in-place clip's feet imply, does harm here (8.2 and 14.3): Mixamo's in-place
+- The travel fix, which adds the travel an in-place clip's feet imply, does harm here (8.1 and 14.2): Mixamo's in-place
   dances, like "Dancing Running Man", are meant to stay put.
 
 ### Speed
@@ -369,10 +371,10 @@ target's frame and corrected for the two rest poses: at rest, the source bone an
 one way, and the target's point another, and the turn that best lines up all of them at once is undone. All of them,
 not the one with most below it: one rig's collarbones start above its chest and another's beside it, and lining up
 either alone would tip the chest. So the target's bones point where the source's do, frame by frame, whatever each
-rig's rest pose (A-pose or T-pose) or bone axes. The neck and head, and the feet and toes, are matched rest to rest
-instead (the feet turned about the vertical to point the same way), as every rig looks ahead and stands flat at rest:
-where a head bone points, or how steeply an ankle comes down to the toes, is anatomy, and lining those up would tip
-the gaze or push the toes into the floor.
+rig's rest pose (A-pose or T-pose) or bone axes. The spine, neck and head, and the feet and toes, are matched rest to
+rest instead (the feet turned about the vertical to point the same way), as every rig stands upright, looks ahead and
+stands flat at rest: how a back curves, where a head bone points, or how steeply an ankle comes down to the toes is
+anatomy, and lining those up would hunch the chest, tip the gaze or push the toes into the floor.
 
 A target bone between two mapped ones takes its share of their turns by how far along it is, so a short spine bends a
 long one smoothly. Other unmapped bones keep their rest pose under their parent. The topmost mapped bones, and any whose

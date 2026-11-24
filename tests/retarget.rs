@@ -1207,3 +1207,65 @@ fn hips_stay_level_whether_the_hip_joints_sit_below_them_or_behind() {
     let tipped = now.angle_between(rest).to_degrees();
     assert!(tipped < 1.0, "the pelvis tips {tipped:.1}° at rest");
 }
+
+#[test]
+fn a_curved_back_stands_as_it_was_built_and_bends_as_the_source_bends() {
+    // The target's back curves: its spine leans back from the hips and its neck forward from the chest, where the
+    // source's rises straight. Every rig stands upright at rest, so the curve is anatomy: played the source's rest, the
+    // target stands at its own, and bent, it bends as far from there.
+    let from = mixamo_like();
+    let to = {
+        let mut j: Joints = vec![
+            joint("Hips", None, [0.0, 1.0, 0.0]),
+            joint("Spine", Some("Hips"), [0.0, 1.1, -0.04]),
+            joint("Chest", Some("Spine"), [0.0, 1.33, -0.05]),
+            joint("Neck", Some("Chest"), [0.0, 1.5, 0.0]),
+            joint("Head", Some("Neck"), [0.0, 1.6, 0.03]),
+        ];
+        for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+            let n = |s: &str| format!("{side}{s}");
+            j.push(joint(n("Shoulder"), Some("Chest"), [0.06 * x, 1.44, -0.04]));
+            j.push(joint(n("Arm"), Some(&n("Shoulder")), [0.18 * x, 1.44, -0.04]));
+            j.push(joint(n("ForeArm"), Some(&n("Arm")), [0.46 * x, 1.44, -0.04]));
+            j.push(joint(n("Hand"), Some(&n("ForeArm")), [0.72 * x, 1.44, -0.04]));
+            j.push(joint(n("UpLeg"), Some("Hips"), [0.09 * x, 0.95, 0.0]));
+            j.push(joint(n("Leg"), Some(&n("UpLeg")), [0.09 * x, 0.52, 0.0]));
+            j.push(joint(n("Foot"), Some(&n("Leg")), [0.09 * x, 0.08, 0.0]));
+            j.push(joint(n("ToeBase"), Some(&n("Foot")), [0.09 * x, 0.0, 0.1]));
+        }
+        placed(&j)
+    };
+    let map = Mapping::new(&from, &to);
+    let pairs: Vec<(usize, usize)> = [("Hips", "Hips"), ("Spine2", "Chest"), ("Head", "Head")]
+        .iter()
+        .map(|&(a, b)| (from.index_of(a).unwrap(), to.index_of(b).unwrap()))
+        .collect();
+    for &(a, b) in &pairs {
+        assert_eq!(map.source_of(b), Some(a));
+    }
+    let bent = {
+        let mut pose = from.rest();
+        let spine = from.index_of("Spine").unwrap();
+        pose[spine].rotation = Quat::from_rotation_x(0.5) * pose[spine].rotation;
+        pose
+    };
+    let clip = Clip {
+        times: vec![0.0, 1.0],
+        poses: vec![from.rest(), bent],
+    };
+    let played = map.apply(&from, &to, &clip).unwrap();
+    let (s_rest, t_rest) = (from.world(&from.rest()), to.world(&to.rest()));
+    for (f, pose) in clip.poses.iter().enumerate() {
+        let (sw, tw) = (from.world(pose), to.world(&played.poses[f]));
+        for &(a, b) in &pairs {
+            let s_turn = sw[a].rotation * s_rest[a].rotation.inverse();
+            let t_turn = tw[b].rotation * t_rest[b].rotation.inverse();
+            let off = s_turn.angle_between(t_turn).to_degrees();
+            assert!(
+                off < 1.0,
+                "{} turns {off:.1}° away from the source's on frame {f}",
+                to.bones()[b].name
+            );
+        }
+    }
+}
