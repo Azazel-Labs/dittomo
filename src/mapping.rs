@@ -12,7 +12,7 @@ use glam::Quat;
 
 use crate::assign::assign;
 use crate::contact::{self, Fixes};
-use crate::names;
+use crate::names::{self, Lexicon};
 use crate::shape::Shape;
 use crate::surface::Surface;
 use crate::{Clip, Error, Skeleton, transfer};
@@ -43,7 +43,7 @@ impl Mapping {
         let found = matched(&s, &t);
         let mut pairs = vec![None; target.len()];
         for (a, b, like) in found {
-            let own = likeness(&t, b, &t, b).max(1e-6);
+            let own = likeness(&t, b, &t, b, names::likeness(&t.names[b], &t.names[b])).max(1e-6);
             pairs[b] = Some(Pair {
                 source: a,
                 score: like / own,
@@ -201,11 +201,12 @@ impl Mapping {
     }
 }
 
-/// How alike source bone `a` and target bone `b` are: above zero when more alike than not.
-pub(crate) fn likeness(s: &Shape, a: usize, t: &Shape, b: usize) -> f32 {
+/// How alike source bone `a` and target bone `b` are, given how alike their names are: above zero when more alike than
+/// not.
+fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32 {
     let mut v = 0.0;
     let (na, nb) = (&s.names[a], &t.names[b]);
-    if let Some(n) = names::likeness(na, nb) {
+    if let Some(n) = named {
         v += 2.0 * n - 0.7;
     }
     if names::opposed(na, nb) {
@@ -262,8 +263,8 @@ enum Tree {
 #[derive(Clone)]
 enum Forest {
     None,
-    /// Children's trees paired up.
-    Paired(Vec<(usize, usize)>),
+    /// Children's trees paired up: these pairs of all the match's.
+    Paired(std::ops::Range<usize>),
     /// A source child is passed over, its children standing in for the source's.
     SourceChild(usize),
     TargetChild(usize),
@@ -292,72 +293,55 @@ fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
     let (na, nb) = (ka.len(), kb.len());
     let at = |a: usize, b: usize| a * nb + b;
     let mut like = vec![0.0f32; na * nb];
+    let words = Lexicon::new(&s.names, &t.names);
     for a in 1..na {
         for b in 1..nb {
-            like[at(a, b)] = likeness(s, a - 1, t, b - 1);
+            let named = words.likeness(a - 1, &s.names[a - 1], b - 1, &t.names[b - 1]);
+            like[at(a, b)] = likeness(s, a - 1, t, b - 1, named);
         }
     }
     let mut tree = vec![0.0f32; na * nb];
     let mut tree_how = vec![Tree::None; na * nb];
     let mut forest = vec![0.0f32; na * nb];
     let mut forest_how = vec![Forest::None; na * nb];
+    // The pairs of every forest's best pairing, one after another, and the pairings being weighed.
+    let (mut paired, mut won, mut tried) = (Vec::new(), Vec::new(), Vec::new());
+    let mut spliced = Vec::new();
     // Children come after their parents (the stand-in root is 0), so going backwards meets them first.
     for a in (0..na).rev() {
         for b in (0..nb).rev() {
             // Forests: the children of a against the children of b.
             let mut best = (0.0f32, Forest::None);
+            let worth = |i: usize, j: usize| tree[at(i, j)];
             if !ka[a].is_empty() && !kb[b].is_empty() {
-                let w: Vec<Vec<f32>> = ka[a]
-                    .iter()
-                    .map(|&i| kb[b].iter().map(|&j| tree[at(i, j)]).collect())
-                    .collect();
-                let (total, pairs) = assign(&w);
+                let total = pairing(&ka[a], &kb[b], worth, &mut tried);
                 if total > best.0 {
-                    best = (
-                        total,
-                        Forest::Paired(pairs.into_iter().map(|(i, j)| (ka[a][i], kb[b][j])).collect()),
-                    );
+                    best = (total, Forest::Paired(0..0));
+                    std::mem::swap(&mut won, &mut tried);
                 }
                 // A child passed over with its siblings kept, its own children standing beside them: a pelvis
                 // between the hips and both legs, where the other rig hangs the legs and the spine off the hips
                 // alike. Passing the pelvis over alone would keep one leg at most. A child with one child of its own
                 // needs no splice: passing it over within its pair does as much.
-                let spliced = |rows: &[usize], cols: &[usize]| {
-                    let w: Vec<Vec<f32>> = rows
-                        .iter()
-                        .map(|&i| cols.iter().map(|&j| tree[at(i, j)]).collect())
-                        .collect();
-                    let (total, pairs) = assign(&w);
-                    (
-                        total,
-                        pairs.into_iter().map(|(i, j)| (rows[i], cols[j])).collect::<Vec<_>>(),
-                    )
-                };
                 if ka[a].len() > 1 {
                     for &i in ka[a].iter().filter(|&&i| ka[i].len() > 1) {
-                        let rows: Vec<usize> = ka[a]
-                            .iter()
-                            .copied()
-                            .filter(|&x| x != i)
-                            .chain(ka[i].iter().copied())
-                            .collect();
-                        let (total, pairs) = spliced(&rows, &kb[b]);
+                        spliced.clear();
+                        spliced.extend(ka[a].iter().copied().filter(|&x| x != i).chain(ka[i].iter().copied()));
+                        let total = pairing(&spliced, &kb[b], worth, &mut tried);
                         if total > best.0 {
-                            best = (total, Forest::Paired(pairs));
+                            best = (total, Forest::Paired(0..0));
+                            std::mem::swap(&mut won, &mut tried);
                         }
                     }
                 }
                 if kb[b].len() > 1 {
                     for &j in kb[b].iter().filter(|&&j| kb[j].len() > 1) {
-                        let cols: Vec<usize> = kb[b]
-                            .iter()
-                            .copied()
-                            .filter(|&x| x != j)
-                            .chain(kb[j].iter().copied())
-                            .collect();
-                        let (total, pairs) = spliced(&ka[a], &cols);
+                        spliced.clear();
+                        spliced.extend(kb[b].iter().copied().filter(|&x| x != j).chain(kb[j].iter().copied()));
+                        let total = pairing(&ka[a], &spliced, worth, &mut tried);
                         if total > best.0 {
-                            best = (total, Forest::Paired(pairs));
+                            best = (total, Forest::Paired(0..0));
+                            std::mem::swap(&mut won, &mut tried);
                         }
                     }
                 }
@@ -371,6 +355,11 @@ fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
                 if forest[at(i, b)] > best.0 {
                     best = (forest[at(i, b)], Forest::SourceChild(i));
                 }
+            }
+            if let Forest::Paired(range) = &mut best.1 {
+                let start = paired.len();
+                paired.extend_from_slice(&won);
+                *range = start..paired.len();
             }
             forest[at(a, b)] = best.0;
             forest_how[at(a, b)] = best.1;
@@ -421,7 +410,7 @@ fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
         } else {
             match &forest_how[at(a, b)] {
                 Forest::None => {}
-                Forest::Paired(pairs) => todo.extend(pairs.iter().map(|&(i, j)| (true, i, j))),
+                Forest::Paired(range) => todo.extend(paired[range.clone()].iter().map(|&(i, j)| (true, i, j))),
                 Forest::SourceChild(i) => todo.push((false, *i, b)),
                 Forest::TargetChild(j) => todo.push((false, a, *j)),
             }
@@ -430,6 +419,32 @@ fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
     fill(&ka, &kb, &like, &mut out);
     out.sort_unstable_by_key(|p| p.1);
     out
+}
+
+/// The pairing of the trees of `rows` with those of `cols` worth most, as pairs of them, into `out`, and its worth.
+fn pairing(rows: &[usize], cols: &[usize], worth: impl Fn(usize, usize) -> f32, out: &mut Vec<(usize, usize)>) -> f32 {
+    out.clear();
+    if rows.len() == 1 || cols.len() == 1 {
+        // One tree on a side pairs with the worthiest on the other, the first of the worthiest, as [`assign`] would.
+        let mut best = (0.0, None);
+        for &i in rows {
+            for &j in cols {
+                let w = worth(i, j);
+                if w > best.0 {
+                    best = (w, Some((i, j)));
+                }
+            }
+        }
+        out.extend(best.1);
+        return best.0;
+    }
+    let w: Vec<Vec<f32>> = rows
+        .iter()
+        .map(|&i| cols.iter().map(|&j| worth(i, j)).collect())
+        .collect();
+    let (total, pairs) = assign(&w);
+    out.extend(pairs.into_iter().map(|(i, j)| (rows[i], cols[j])));
+    total
 }
 
 /// Pairs bones the match left out where the family allows: a bone plays one whose nearest paired ancestors play each

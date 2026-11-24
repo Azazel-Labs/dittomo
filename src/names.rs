@@ -236,26 +236,35 @@ pub(crate) fn opposed(a: &Name, b: &Name) -> bool {
 
 /// How alike two names are, from 0 to 1; none when either says nothing.
 pub(crate) fn likeness(a: &Name, b: &Name) -> Option<f32> {
-    if a.words.is_empty() || b.words.is_empty() {
+    score(a, b, |i, j| word(&a.words[i], &b.words[j]))
+}
+
+/// How alike two words are, from 0 to 1.
+fn word(x: &str, y: &str) -> f32 {
+    if x == y {
+        return 1.0;
+    }
+    let fx = if FINGERS.contains(&x) { "finger" } else { x };
+    let fy = if FINGERS.contains(&y) { "finger" } else { y };
+    NEAR.iter()
+        .find(|(p, q, _)| (*p == fx && *q == fy) || (*p == fy && *q == fx))
+        .map_or(0.0, |n| n.2)
+}
+
+/// [`likeness`], given how alike `a`'s word `i` and `b`'s word `j` are.
+fn score(a: &Name, b: &Name, word: impl Fn(usize, usize) -> f32) -> Option<f32> {
+    let (n, m) = (a.words.len(), b.words.len());
+    if n == 0 || m == 0 {
         return None;
     }
-    let word = |x: &str, y: &str| -> f32 {
-        if x == y {
-            return 1.0;
-        }
-        let fx = if FINGERS.contains(&x) { "finger" } else { x };
-        let fy = if FINGERS.contains(&y) { "finger" } else { y };
-        NEAR.iter()
-            .find(|(p, q, _)| (*p == fx && *q == fy) || (*p == fy && *q == fx))
-            .map_or(0.0, |n| n.2)
-    };
-    let half = |a: &[String], b: &[String]| -> f32 {
-        a.iter()
-            .map(|x| b.iter().map(|y| word(x, y)).fold(0.0, f32::max))
+    // How well each of one name's words is met in the other's, on the whole.
+    let half = |n: usize, m: usize, word: &dyn Fn(usize, usize) -> f32| -> f32 {
+        (0..n)
+            .map(|i| (0..m).map(|j| word(i, j)).fold(0.0, f32::max))
             .sum::<f32>()
-            / a.len() as f32
+            / n as f32
     };
-    let mut s = half(&a.words, &b.words).min(half(&b.words, &a.words));
+    let mut s = half(n, m, &word).min(half(m, n, &|i, j| word(j, i)));
     if (a.side == Side::Middle) != (b.side == Side::Middle) {
         s *= 0.7;
     }
@@ -263,6 +272,53 @@ pub(crate) fn likeness(a: &Name, b: &Name) -> Option<f32> {
         s *= 0.85;
     }
     Some(s)
+}
+
+/// Two rigs' names with their words numbered, and how alike each two words are, so that every pair of names can be
+/// weighed without comparing letters.
+pub(crate) struct Lexicon {
+    /// Each rig's names' words by number, one name after another, and where each name's are.
+    words: [Vec<usize>; 2],
+    spans: [Vec<std::ops::Range<usize>>; 2],
+    /// How alike words `i` and `j` are, at `i * count + j`.
+    alike: Vec<f32>,
+    count: usize,
+}
+
+impl Lexicon {
+    pub(crate) fn new(first: &[Name], second: &[Name]) -> Self {
+        let mut numbers: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut all: Vec<&str> = Vec::new();
+        let (mut words, mut spans) = ([Vec::new(), Vec::new()], [Vec::new(), Vec::new()]);
+        for (k, names) in [first, second].into_iter().enumerate() {
+            for name in names {
+                let start = words[k].len();
+                for w in &name.words {
+                    let number = *numbers.entry(w.as_str()).or_insert_with(|| {
+                        all.push(w);
+                        all.len() - 1
+                    });
+                    words[k].push(number);
+                }
+                spans[k].push(start..words[k].len());
+            }
+        }
+        Self {
+            words,
+            spans,
+            alike: all.iter().flat_map(|x| all.iter().map(|y| word(x, y))).collect(),
+            count: all.len(),
+        }
+    }
+
+    /// As [`likeness`]: the first rig's name `a`, which is `na`, and the second's `b`, `nb`.
+    pub(crate) fn likeness(&self, a: usize, na: &Name, b: usize, nb: &Name) -> Option<f32> {
+        let (wa, wb) = (
+            &self.words[0][self.spans[0][a].clone()],
+            &self.words[1][self.spans[1][b].clone()],
+        );
+        score(na, nb, |i, j| self.alike[wa[i] * self.count + wb[j]])
+    }
 }
 
 #[cfg(test)]
