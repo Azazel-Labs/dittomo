@@ -33,7 +33,7 @@ use serde_json::{Value, json};
 
 use crate::shape::Shape;
 use crate::{Bone, Clip, Quat, Skeleton, Surface, Transform, Vec3};
-use glam::Vec4;
+use glam::{Mat4, Vec4};
 
 /// A model's skeleton and its animations.
 #[derive(Clone, Debug, PartialEq)]
@@ -109,19 +109,31 @@ impl Model {
     /// # Errors
     /// If an accessor can't be read or there are no bones.
     pub fn from_document(doc: &Document<'_>) -> Result<Self, Error> {
-        let mut model = Self::from_rig(&doc.rig()?)?;
-        // A mesh that can't be drawn leaves the skin empty; the skeleton and clips still stand.
-        if let Ok(Some(mesh)) = doc.flatten(Pose::Rest) {
-            model.skin = skin(&model, &mesh);
+        let (mut model, bound) = Self::read(&doc.rig()?)?;
+        // A mesh that can't be drawn leaves the skin empty; the skeleton and clips still stand. Where the bones rest as
+        // the skins were bound rather than as the nodes stand, so does the skin.
+        let pose = if bound.is_some() { Pose::Bind } else { Pose::Rest };
+        if let Ok(Some(mesh)) = doc.flatten(pose) {
+            model.skin = skin(&model, &mesh, bound.as_deref());
         }
         Ok(model)
     }
 
     /// The skeleton and animations of polysmelt's rig view.
     ///
+    /// Each bone rests as its skin was bound, where that differs from the node's own transform: a file saved with its
+    /// rig in a frame of some animation, legs bent mid-stride, still rests as its mesh was modeled. The bones above
+    /// the skins, and the topmost joint of each, keep their nodes' transforms.
+    ///
     /// # Errors
     /// [`Error::NoBones`] if there are none.
     pub fn from_rig(rig: &Rig) -> Result<Self, Error> {
+        Self::read(rig).map(|(model, _)| model)
+    }
+
+    /// [`Model::from_rig`], and if the bones rest as the skins were bound rather than as the nodes stand, by node,
+    /// the matrix that takes a vertex bound to that joint from where the file stores it to where the skeleton rests.
+    fn read(rig: &Rig) -> Result<(Self, Option<Bound>), Error> {
         let nodes = bones_of(rig);
         if nodes.is_empty() {
             return Err(Error::NoBones);
@@ -130,7 +142,7 @@ impl Model {
         for (b, &n) in nodes.iter().enumerate() {
             at[n] = Some(b);
         }
-        let bones: Vec<Bone> = nodes
+        let mut bones: Vec<Bone> = nodes
             .iter()
             .map(|&n| {
                 let node = &rig.nodes[n];
@@ -141,7 +153,14 @@ impl Model {
                 }
             })
             .collect();
-        let skeleton = Skeleton::new(bones).expect("bones come parents first");
+        // The bones rest as bound only where the nodes stand lopsided and the bind pose doesn't, as a rig saved mid-stride:
+        // a rest pose chosen on purpose, an A-pose for a T-posed mesh, say, stays.
+        let posed = Skeleton::new(bones.clone()).expect("bones come parents first");
+        let mut bound = bind(rig, &nodes, &mut bones);
+        let mut skeleton = Skeleton::new(bones).expect("bones come parents first");
+        if bound.is_some() && !(lopsided(&posed) > 0.01 && lopsided(&skeleton) < 0.5 * lopsided(&posed)) {
+            (skeleton, bound) = (posed, None);
+        }
         let clips = (0..rig.animations.len())
             .map(|a| {
                 let anim = &rig.animations[a];
@@ -161,12 +180,13 @@ impl Model {
                 (anim.name.clone(), Clip { times, poses })
             })
             .collect();
-        Ok(Self {
+        let model = Self {
             skeleton,
             clips,
             nodes,
             skin: Surface::default(),
-        })
+        };
+        Ok((model, bound))
     }
 
     /// The clip with this name.
@@ -210,8 +230,15 @@ impl Model {
         let mut timings: Vec<(Vec<usize>, usize)> = Vec::new();
         // Each channel's bone, path, times and keys.
         let mut channels: Vec<(usize, &str, usize, usize)> = Vec::new();
-        for (b, bone) in self.skeleton.bones().iter().enumerate() {
-            let rest = bone.rest;
+        // What a bone left unkeyed plays: its node's own transform, which a bone resting as its skin was bound needn't be.
+        let rests: Vec<Transform> = self
+            .skeleton
+            .bones()
+            .iter()
+            .zip(&self.nodes)
+            .map(|(bone, &n)| node_rest(doc.json.get("nodes").and_then(|l| l.get(n))).unwrap_or(bone.rest))
+            .collect();
+        for (b, &rest) in rests.iter().enumerate() {
             let poses = || clip.poses.iter().map(move |p| p[b]);
             // Each turn on the same side as the last, so playing between them takes the short way round.
             let mut last = rest.rotation;
@@ -306,7 +333,7 @@ impl Model {
                     continue;
                 };
                 if node.remove("matrix").is_some() {
-                    let rest = self.skeleton.bones()[b].rest;
+                    let rest = rests[b];
                     node.insert("translation".into(), json!(rest.translation.to_array()));
                     node.insert("rotation".into(), json!(rest.rotation.to_array()));
                     node.insert("scale".into(), json!(rest.scale.to_array()));
@@ -385,7 +412,166 @@ pub fn document_from_bytes(bytes: &[u8], ext: &str) -> Result<Document<'static>,
 
 /// The skin of a mesh posed at rest, each vertex bound to the bone that weighs most on it, about one point every 1.25%
 /// of the body's height. Vertex normals are worked out from the triangles where the mesh has none.
-fn skin(model: &Model, mesh: &Mesh) -> Surface {
+/// By node, the matrix that takes a vertex bound to that joint from where the file stores it to where the skeleton
+/// rests.
+type Bound = Vec<Option<Mat4>>;
+
+/// How far a skeleton at rest is from its mirror image across the body's middle, over its height: each bone's distance
+/// from the nearest mirrored bone, on average.
+fn lopsided(skeleton: &Skeleton) -> f32 {
+    let shape = Shape::of(skeleton);
+    let left = shape.frame * Vec3::X;
+    let middle = shape.rest[shape.middle].position();
+    let at: Vec<Vec3> = shape.rest.iter().map(crate::Placed::position).collect();
+    let off: f32 = at
+        .iter()
+        .map(|&p| {
+            let mirrored = p - 2.0 * (p - middle).dot(left) * left;
+            at.iter().map(|&q| q.distance(mirrored)).fold(f32::MAX, f32::min)
+        })
+        .sum();
+    off / (at.len().max(1) as f32 * shape.height.max(f32::MIN_POSITIVE))
+}
+
+/// A node's own transform in a glTF document, by its matrix or its translation, rotation and scale.
+fn node_rest(node: Option<&Value>) -> Option<Transform> {
+    let node = node?.as_object()?;
+    let floats = |key: &str| -> Option<Vec<f32>> {
+        #[allow(clippy::cast_possible_truncation, reason = "glTF's numbers are floats")]
+        node.get(key)?
+            .as_array()?
+            .iter()
+            .map(|v| v.as_f64().map(|f| f as f32))
+            .collect()
+    };
+    if let Some(m) = floats("matrix") {
+        let (scale, rotation, translation) = Mat4::from_cols_slice(m.get(..16)?).to_scale_rotation_translation();
+        return Some(Transform {
+            translation,
+            rotation,
+            scale,
+        });
+    }
+    let mut rest = Transform::IDENTITY;
+    if let Some(t) = floats("translation") {
+        rest.translation = Vec3::from_slice(t.get(..3)?);
+    }
+    if let Some(r) = floats("rotation") {
+        rest.rotation = Quat::from_slice(r.get(..4)?).normalize();
+    }
+    if let Some(s) = floats("scale") {
+        rest.scale = Vec3::from_slice(s.get(..3)?);
+    }
+    Some(rest)
+}
+
+/// Rests the bones as their skins were bound, where that differs from their nodes' transforms, and returns, by node,
+/// each joint's matrix from where its vertices are stored to where the skeleton rests; `None` where nothing differs.
+///
+/// A joint's bind pose is its inverse bind matrix's inverse, from the first skin to list it. Those put the skeleton in
+/// the skin's own space, which is where the node drawing the skinned mesh stands, as exporters write it. Unless that
+/// space puts one of the skin's topmost joints near its node, the topmost joints keep their nodes' transforms instead
+/// and the joints under them keep their place from them. Bones off the skin keep their own transforms.
+fn bind(rig: &Rig, nodes: &[usize], bones: &mut [Bone]) -> Option<Bound> {
+    let local = |t: &Transform| Mat4::from_scale_rotation_translation(t.scale, t.rotation, t.translation);
+    let mut placed = vec![Mat4::IDENTITY; rig.nodes.len()];
+    for n in rig.parents_first() {
+        let up = rig.nodes[n].parent.map_or(Mat4::IDENTITY, |p| placed[p]);
+        placed[n] = up * local(&transform(&rig.nodes[n].rest));
+    }
+    let size = nodes
+        .iter()
+        .map(|&n| placed[n].w_axis.truncate().length())
+        .fold(0.0, f32::max)
+        .max(f32::MIN_POSITIVE);
+    // Each joint's inverse bind matrix and skin, and each skin's mesh's space.
+    let mut inverse = vec![None; rig.nodes.len()];
+    let mut meshes = vec![None; rig.skins.len()];
+    for (k, skin) in rig.skins.iter().enumerate() {
+        let ibms: Vec<Mat4> = skin.inverse_bind.iter().map(Mat4::from_cols_array).collect();
+        if skin.joints.len() < 2 || ibms.iter().all(|m| *m == Mat4::IDENTITY) {
+            continue;
+        }
+        meshes[k] = (0..rig.nodes.len())
+            .find(|&n| rig.nodes[n].skin == Some(k))
+            .map(|n| placed[n]);
+        for (&j, m) in skin.joints.iter().zip(&ibms) {
+            let ok = m.is_finite() && m.determinant().abs() > f32::EPSILON.powi(2) && m.inverse().is_finite();
+            if ok && inverse.get(j).is_some_and(Option::is_none) {
+                inverse[j] = Some((*m, k));
+            }
+        }
+    }
+    // Whether two spaces are near enough that one is the other with the body shifted a little, as by a bob or a sway.
+    let near = |a: Mat4, b: Mat4| {
+        let (sa, ra, ta) = a.to_scale_rotation_translation();
+        let (sb, rb, tb) = b.to_scale_rotation_translation();
+        ra.angle_between(rb) < 20f32.to_radians()
+            && (ta - tb).length() < 0.2 * size
+            && (sa - sb).abs().max_element() < 0.01 * sa.abs().max_element()
+    };
+    // The skins whose mesh's space puts a topmost joint, one with no joint above, near its node, as an IK target left
+    // where it was bound while the body bobs and the legs swing.
+    let mut under = vec![false; bones.len()];
+    let mut fits = vec![false; rig.skins.len()];
+    for (b, bone) in bones.iter().enumerate() {
+        under[b] = bone.parent.is_some_and(|p| under[p] || inverse[nodes[p]].is_some());
+        if let (Some((ibm, k)), false) = (inverse[nodes[b]], under[b]) {
+            fits[k] |= meshes[k].is_some_and(|mesh| near(mesh, placed[nodes[b]] * ibm));
+        }
+    }
+    // Each bone's world at rest as bound, and the skin's space it's under.
+    let mut moved: Vec<Mat4> = Vec::with_capacity(bones.len());
+    let mut space: Vec<Option<Mat4>> = Vec::with_capacity(bones.len());
+    for (b, bone) in bones.iter().enumerate() {
+        let parent = bone.parent;
+        let above = parent.and_then(|p| space[p]);
+        let (m, s) = match (inverse[nodes[b]], above) {
+            (Some((ibm, _)), Some(s)) => (s * ibm.inverse(), Some(s)),
+            (Some((ibm, k)), None) => match meshes[k].filter(|_| fits[k]) {
+                Some(mesh) => (mesh * ibm.inverse(), Some(mesh)),
+                None => (placed[nodes[b]], Some(placed[nodes[b]] * ibm)),
+            },
+            (None, _) => (parent.map_or(placed[nodes[b]], |p| moved[p] * local(&bone.rest)), above),
+        };
+        moved.push(m);
+        space.push(s);
+    }
+    let mut changed = false;
+    for b in 0..bones.len() {
+        let parent = bones[b].parent;
+        let m = parent.map_or(Mat4::IDENTITY, |p| moved[p]).inverse() * moved[b];
+        let (scale, rotation, translation) = m.to_scale_rotation_translation();
+        let rest = &mut bones[b].rest;
+        let differs = rotation.dot(rest.rotation).abs() < 1.0 - 1e-6
+            || (translation - rest.translation).length() > 1e-5 * size
+            || (scale - rest.scale).abs().max_element() > 1e-4 * rest.scale.abs().max_element().max(1.0);
+        let finite = translation.is_finite() && rotation.is_finite() && scale.is_finite();
+        if differs && finite {
+            *rest = Transform {
+                translation,
+                rotation: rotation.normalize(),
+                scale,
+            };
+            changed = true;
+        }
+    }
+    if !changed {
+        return None;
+    }
+    // The matrices from the rests as they now stand, those left alone included.
+    let mut at: Vec<Mat4> = Vec::with_capacity(bones.len());
+    let mut out = vec![None; rig.nodes.len()];
+    for (b, bone) in bones.iter().enumerate() {
+        let w = bone.parent.map_or(Mat4::IDENTITY, |p| at[p]) * local(&bone.rest);
+        out[nodes[b]] = inverse[nodes[b]].map(|(ibm, _)| w * ibm);
+        at.push(w);
+    }
+    Some(out)
+}
+
+/// The skin of a mesh drawn at rest, or with `bound`, as stored, each vertex then moved by its joint's matrix there.
+fn skin(model: &Model, mesh: &Mesh, bound: Option<&[Option<Mat4>]>) -> Surface {
     let mut bone_of = vec![None; model.nodes.iter().max().map_or(0, |&n| n + 1)];
     for (b, &n) in model.nodes.iter().enumerate() {
         bone_of[n] = Some(b);
@@ -414,9 +600,18 @@ fn skin(model: &Model, mesh: &Mesh) -> Surface {
             n
         };
         for ((&at, &j), normal) in p.positions.iter().zip(&p.joints).zip(normals) {
-            if let Some(&Some(b)) = bone_of.get(j as usize) {
-                points.push((Vec3::from_array(at), normal, b));
+            let Some(&Some(b)) = bone_of.get(j as usize) else {
+                continue;
+            };
+            let (mut at, mut normal) = (Vec3::from_array(at), normal);
+            if let Some(m) = bound {
+                let Some(&Some(m)) = m.get(j as usize) else {
+                    continue;
+                };
+                at = m.transform_point3(at);
+                normal = m.inverse().transpose().transform_vector3(normal);
             }
+            points.push((at, normal, b));
         }
     }
     let height = Shape::light(&model.skeleton).height;

@@ -194,3 +194,85 @@ fn refuses_clips_it_cannot_write() {
             .is_none_or(|a| a.len() == 1)
     );
 }
+
+/// A glTF of hips and two legs bound standing straight, saved with the left leg swung forward, as a rig saved in a
+/// frame of its walk is.
+fn mid_stride() -> String {
+    let bound = [
+        [0.0, 1.0, 0.0],
+        [0.2, 1.0, 0.0],
+        [0.2, 0.5, 0.0],
+        [-0.2, 1.0, 0.0],
+        [-0.2, 0.5, 0.0],
+    ];
+    let mut bytes = Vec::new();
+    for p in bound {
+        let m = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -p[0], -p[1], -p[2], 1.0f32,
+        ];
+        bytes.extend(m.iter().flat_map(|f| f.to_le_bytes()));
+    }
+    let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut data = String::new();
+    for c in bytes.chunks(3) {
+        let n = c
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            let at = (n >> (18 - 6 * i)) as usize & 63;
+            data.push(if i <= c.len() { char::from(table[at]) } else { '=' });
+        }
+    }
+    let (s, c) = (15f32.to_radians().sin(), 15f32.to_radians().cos());
+    format!(
+        r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0,5]}}],
+        "nodes":[{{"name":"Hips","translation":[0,1,0],"children":[1,3]}},
+        {{"name":"LeftLeg","translation":[0.2,0,0],"rotation":[{s},0,0,{c}],"children":[2]}},
+        {{"name":"LeftFoot","translation":[0,-0.5,0]}},
+        {{"name":"RightLeg","translation":[-0.2,0,0],"children":[4]}},
+        {{"name":"RightFoot","translation":[0,-0.5,0]}},
+        {{"name":"Body","skin":0}}],
+        "skins":[{{"joints":[0,1,2,3,4],"inverseBindMatrices":0}}],
+        "accessors":[{{"bufferView":0,"componentType":5126,"count":5,"type":"MAT4"}}],
+        "bufferViews":[{{"buffer":0,"byteLength":{}}}],
+        "buffers":[{{"byteLength":{},"uri":"data:application/octet-stream;base64,{data}"}}]}}"#,
+        bytes.len(),
+        bytes.len()
+    )
+}
+
+#[test]
+fn a_rig_saved_mid_stride_rests_as_it_was_bound() {
+    let text = mid_stride();
+    let m = Model::from_bytes(text.as_bytes(), "gltf").unwrap();
+    let world = m.skeleton.world(&m.skeleton.rest());
+    let foot = world[2].matrix.w_axis.truncate();
+    assert!(foot.distance(Vec3::new(0.2, 0.5, 0.0)) < 1e-5, "{foot}");
+    assert!(m.skeleton.bones()[1].rest.rotation.angle_between(Quat::IDENTITY) < 1e-5);
+    // Written back, the leg is keyed straight, as the file's own node still stands swung.
+    let mut doc = load::document_from_bytes(text.as_bytes(), "gltf").unwrap();
+    let still = Clip {
+        times: vec![0.0, 1.0],
+        poses: vec![m.skeleton.rest(); 2],
+    };
+    let a = m.write_clip(&mut doc, None, &still).unwrap();
+    let channels = doc.json["animations"][a]["channels"].as_array().unwrap();
+    assert_eq!(channels.len(), 1);
+    assert_eq!(channels[0]["target"]["node"], 1);
+    assert_eq!(channels[0]["target"]["path"], "rotation");
+}
+
+#[test]
+fn a_rig_resting_as_chosen_keeps_its_rest() {
+    // Both legs swung alike: no more lopsided than as bound, so the rest is as the nodes stand.
+    let (s, c) = (15f32.to_radians().sin(), 15f32.to_radians().cos());
+    let text = mid_stride().replace(
+        r#""translation":[-0.2,0,0],"children""#,
+        &format!(r#""translation":[-0.2,0,0],"rotation":[{s},0,0,{c}],"children""#),
+    );
+    let m = Model::from_bytes(text.as_bytes(), "gltf").unwrap();
+    for b in [1, 3] {
+        assert!(m.skeleton.bones()[b].rest.rotation.angle_between(Quat::IDENTITY) > 0.2);
+    }
+}
