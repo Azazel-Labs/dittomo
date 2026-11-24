@@ -89,7 +89,7 @@ Phase 1 so far (November 2026):
   names is weighed against each other once, not once per pair of bones, and a bone with one child pairs it without
   solving an assignment.
 - **Bone-finding on twelve real rigs** (Mixamo, Ready Player Me, VRM, Khronos samples, three.js and Babylon
-  characters; 132 ordered pairs, 2558 hand-labelled joints): dittomo finds 95.0% of joints; matching by exact name, as
+  characters; 132 ordered pairs, 2558 hand-labelled joints): dittomo finds 96.4% of joints; matching by exact name, as
   three.js and Babylon do, finds 30.3%. Testing on them found and fixed: VRM's `J_Bip_C_` names, a bare `Arm`/`Leg`
   against numbered `arm_joint_2`, rigs that stop at the base of the head (height now also comes from the shoulders),
   a palm bone holding two fingers, mirrored limbs with uneven bone counts, and bones left out though pinned by the pairs
@@ -99,9 +99,12 @@ Phase 1 so far (November 2026):
   bones only marking where a chain ends (`HeadTop_End`, `Toe0Nub`) are told from joints by name; a bone left over that
   is the only child of a bone playing the only child of the other rig's (a hand at the end of each forearm) is paired
   however unlike their rests; and Rigify's `f_index` reads as a finger. The bench's labelled run had let a later label
-  undo an earlier one; fixed, it gives 1.3° rather than 2.1°.
-- **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 2.9°
-  from the source's on average (median 0.2°, 90th percentile 6.5°). Copying world turns from rest onto the right bones
+  undo an earlier one; fixed, it gives 1.3° rather than 2.1°. Then to 96.4%, the chest from 80% to 98%: the bones
+  the arms and the legs hang from (the parents of the two biggest mirrored pairs) play each other however high they
+  stand, and a bone limbs branch from doesn't play one along a chain, so a robot's chest just above its hips no longer
+  plays a lower spine bone.
+- **Limb directions on real clips**: the rigs' own 35 clips played on every other rig (385 pairs). Limbs point 2.4°
+  from the source's on average (median 0.2°, 90th percentile 6.1°). Copying world turns from rest onto the right bones
   gives 22°, and copying local rotations, as an animation mixer does with a clip from another rig, 75°. Measuring this
   found the chest tipped by up to 50° on rigs whose collarbones sit beside the chest instead of above it: the rest
   correction lined up only the child with most below it, and now fits all of them at once (Wahba's problem, a few
@@ -224,7 +227,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 95.0% of joints found on 12 real rigs (exact names: 30.3%); limbs within 2.9° of the source's on their 35 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 96.4% of joints found on 12 real rigs (exact names: 30.3%); limbs within 2.4° of the source's on their 35 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their

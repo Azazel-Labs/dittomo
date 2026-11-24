@@ -34,6 +34,9 @@ pub(crate) struct Shape {
     pub beyond: Vec<f32>,
     /// Whether two or more limbs of more than one bone hang from it, as from hips, a chest and a hand.
     pub forks: Vec<bool>,
+    /// The bones the arms and the legs hang from, as a chest and hips: the parents of the two biggest pairs of limbs
+    /// that mirror each other, the higher pair being the arms.
+    pub girdles: [Option<usize>; 2],
     pub names: Vec<Name>,
 }
 
@@ -72,6 +75,7 @@ impl Shape {
                 reach: Vec::new(),
                 beyond: Vec::new(),
                 forks: Vec::new(),
+                girdles: [None; 2],
                 names,
             };
         }
@@ -156,6 +160,7 @@ impl Shape {
                 reach: Vec::new(),
                 beyond: Vec::new(),
                 forks: Vec::new(),
+                girdles: [None; 2],
                 names,
             };
         }
@@ -167,6 +172,7 @@ impl Shape {
         }
         let pairs = mirrored(&pos, &children, &under, height);
         let height = stature(&pairs, height, floor);
+        let girdles = girdles(&pairs);
         let from_middle = along(middle);
         let reach: Vec<f32> = from_middle
             .iter()
@@ -240,6 +246,7 @@ impl Shape {
             reach,
             beyond,
             forks,
+            girdles,
             names,
         }
     }
@@ -368,6 +375,20 @@ fn stature(pairs: &[Mirrored], height: f32, floor: f32) -> f32 {
     match big.as_slice() {
         [a, b, ..] if a.parent != b.parent => height.max(1.22 * (a.y.max(b.y) - floor)),
         _ => height,
+    }
+}
+
+/// The bones the arms and the legs hang from: the parents of the two biggest mirrored pairs, if they differ, the
+/// higher pair being the arms.
+fn girdles(pairs: &[Mirrored]) -> [Option<usize>; 2] {
+    let mut big: Vec<&Mirrored> = pairs.iter().collect();
+    big.sort_by_key(|m| std::cmp::Reverse(m.weight));
+    match big.as_slice() {
+        [a, b, ..] if a.parent != b.parent => {
+            let (arms, legs) = if a.y > b.y { (a, b) } else { (b, a) };
+            [Some(arms.parent), Some(legs.parent)]
+        }
+        _ => [None; 2],
     }
 }
 

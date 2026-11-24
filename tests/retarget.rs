@@ -918,6 +918,47 @@ fn a_rig_stopping_at_the_base_of_the_head_in_an_a_pose_with_numbered_limbs() {
 }
 
 #[test]
+fn a_chest_just_above_the_hips_is_still_the_chest() {
+    // As a robot's might be: one short bone from the hips up to where the arms and the neck hang, far below where a
+    // chest stands on a person, and no names to go by. The arms hang from it, so it plays the chest, not the spine.
+    let from = mixamo_like();
+    let mut j: Joints = vec![
+        joint("node0", None, [0.0, 0.0, 0.0]),
+        joint("node1", Some("node0"), [0.0, 0.92, 0.0]),
+        joint("node2", Some("node1"), [0.0, 1.02, -0.02]),
+        joint("node3", Some("node2"), [0.0, 1.5, -0.02]),
+        joint("node4", Some("node3"), [0.0, 1.6, 0.0]),
+    ];
+    for (k, x) in [(5, 1.0f32), (12, -1.0)] {
+        let n = |i: usize| format!("node{}", k + i);
+        j.push(joint(n(0), Some("node2"), [0.2 * x, 1.42, -0.02]));
+        j.push(joint(n(1), Some(&n(0)), [0.46 * x, 1.42, -0.02]));
+        j.push(joint(n(2), Some(&n(1)), [0.72 * x, 1.42, -0.02]));
+        j.push(joint(n(3), Some("node1"), [0.1 * x, 0.88, 0.0]));
+        j.push(joint(n(4), Some(&n(3)), [0.1 * x, 0.5, 0.0]));
+        j.push(joint(n(5), Some(&n(4)), [0.1 * x, 0.08, -0.02]));
+        j.push(joint(n(6), Some(&n(5)), [0.1 * x, 0.0, 0.08]));
+    }
+    let to = placed(&j);
+    let map = Mapping::new(&from, &to);
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[
+            ("Hips", "node1"),
+            ("Spine2", "node2"),
+            ("Neck", "node3"),
+            ("LeftArm", "node5"),
+            ("LeftForeArm", "node6"),
+            ("RightArm", "node12"),
+            ("LeftUpLeg", "node8"),
+            ("RightFoot", "node17"),
+        ],
+    );
+}
+
+#[test]
 fn a_nameless_rig_stopping_at_the_base_of_the_head_with_one_hand_missing() {
     // No names to go by, no bone at the top of the head, and a right arm that stops at the forearm: the height comes
     // from the shoulders, and the arms are still a pair.

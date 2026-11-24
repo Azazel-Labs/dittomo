@@ -257,8 +257,19 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     let near = 0.08 + 0.35 * s.reach[a].min(t.reach[b]);
     v += 0.8 * bell(s.at[a].distance(t.at[b]), near);
     v += 0.4 * bell(s.reach[a] - t.reach[b], 0.1);
+    // Whatever the proportions, the arms hang from the chest and the legs from the hips.
+    let role = |sh: &Shape, x: usize| sh.girdles.iter().position(|&g| g == Some(x));
+    match (role(s, a), role(t, b)) {
+        (Some(x), Some(y)) => v += if x == y { 0.6 } else { -0.6 },
+        (Some(_), None) | (None, Some(_)) if s.girdles[0].is_some() && t.girdles[0].is_some() => v -= 0.6,
+        _ => {}
+    }
+    // Limbs branch where they branch, however high: a bone two limbs hang from plays one, not a bone along a chain.
+    // A bone with nothing beyond it might be either, on a rig that stops there.
     if s.forks[a] && t.forks[b] {
         v += 0.3;
+    } else if s.forks[a] != t.forks[b] && !s.children[a].is_empty() && !t.children[b].is_empty() {
+        v -= 0.5;
     }
     v -= 1.2;
     v

@@ -68,17 +68,17 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 95.0% |
+| dittomo | 96.4% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
 | --- | ---: | ---: | --- | --- | ---: | ---: |
-| hips | 100% | 38% | | thighs | 95% | 24% |
-| spine | 95% | 38% | | shins | 95% | 24% |
-| chest | 80% | 24% | | feet | 100% | 29% |
+| hips | 100% | 38% | | thighs | 97% | 24% |
+| spine | 95% | 38% | | shins | 97% | 24% |
+| chest | 98% | 24% | | feet | 100% | 29% |
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
-| upper arms | 91% / 88% | 23% | | forearms | 91% / 88% | 23% |
+| upper arms | 92% / 88% | 23% | | forearms | 92% / 88% | 23% |
 | hands | 100% | 33% | | index fingers | 94% | 42% |
 
 What it gets wrong:
@@ -86,8 +86,8 @@ What it gets wrong:
 - **RobotExpressive**, a cartoon whose legs start a fifth of its height out from the middle and whose feet hang from the
   root for IK: a third of its joints are found against CesiumMan and RiggedFigure, whose names say nothing either.
 - **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting far out from
-  the middle: 60% to 93% against the Mixamo rigs. Most of the chest misses are its chest, which sits just above the
-  hips and is taken for a lower spine bone.
+  the middle: 67% to 100% against the Mixamo rigs. With no collarbone, its upper arms start where a collarbone ends
+  and are taken for one.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
 CI runs this on every push and fails below 90%. The rigs are fetched rather than committed; each keeps its own licence.
@@ -105,7 +105,7 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.9° | 0.2° | 6.5° | 96% |
+| dittomo | 2.4° | 0.2° | 6.1° | 97% |
 | dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.3° | 0.2° | 4.0° | 99% |
 | World turns from rest copied onto the right bones | 22.0° | 11.2° | 64.6° | 56% |
 | Local rotations copied onto the right bones | 74.7° | 83.8° | 151.4° | 22% |
@@ -126,13 +126,13 @@ scaled; both are over the target's height. Clips walked in place are judged on t
 
 | Fixes | Foot slide | Foot height off | Limb directions, mean |
 | --- | ---: | ---: | ---: |
-| none (`apply`) | 0.00389 | 0.0093 | 2.6° |
-| travel | 0.00099 | 0.0093 | 2.6° |
-| planted feet | 0.00313 | 0.0019 | 3.6° |
-| push-out | 0.00389 | 0.0093 | 2.6° |
-| all (`apply_with`) | 0.00003 | 0.0011 | 3.8° |
-| all, live (`Live`) | 0.00004 | 0.0012 | 4.0° |
-| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0011 | 3.8° |
+| none (`apply`) | 0.00389 | 0.0093 | 2.3° |
+| travel | 0.00099 | 0.0093 | 2.3° |
+| planted feet | 0.00313 | 0.0019 | 3.3° |
+| push-out | 0.00389 | 0.0093 | 2.3° |
+| all (`apply_with`) | 0.00003 | 0.0011 | 3.5° |
+| all, live (`Live`) | 0.00004 | 0.0012 | 3.7° |
+| all, live, 6 poses late (`Live::delayed`) | 0.00005 | 0.0011 | 3.5° |
 
 Together they cut foot slide 119 times and the height error 8.4 times. The degree they cost is the legs bending to keep
 feet down where the target's stride and leg proportions differ from the source's. Played live, with nothing ahead,
