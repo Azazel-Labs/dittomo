@@ -167,20 +167,23 @@ moving steadily from the frame before to the one after than the source's is, by 
 | --- | ---: | ---: | ---: | ---: |
 | none (`apply`) | 0.00388 | 0.0097 | 1.7° | 0.03% |
 | travel | 0.00118 | 0.0097 | 1.7° | 0.03% |
-| planted feet | 0.00333 | 0.0015 | 2.8° | 0.48% |
+| planted feet | 0.00266 | 0.0001 | 2.6° | 0.41% |
 | push-out | 0.00388 | 0.0097 | 1.7° | 0.03% |
-| all (`apply_with`) | 0.00004 | 0.0015 | 3.0° | 0.57% |
+| all (`apply_with`) | 0.00000 | 0.0001 | 2.8° | 0.50% |
 | all, live (`Live`) | 0.00006 | 0.0016 | 3.2° | 0.84% |
 | all, live, 6 poses late (`Live::delayed`) | 0.00007 | 0.0015 | 3.0° | 0.76% |
 
-Together they cut foot slide about a hundred times and the height error 6.5 times. The degree they cost is the legs
-bending to keep feet down where the target's stride and leg proportions differ from the source's. Played live, with
-nothing ahead, slide is cut about 65 times: a foot is held from the pose it lands, where the target's was the pose
-before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a little more to hold it. Six
-poses late it is cut nearly as much, with limbs as close as the whole clip's. A foot is planted from the first pose it
-stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet jump between
-held poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand through the
-body.
+Together they leave next to no foot slide and cut the height error nearly a hundred times. The degree they cost is the
+legs bending to keep feet down where the target's stride and leg proportions differ from the source's. Where a planted
+foot is further below the hip than the target's leg reaches, bent as it was played, the body is lowered, eased in and
+out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001 and the pops from 0.57% to
+0.50%. The body is lowered a tenth of the leg at most, and never so far that a bone but the feet goes under the floor.
+Played live, with nothing ahead, slide is cut about 65 times: a foot is held from the pose it lands, where the target's
+was the pose before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a little more to
+hold it. Six poses late it is cut nearly as much, with limbs as close as the whole clip's. A foot is planted from the
+first pose it stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet
+jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand
+through the body.
 
 Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,572 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
@@ -355,7 +358,8 @@ tails are left out, and fingers hanging low aren't taken for feet.
   floor than the source's comes under its own: the Quaternius horse stands at rest with its hooves well above its root
   and walks with them on the root's level, and a paw brought down as far from where it stands went through the floor.
   Two-bone IK (`contact::reach`) bends the knee and swings the hip to put it there, keeping the foot's turn, easing in
-  and out over about a tenth of a second.
+  and out over about a tenth of a second. Where the leg would have to straighten past how bent it was played, or past
+  nearly straight, to reach, the body is lowered over it instead, eased over the same time.
 - **Push-out.** Spheres along the spine and one round the head stand for the body; elbows, hands and forearms inside
   them are turned out, the upper arm first, then the forearm. Short arms raised overhead go round the head, not
   through it.
@@ -445,16 +449,17 @@ skeleton) straight under a limb that stops short of the floor is taken for that 
 bone hung from the limb, then put back under the root where it was, so it goes with its leg. The Quaternius animals
 hang their paws this way, and the toy robot its feet.
 
-An animal lying down or on its side brings its knees, tail and ears to the ground, and a target built otherwise would put
-them through it: a longer tail, a lower belly, a bone playing nothing. With `Fixes::floor`, no bone comes further under
-the floor than the bone it plays comes under the source's, scaled. A bone that would turns the bone it hangs from just
-enough to lay it along the ground, keeping its heading, and the next bone down from that, as an animator lays a tail; a
-head lifts with its ears. A knee that planted feet bend back under the floor swings the leg about the line from hip to
-foot, so the foot stays put. A leg that can't fold as far as the source's, its paw planted nearer the hip than it can
-reach, folds flat with its hock pointing down, and no swing about hip to foot lifts it: it turns about the hip instead,
-as it bends, and rests on its hock as a crouching dog does, its paw coming up a little. Over every Quaternius and Fox
-clip played on each other animal, the worst bone under the floor past the source's went from 11% of the target's height
-to under a hundredth of a percent.
+An animal lying down or on its side brings its knees, tail and ears to the ground, and a target built otherwise would
+put them through it: a longer tail, a lower belly, a bone playing nothing. With `Fixes::floor`, no bone comes further
+under the floor than the bone it plays comes under the source's, scaled. A bone that would turns the bone it hangs from
+just enough to lay it along the ground, keeping its heading, and the next bone down from that, as an animator lays a
+tail; a head lifts with its ears. A knee that planted feet bend back under the floor swings the leg about the line from
+hip to foot, so the foot stays put. A leg that can't fold as far as the source's, its paw planted nearer the hip than it
+can reach, folds flat with its hock pointing down, and no swing about hip to foot lifts it: it turns about the hip
+instead, as it bends, and rests on its hock as a crouching dog does, its paw coming up a little. Over every Quaternius
+and Fox clip played on each other animal, the worst bone under the floor past the source's went from 11% of the target's
+height to 0.4%, and a hundredth of a percent on average, counted from the body's own lowest bone at rest: a root the
+hips hang from is lowered with the body for planted feet, so it is left out.
 
 ## Tested on
 

@@ -218,9 +218,10 @@ impl Mapping {
         } else {
             if traveled.is_some() {
                 let still = transfer::play_on(&mut player, target, clip)?;
+                // Travel moves only the roots, and only across the floor; the body lowered for the feet stays so.
                 for (pose, kept) in out.poses.iter_mut().zip(&still.poses) {
                     for (b, k) in pose.iter_mut().zip(kept) {
-                        b.translation = k.translation;
+                        (b.translation.x, b.translation.z) = (k.translation.x, k.translation.z);
                     }
                 }
             }

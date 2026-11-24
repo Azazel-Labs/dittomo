@@ -16,8 +16,8 @@
 //!   low), so standing as the source stands is standing as it does itself.
 //! - floor: every clip of the source played on the target with every fix, how much further the target's feet sink
 //!   below its floor at worst than the source's own do below theirs, over the height, in percent.
-//! - body: the same for every bone of the body (all but the `helpers`), below the lowest of them at rest: a knee, a
-//!   tail or an ear of an animal lying on its side.
+//! - body: the same for every bone of the body (all but the `helpers`, and what the hips hang from), below the lowest
+//!   of them at rest: a knee, a tail or an ear of an animal lying on its side.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -131,7 +131,19 @@ fn sunk(animal: &Animal, clip: &Clip) -> [f32; 2] {
         .copied()
         .collect();
     let helpers = animal.labels.get("helpers").cloned().unwrap_or_default();
-    let body: Vec<usize> = (0..skeleton.len()).filter(|b| !helpers.contains(b)).collect();
+    // What the hips hang from (a root, an armature) carries the body rather than being in it: lowered with the body, it
+    // may go under the floor.
+    let mut carriers = Vec::new();
+    for &h in animal.labels.get("hips").into_iter().flatten() {
+        let mut b = h;
+        while let Some(p) = skeleton.bones()[b].parent {
+            carriers.push(p);
+            b = p;
+        }
+    }
+    let body: Vec<usize> = (0..skeleton.len())
+        .filter(|b| !helpers.contains(b) && !carriers.contains(b))
+        .collect();
     let floor = |bones: &[usize]| bones.iter().map(|&b| rest[b].position().y).fold(f32::MAX, f32::min);
     let floors = [floor(&feet), floor(&body)];
     let mut sink = [0.0f32; 2];

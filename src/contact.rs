@@ -541,6 +541,9 @@ pub(crate) fn traveled(skeleton: &Skeleton, s: &Shape, clip: &Clip) -> Option<Cl
     Some(out)
 }
 
+/// A leg, where its foot goes frame by frame if it moves, and where it is as played.
+type Going = (Limb, Vec<Option<Vec3>>, Vec<Vec3>);
+
 /// Keeps the target's feet still while the source's are planted.
 pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, out: &mut Clip) {
     let [(source, s), (target, t)] = rigs;
@@ -560,6 +563,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
     let ramp = gaps
         .get(gaps.len() / 2)
         .map_or(4, |dt| ((0.12 / dt).round() as usize).clamp(1, 10));
+    let mut feet: Vec<Going> = Vec::new();
     for leg in legs_of(target, t) {
         // A foot left unpaired plants with the first paired bone under it, as a paw held for IK above a toe that is.
         let Some(a) = map.source_of(leg.end).or_else(|| {
@@ -586,7 +590,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             }
         }
         let t_at = track(target, out, leg.end);
-        let path = paths(target, [leg.end]);
+        let mut goals = vec![None; n];
         let locks: Vec<Vec3> = runs
             .iter()
             .map(|&(a, b)| t_at[a..b].iter().sum::<Vec3>() / (b - a) as f32)
@@ -620,22 +624,127 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             // bent more or less at rest, played at the source's angles, can reach below the floor.
             let low = floor(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
             let free = Vec3::new(t_at[f].x, t_at[f].y.max(low), t_at[f].z);
-            let goal = if d > ramp {
-                if free.y - t_at[f].y < 1e-5 * t.height {
-                    continue;
-                }
-                free
+            goals[f] = if d > ramp {
+                (free.y - t_at[f].y >= 1e-5 * t.height).then_some(free)
             } else {
                 let x = 1.0 - d as f32 / (ramp + 1) as f32;
                 let w = x * x * (3.0 - 2.0 * x);
                 let y = height(&sole, k, |i| s_ys[i][f], |i| t_ys[i][f]);
-                free.lerp(Vec3::new(held.x, y, held.z), w)
+                Some(free.lerp(Vec3::new(held.x, y, held.z), w))
             };
-            let pose = &mut out.poses[f];
-            place(target, pose, &path, &mut world);
-            reach_in(target, pose, &world, &leg, goal);
+        }
+        feet.push((leg, goals, t_at));
+    }
+    let drop = lower(target, t, out, &feet, ramp);
+    let roots: Vec<usize> = (0..target.len())
+        .filter(|&b| target.bones()[b].parent.is_none())
+        .collect();
+    let path = paths(target, feet.iter().map(|(leg, ..)| leg.end));
+    for (f, pose) in out.poses.iter_mut().enumerate() {
+        let dropped = drop[f] > 0.0;
+        if dropped {
+            for &r in &roots {
+                pose[r].translation.y -= drop[f];
+            }
+        }
+        let mut placed = false;
+        for (leg, goals, t_at) in &feet {
+            // A foot the body was lowered over is kept where it was going.
+            let Some(goal) = goals[f].or(dropped.then_some(t_at[f])) else {
+                continue;
+            };
+            // Legs hang apart, so reaching one leaves the other placed as it was.
+            if !placed {
+                place(target, pose, &path, &mut world);
+                placed = true;
+            }
+            reach_in(target, pose, &world, leg, goal);
         }
     }
+}
+
+/// How far to lower the target's body, frame by frame, so that each leg reaches where its foot goes ([`plant`]) bent
+/// at least as much as it was played, or as a leg standing nearly straight is: a planted foot held further off than the
+/// leg reaches would snap the knee straight. Never less than that at any frame, eased over `ramp` frames either side, so
+/// the body sinks and rises smoothly; but never more than a tenth of the leg, nor so far that a bone but the feet (and a
+/// root standing on the floor at rest) comes under the target's floor, as a belly, a knee or a tail near it would.
+fn lower(target: &Skeleton, t: &Shape, played: &Clip, feet: &[Going], ramp: usize) -> Vec<f32> {
+    let n = played.poses.len();
+    let mut need = vec![0.0f32; n];
+    for (leg, goals, _) in feet {
+        if goals.iter().all(Option::is_none) {
+            continue;
+        }
+        let [hip, knee, foot] = [leg.upper, leg.lower, leg.end].map(|b| track(target, played, b));
+        for f in 0..n {
+            let Some(goal) = goals[f] else { continue };
+            let long = hip[f].distance(knee[f]) + knee[f].distance(foot[f]);
+            let reach = long * (hip[f].distance(foot[f]) / long).clamp(0.98, 0.999);
+            // Lowered by `y`, the hip is `reach` from the goal: |v + y Y| = reach, the smaller root. A goal further
+            // across than the leg reaches can't be reached by lowering, and the body is lowered a tenth of the leg at
+            // most, so a foot held far off isn't dragged down to.
+            let v = goal - hip[f];
+            let across = v.x * v.x + v.z * v.z;
+            if across < reach * reach {
+                let y = -v.y - (reach * reach - across).sqrt();
+                need[f] = need[f].max(y.min(0.1 * long));
+            }
+        }
+    }
+    if need.iter().all(|&y| y <= 0.0) {
+        return need;
+    }
+    // How far each frame's body is over the floor, knees and all, but the feet and any bone standing on it at rest (a
+    // root, say); only near frames that need lowering.
+    let body: Vec<usize> = (0..target.len())
+        .filter(|&b| {
+            !feet.iter().any(|(leg, ..)| b == leg.end || below(target, b, leg.end))
+                && t.rest[b].position().y - t.floor >= 0.01 * t.height
+        })
+        .collect();
+    let path = paths(target, body.iter().copied());
+    let mut world = vec![At::IDENTITY; target.len()];
+    let room: Vec<f32> = (0..n)
+        .map(|f| {
+            if need[f.saturating_sub(4 * ramp)..(f + 4 * ramp + 1).min(n)]
+                .iter()
+                .all(|&y| y <= 0.0)
+            {
+                return f32::INFINITY;
+            }
+            place(target, &played.poses[f], &path, &mut world);
+            body.iter()
+                .map(|&b| world[b].position().y - t.floor)
+                .fold(f32::INFINITY, f32::min)
+                .max(0.0)
+        })
+        .collect();
+    // The most needed within twice `ramp` frames, then averaged twice over `ramp` either side: each average takes in
+    // only frames that saw this frame's need, so it never comes out less. The room the same way, the least, so it never
+    // comes out more.
+    let spread = |v: &[f32], most: bool| -> Vec<f32> {
+        let pick = if most { f32::max } else { f32::min };
+        let start = if most { 0.0 } else { f32::INFINITY };
+        let far: Vec<f32> = (0..n)
+            .map(|f| {
+                v[f.saturating_sub(2 * ramp)..(f + 2 * ramp + 1).min(n)]
+                    .iter()
+                    .copied()
+                    .fold(start, pick)
+            })
+            .collect();
+        let average = |v: &[f32]| -> Vec<f32> {
+            (0..n)
+                .map(|f| {
+                    let w = &v[f.saturating_sub(ramp)..(f + ramp + 1).min(n)];
+                    w.iter().sum::<f32>() / w.len() as f32
+                })
+                .collect()
+        };
+        average(&average(&far))
+    };
+    let (need, room) = (spread(&need, true), spread(&room, false));
+    need.iter().zip(&room).map(|(&y, &r)| y.min(r)).collect()
 }
 
 /// How long, in seconds, a foot takes to settle where it is held once it plants, and to let go once it lifts.
