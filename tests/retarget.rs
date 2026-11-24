@@ -1853,3 +1853,102 @@ fn a_neck_carried_high_stays_high_under_one_carried_low() {
         }
     }
 }
+
+/// The Quaternius Alpaca, as its skin was bound, over its height: the dog's bones, its neck rising straight up from
+/// its shoulders, as high again as its legs are long.
+fn alpaca() -> Skeleton {
+    let mut j: Joints = vec![
+        joint("AnimalArmature", None, [0.0, 0.0, 0.0]),
+        joint("Body", Some("AnimalArmature"), [0.0, 0.141, 0.0]),
+        joint("Back", Some("Body"), [0.0, 0.483, -0.238]),
+        joint("Torso", Some("Back"), [0.0, 0.459, -0.111]),
+        joint("Torso2", Some("Torso"), [0.0, 0.442, 0.014]),
+        joint("Torso3", Some("Torso2"), [0.0, 0.441, 0.144]),
+        joint("Neck1", Some("Torso3"), [0.0, 0.482, 0.247]),
+        joint("Neck2", Some("Neck1"), [0.0, 0.594, 0.29]),
+        joint("Neck3", Some("Neck2"), [0.0, 0.747, 0.31]),
+        joint("Head", Some("Neck3"), [0.0, 0.877, 0.312]),
+        joint("Tail1", Some("Back"), [0.0, 0.483, -0.238]),
+        joint("Tail2", Some("Tail1"), [0.0, 0.521, -0.279]),
+        joint("Tail3", Some("Tail2"), [0.0, 0.507, -0.303]),
+    ];
+    for (side, s) in [("L", 1.0), ("R", -1.0)] {
+        let chains: [Chain; 5] = [
+            (
+                "Head",
+                &[
+                    ("Ear1", [0.018, 0.92, 0.321]),
+                    ("Ear2", [0.027, 0.95, 0.323]),
+                    ("Ear3", [0.035, 0.969, 0.32]),
+                    ("Ear4", [0.044, 1.0, 0.317]),
+                ],
+            ),
+            (
+                "Torso2",
+                &[
+                    ("FrontShoulder", [0.034, 0.371, 0.187]),
+                    ("FrontUpperLeg", [0.065, 0.375, 0.187]),
+                    ("FrontLowerLeg", [0.065, 0.201, 0.211]),
+                ],
+            ),
+            (
+                "Back",
+                &[
+                    ("BackShoulder", [0.038, 0.472, -0.172]),
+                    ("BackLeg", [0.076, 0.476, -0.172]),
+                    ("BackUpperLeg", [0.076, 0.352, -0.136]),
+                    ("BackLowerLeg", [0.076, 0.199, -0.304]),
+                ],
+            ),
+            (
+                "AnimalArmature",
+                &[("IKFrontLeg", [0.065, 0.061, 0.192]), ("FF", [0.065, 0.022, 0.208])],
+            ),
+            (
+                "AnimalArmature",
+                &[("IKBackLeg", [0.076, 0.061, -0.287]), ("FFB", [0.076, 0.022, -0.272])],
+            ),
+        ];
+        for (from, chain) in chains {
+            let mut parent = from.to_owned();
+            for &(part, [x, y, z]) in chain {
+                let name = format!("{part}.{side}");
+                j.push(joint(name.clone(), Some(&parent), [s * x, y, z]));
+                parent = name;
+            }
+        }
+        j.push(joint(
+            format!("PoleTarget.{side}"),
+            Some("Body"),
+            [s * 0.065, 0.245, 0.631],
+        ));
+        j.push(joint(
+            format!("PoleTargetBack.{side}"),
+            Some("Body"),
+            [s * 0.065, 0.245, 0.718],
+        ));
+    }
+    placed(&j)
+}
+
+#[test]
+fn a_long_neck_leaves_the_hind_legs_hip_to_hip() {
+    // An alpaca stands twice as tall as its legs are long, a fox not much more: by height, the alpaca's hips stand where
+    // the fox's knees do. Before, the fox's knee played the alpaca's hip, its thigh nothing, and the alpaca's hind legs
+    // reached back as the fox's shins do. How far down the leg each bone is holds whatever the neck.
+    let (fox, alpaca) = (fox(), alpaca());
+    let map = Mapping::new(&fox, &alpaca);
+    for (side, s) in [("Left", "L"), ("Right", "R")] {
+        for (from, to) in [
+            ("Leg01", "BackLeg"),
+            ("Leg02", "BackUpperLeg"),
+            ("Foot01", "BackLowerLeg"),
+        ] {
+            let (a, b) = (format!("b_{side}{from}"), format!("{to}.{s}"));
+            let got = map
+                .source_of(alpaca.index_of(&b).unwrap())
+                .map(|a| fox.bones()[a].name.clone());
+            assert_eq!(got.as_deref(), Some(a.as_str()), "{b}");
+        }
+    }
+}

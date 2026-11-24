@@ -45,11 +45,13 @@ pub(crate) struct Shape {
     pub limbs: [Option<[usize; 2]>; 2],
     /// Which limb each bone is in, the arms (0) or the legs (1), and whether on the body's left.
     pub limb: Vec<Option<(usize, bool)>>,
-    /// How far along its arm each bone in one is: the way to it from the chest, over the way to where the hand begins
-    /// (the fingers' roots, or the arm's end), so 1 or more in the hand. Not a number for a bone in no arm.
+    /// How far along its limb each bone in one is: in an arm, the way to it from the chest over the way to where the
+    /// hand begins (the fingers' roots, or the arm's end), so 1 or more in the hand; in a leg, the way to it from the
+    /// hips over the way to the leg's end. Not a number for a bone in no limb.
     pub along: Vec<f32>,
-    /// How long the arms are, from the chest to where the hand begins, over the height: the longer of the two.
-    pub span: f32,
+    /// How long the arms are, from the chest to where the hand begins, then the legs, from the hips to their ends, over
+    /// the height: the longer of each two.
+    pub span: [f32; 2],
     pub names: Vec<Name>,
 }
 
@@ -107,7 +109,7 @@ impl Shape {
                 limbs: [None; 2],
                 limb: Vec::new(),
                 along: Vec::new(),
-                span: 0.0,
+                span: [0.0; 2],
                 names,
             };
         }
@@ -197,7 +199,7 @@ impl Shape {
                 limbs: [None; 2],
                 limb: Vec::new(),
                 along: Vec::new(),
-                span: 0.0,
+                span: [0.0; 2],
                 names,
             };
         }
@@ -313,7 +315,15 @@ impl Shape {
         let far: Vec<bool> = (0..n)
             .map(|i| limb[i].is_some_and(|(r, _)| r == 0) && hand[i].is_some_and(|(_, near)| near > length[i]))
             .collect();
-        let (along, span) = along_arms(limbs[0], &parents, &length, &main, &hand);
+        let (mut along, arms) = along_limbs(limbs[0], &parents, &length, &main, &hand);
+        // A leg ends where it ends: a foot's toes are as much the leg as the foot is, where fingers branch off a hand.
+        let (down, legs) = along_limbs(limbs[1], &parents, &length, &main, &vec![None; n]);
+        for (x, d) in along.iter_mut().zip(down) {
+            if x.is_nan() {
+                *x = d;
+            }
+        }
+        let span = [arms, legs];
         Self {
             rest,
             children,
@@ -339,9 +349,10 @@ impl Shape {
     }
 }
 
-/// How far along its arm each bone is, and how long the arms are (see [`Shape::along`] and [`Shape::span`]). `hand`
-/// is, for a bone limbs of more than one bone hang from, how far the nearest of them starts from it.
-fn along_arms(
+/// How far along its limb each bone is, and how long the limbs are (see [`Shape::along`] and [`Shape::span`]), for
+/// the two limbs starting at `arms`. `hand` is, for a bone limbs of more than one bone hang from, how far the nearest
+/// of them starts from it: where the hand begins.
+fn along_limbs(
     arms: Option<[usize; 2]>,
     parents: &[Option<usize>],
     length: &[f32],
