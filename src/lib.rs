@@ -112,6 +112,8 @@ pub enum Error {
     },
     /// A clip's times and poses differ in number.
     ClipSize { times: usize, poses: usize },
+    /// A clip to write has no times, or times that don't rise.
+    ClipTimes,
     /// The mapping was made for other skeletons.
     NotTheirMapping,
 }
@@ -124,6 +126,7 @@ impl std::fmt::Display for Error {
                 write!(f, "frame {frame} poses {bones} bones, the skeleton has {expected}")
             }
             Self::ClipSize { times, poses } => write!(f, "the clip has {times} times but {poses} poses"),
+            Self::ClipTimes => write!(f, "the clip has no times, or times that don't rise"),
             Self::NotTheirMapping => write!(f, "the mapping was made for other skeletons"),
         }
     }

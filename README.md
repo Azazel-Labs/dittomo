@@ -9,7 +9,8 @@ where the character looks, where its hands rest on its body, and where its feet 
 <p align="center"><img src="assets/brand/demo.gif" alt="A samba danced by Michelle, and the same samba played by dittomo on a Ready Player Me avatar" width="640"></p>
 
 Pure Rust, no `unsafe`, deterministic, MIT-0. Its only dependency is [glam](https://crates.io/crates/glam); reading
-model files adds [polysmelt](https://github.com/Azazel-Labs/polysmelt), behind a feature.
+and writing model files adds [polysmelt](https://github.com/Azazel-Labs/polysmelt), behind a feature. To retarget files
+without writing code, `cargo install dittomo --features fs` installs a `dittomo` command (see Writing clips).
 
 ```rust
 use dittomo::{Clip, Fixes, Mapping, Skeleton};
@@ -43,11 +44,12 @@ fn stream(source: &Skeleton, target: &Skeleton, poses: impl Iterator<Item = (f32
 }
 ```
 
-Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as
-soon as the source's are down and nearly still, held where they were shown the pose before so they don't slide as they
-settle, and a clip walked in place moves on as far as the planted foot slides back. `Live::touching`, given both rigs' skins, keeps hands at the skin's distance too, just as the whole clip does.
-`Live::delayed(6)` plays each pose six poses late, a fifth of a second at 30 a second, and plants feet with those six
-in sight as the whole clip does: eased in before they land, held where they stand on average.
+Arms kept out of the body, hands together and hands on the head come out just as the whole clip's do. Feet plant as soon
+as the source's are down and nearly still, held where they were shown the pose before so they don't slide as they
+settle, and a clip walked in place moves on as far as the planted foot slides back. `Live::touching`, given both rigs'
+skins, keeps hands at the skin's distance too, just as the whole clip does. `Live::delayed(6)` plays each pose six poses
+late, a fifth of a second at 30 a second, and plants feet with those six in sight as the whole clip does: eased in
+before they land, held where they stand on average.
 
 The videos are rendered by `examples/video.rs`: the source, dittomo's copy, and the same clip with each bone's rotation
 copied by name, side by side, skinned and drawn on the CPU and piped to `ffmpeg`.
@@ -245,6 +247,41 @@ animation is sampled at its keys into a `Clip`. `load` builds for wasm. The twel
 read in about 0.14 s together on one core of a laptop. The eleven glTF and VRM rigs take under 50 ms between them (the
 biggest, hvgirl's 1,295 frames over 147 channels, about 12 ms); the rest is the 3.7 MB Mixamo FBX with its 1,223-frame
 dance, most of it inflating its compressed arrays.
+
+## Writing clips
+
+`Model::write_clip` adds a clip to the document the model was read from as a glTF animation, and polysmelt writes the
+document as a GLB, so a retargeted clip goes out with the target's meshes, materials and VRM extensions as they were.
+`load::document(path)` reads the document (`load::document_from_bytes` one in memory) and `Model::from_document` the
+model from it:
+
+```rust
+let source = Model::load("walk.fbx".as_ref())?;
+let mut doc = load::document("avatar.vrm".as_ref())?;
+let target = Model::from_document(&doc)?;
+let mapping = Mapping::new(&source.skeleton, &target.skeleton);
+let skins = [&source.skin, &target.skin];
+let walk = mapping.apply_touching(&source.skeleton, &target.skeleton, skins, &source.clips[0].1, Fixes::ALL)?;
+target.write_clip(&mut doc, Some("walk"), &walk)?;
+std::fs::write("avatar_walk.glb", doc.to_glb()?)?;
+```
+
+Each bone is keyed only where it moves, and only at the poses that playing linearly between the others doesn't give
+within a thousandth of a degree, or a hundred-thousandth of the body's height. A node placed by a matrix is placed by
+its translation, rotation and scale instead, as glTF animates only those. Played back, no joint comes further than a
+millionth of the body's height from the clip on Michelle's samba played on the soldier, or 0.00005 on the Mixamo samba's
+FBX played on seed-san, whose 10,849 poses (its curves are keyed at times of their own) come down to under two fifths as
+many keys.
+
+With `fs`, the `dittomo` command does it file to file, playing every clip of the source (or those named) on the target
+with every fix, and writing the target with them in place of its own:
+
+```sh
+dittomo walk.fbx avatar.vrm avatar_walk.glb [--clip NAME|N]... [--fixes all|none] [--keep] [--pairs]
+```
+
+`--keep` keeps the target's own clips too, and `--pairs` prints which source bone each target bone follows. The FBX
+samba onto seed-san's 132 bones takes 0.8 s, reading and writing included; Michelle's samba onto the soldier 0.08 s.
 
 ## Contact fixes
 

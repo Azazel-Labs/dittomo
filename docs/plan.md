@@ -53,6 +53,16 @@ Phase 1 so far (November 2026):
   end, FBX loading a third faster, a GLB on disk read one system call per accessor (12 times faster for a rig with
   1,407 channels), and baking a clip sorting every key of every channel (55 times faster); `Rig::poser` steps through
   each channel's keys rather than searching them.
+- `Model::write_clip` writes a clip back out as a glTF animation of the document the model was read from, which
+  polysmelt writes as a GLB with the target's meshes, materials and VRM extensions as they were, and the `dittomo`
+  command (with `fs`) retargets file to file. Each channel keeps only the keys that playing linearly between the others
+  doesn't give within a thousandth of a degree or a hundred-thousandth of the body's height: played back, joints come
+  within a millionth of the height of the clip, and the Mixamo samba's FBX on seed-san, whose curves are each keyed at
+  times of their own so that together they key 10,849 poses, comes down to under two fifths as many keys, within
+  0.00005. Looser bounds barely help on motion capture (ten times looser, 17% fewer keys), so the bound stays tight.
+  Writing it found that polysmelt's FBX reader merges each channel's curves' times in f64 and stores them as f32, so
+  times apart by less than f32 tells apart become the same key twice, which a GLB it writes from such an FBX carries as
+  times that don't rise; dittomo reads them as one pose.
 - `Player` poses a frame in about 1.3 µs (65 → 76 bones) without allocating, normalizing only what comes in and what
   goes out. Playing a clip, setup included, went from about 30 µs per frame to 2.5 µs. Each bone's turn is made whole
   before it is chained and a target bone's world turn is known without its parent's, so no square root waits on

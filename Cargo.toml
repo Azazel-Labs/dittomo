@@ -13,7 +13,7 @@ categories = ["graphics", "game-development"]
 
 [features]
 # Skeletons and clips read from glTF, GLB, FBX and BVH in memory, through polysmelt (builds for wasm).
-load = ["dep:polysmelt"]
+load = ["dep:polysmelt", "dep:serde_json"]
 # `load`, plus reading model files from disk.
 fs = ["load", "polysmelt/fs"]
 # `load`, plus USD (polysmelt's `usd` feature needs Rust 1.96).
@@ -24,6 +24,8 @@ glam = "0.34"
 # To try a polysmelt fix before it's released, add `[patch.crates-io] polysmelt = { path = "../polysmelt" }`
 # with that checkout's version set to this one.
 polysmelt = { version = "0.14.0", default-features = false, features = ["gltf", "fbx", "bvh"], optional = true }
+# The glTF JSON of polysmelt's documents, for clips written back.
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 # Textures for the video example.
@@ -37,6 +39,12 @@ needless_range_loop = "allow"
 semicolon_if_nothing_returned = "warn"
 redundant_closure_for_method_calls = "warn"
 explicit_iter_loop = "warn"
+
+# `cargo install dittomo --features fs` installs it.
+[[bin]]
+name = "dittomo"
+path = "src/main.rs"
+required-features = ["fs"]
 
 [[bench]]
 name = "retarget"

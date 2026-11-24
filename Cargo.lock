@@ -131,6 +131,7 @@ dependencies = [
  "glam",
  "image",
  "polysmelt",
+ "serde_json",
 ]
 
 [[package]]
