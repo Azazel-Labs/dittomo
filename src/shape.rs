@@ -62,11 +62,25 @@ impl Shape {
     fn build(skeleton: &Skeleton, whole: bool) -> Self {
         let rest = skeleton.world(&skeleton.rest());
         let children = skeleton.children();
-        let names: Vec<Name> = if whole {
+        let mut names: Vec<Name> = if whole {
             skeleton.bones().iter().map(|b| names::parse(&b.name)).collect()
         } else {
             Vec::new()
         };
+        // A chain may leave its first bone unnumbered and number the rest from 2 (`Index.L`, `Index2.L`): then the first
+        // is 1. One numbered from 1 after it (`Spine`, `Spine1`) says less, as rigs count from 0 or 1.
+        for i in 0..names.len() {
+            if names[i].number.is_some() || names[i].words.is_empty() {
+                continue;
+            }
+            let next = children[i].iter().find_map(|&c| {
+                let (x, y) = (&names[i], &names[c]);
+                (x.words == y.words && x.side == y.side).then_some(y.number).flatten()
+            });
+            if next == Some(2) {
+                names[i].number = Some(1);
+            }
+        }
         let pos: Vec<Vec3> = rest.iter().map(Placed::position).collect();
         let n = pos.len();
         if n == 0 {
@@ -669,6 +683,20 @@ mod tests {
             }
         });
         Skeleton::new(bones.collect()).expect("parents first")
+    }
+
+    #[test]
+    fn a_chain_numbered_from_two_starts_at_one() {
+        // As RobotExpressive names its fingers, and Mixamo its spine.
+        let s = placed(&[
+            ("Hips", None, [0.0, 1.0, 0.0]),
+            ("Spine", Some("Hips"), [0.0, 1.1, 0.0]),
+            ("Spine1", Some("Spine"), [0.0, 1.2, 0.0]),
+            ("Index.L", Some("Spine1"), [0.1, 1.3, 0.0]),
+            ("Index2.L", Some("Index.L"), [0.2, 1.3, 0.0]),
+        ]);
+        let numbers: Vec<Option<u32>> = Shape::of(&s).names.iter().map(|n| n.number).collect();
+        assert_eq!(numbers, [None, None, Some(1), Some(1), Some(2)]);
     }
 
     #[test]

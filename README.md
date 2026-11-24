@@ -70,7 +70,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 98.7% |
+| dittomo | 98.9% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
@@ -81,7 +81,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
 | upper arms | 98% / 95% | 23% | | forearms | 98% / 95% | 23% |
-| hands | 100% | 33% | | index fingers | 94% / 97% | 42% |
+| hands | 100% | 33% | | index fingers | 100% | 42% |
 
 What it gets wrong:
 
