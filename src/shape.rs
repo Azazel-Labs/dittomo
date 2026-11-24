@@ -32,8 +32,12 @@ pub(crate) struct Shape {
     pub reach: Vec<f32>,
     /// How far along the body its farthest descendant is, over the height.
     pub beyond: Vec<f32>,
-    /// Whether two or more limbs of more than one bone hang from it, as from hips, a chest and a hand.
+    /// Whether two or more limbs of more than one bone hang from it, as from hips, a chest and a hand, or in an arm
+    /// three or more of one bone each.
     pub forks: Vec<bool>,
+    /// Whether it is an arm's bone whose limbs start further off than it is from its parent: a forearm with the hand
+    /// on its end, as a robot's with palms hung from it, not a hand.
+    pub far: Vec<bool>,
     /// The bones the arms and the legs hang from, as a chest and hips: the parents of the two biggest pairs of limbs
     /// that mirror each other, the higher pair being the arms.
     pub girdles: [Option<usize>; 2],
@@ -98,6 +102,7 @@ impl Shape {
                 reach: Vec::new(),
                 beyond: Vec::new(),
                 forks: Vec::new(),
+                far: Vec::new(),
                 girdles: [None; 2],
                 limbs: [None; 2],
                 limb: Vec::new(),
@@ -187,6 +192,7 @@ impl Shape {
                 reach: Vec::new(),
                 beyond: Vec::new(),
                 forks: Vec::new(),
+                far: Vec::new(),
                 girdles: [None; 2],
                 limbs: [None; 2],
                 limb: Vec::new(),
@@ -274,10 +280,21 @@ impl Shape {
                 joints[p] += joints[i];
             }
         }
-        let forks: Vec<bool> = children
-            .iter()
-            .map(|kids| kids.iter().filter(|&&c| joints[c] >= 2).count() >= 2)
+        // The limbs hanging from each bone: those of more than one bone, or, in an arm, three or more of one bone
+        // each, a hand of one-bone fingers as a low-detail rig has.
+        let digits: Vec<Vec<usize>> = (0..n)
+            .map(|i| {
+                let kids = &children[i];
+                let long: Vec<usize> = kids.iter().copied().filter(|&c| joints[c] >= 2).collect();
+                let arm = limb[i].is_some_and(|(r, _)| r == 0);
+                if long.len() < 2 && arm && kids.len() >= 3 && kids.iter().all(|&c| joints[c] == 1) {
+                    kids.clone()
+                } else {
+                    long
+                }
+            })
             .collect();
+        let forks: Vec<bool> = digits.iter().map(|d| d.len() >= 2).collect();
         let length: Vec<f32> = (0..n)
             .map(|i| {
                 skeleton.bones()[i]
@@ -289,9 +306,12 @@ impl Shape {
         // For each bone limbs hang from, how many do and how far off the nearest starts.
         let hand: Vec<Option<(usize, f32)>> = (0..n)
             .map(|i| {
-                let limbs = children[i].iter().filter(|&&c| joints[c] >= 2).map(|&c| length[c]);
+                let limbs = digits[i].iter().map(|&c| length[c]);
                 forks[i].then(|| limbs.fold((0, f32::INFINITY), |(k, m), l| (k + 1, m.min(l))))
             })
+            .collect();
+        let far: Vec<bool> = (0..n)
+            .map(|i| limb[i].is_some_and(|(r, _)| r == 0) && hand[i].is_some_and(|(_, near)| near > length[i]))
             .collect();
         let (along, span) = along_arms(limbs[0], &parents, &length, &main, &hand);
         Self {
@@ -308,6 +328,7 @@ impl Shape {
             reach,
             beyond,
             forks,
+            far,
             girdles,
             limbs,
             limb,

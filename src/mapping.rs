@@ -353,8 +353,10 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     }
     // Limbs branch where they branch, however high: a bone two limbs hang from plays one, not a bone along a chain.
     // A bone with nothing beyond it might be either, on a rig that stops there.
+    // An arm's bone whose limbs start far off is a forearm with the hand on its end: a hand, not one, and like a
+    // forearm with none.
     if s.forks[a] && t.forks[b] {
-        v += 0.3;
+        v += if s.far[a] == t.far[b] { 0.3 } else { -0.5 };
     } else if s.forks[a] != t.forks[b] && !s.children[a].is_empty() && !t.children[b].is_empty() {
         v -= 0.5;
     }

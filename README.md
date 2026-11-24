@@ -94,7 +94,7 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
-| dittomo | 99.2% |
+| dittomo | 99.3% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
 | Joint | dittomo | By name | | Joint | dittomo | By name |
@@ -104,15 +104,16 @@ joint plays the source's. `cargo bench --features fs --bench rigs`:
 | chest | 100% | 24% | | feet | 100% | 29% |
 | neck | 100% | 51% | | toes | 100% | 29% |
 | head | 94% | 32% | | clavicles | 100% | 44% |
-| upper arms | 98% | 23% | | forearms | 98% | 23% |
+| upper arms | 98% | 23% | | forearms | 99% | 23% |
 | hands | 100% | 33% | | index fingers | 100% | 42% |
 
 What it gets wrong:
 
 - **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and upper arms starting a third of its
-  height out from the middle: 93% to 100% against the other rigs but half against RobotExpressive, a cartoon with long
+  height out from the middle: 93% to 100% against the other rigs but 60% against RobotExpressive, a cartoon with long
   arms for its height. With no collarbone, BrainStem's upper arms start where a collarbone ends, about as far along
-  the arm as the robot's elbow, and each of its arm bones is taken for the one before it on the robot.
+  the arm as the robot's elbow, and are taken for the robot's shoulders; the forearm with a hand on its end is found,
+  the one without is taken for an upper arm.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
 
 CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather
@@ -133,7 +134,7 @@ commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.2° | 0.2° | 3.1° | 99% |
+| dittomo | 1.1° | 0.2° | 2.9° | 99% |
 | dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.0° | 0.1° | 2.6° | 99% |
 | World turns from rest copied onto the right bones | 20.8° | 9.6° | 64.6° | 60% |
 | Local rotations copied onto the right bones | 74.0° | 82.4° | 150.7° | 21% |
