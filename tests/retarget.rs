@@ -1013,9 +1013,178 @@ fn a_biped_with_its_arms_down_still_has_its_fingers_played() {
             assert!(played(b).contains("Thumb"), "{side} {b} plays {}", played(b));
         }
         for b in ["Finger1", "Finger11", "Finger12"] {
-            let f = played(b);
-            assert!(f.contains("Index") || f.contains("Middle"), "{side} {b} plays {f}");
+            assert!(played(b).contains("Index"), "{side} {b} plays {}", played(b));
         }
+    }
+}
+
+#[test]
+fn a_biped_holding_a_bow_has_its_arms_and_fingers_found() {
+    // As three.js's archer, a 3ds Max Biped: the collarbones start a hair either side of the neck and behind the spine,
+    // the arms hang down at rest, the left hand holds a bow (four bones more in that arm, two of them where the bow is),
+    // and each hand has a thumb and two fingers, among a ponytail, hair and pants. The arms still mirror each other, the bow is no hand of one-bone
+    // fingers nor a finger, and of the hand's digits the one standing apart is the thumb and the one next to it the
+    // index.
+    let from = mixamo_like();
+    let rows: [(&str, &str, [f32; 3]); 52] = [
+        ("body", "", [0.0, 0.0, 0.0]),
+        ("Bip001", "", [0.0, 93.7, -1.5]),
+        ("Bip001 pants_b", "Bip001", [0.0, 93.7, -11.9]),
+        ("Bip001 pants_f", "Bip001", [0.0, 93.7, 9.1]),
+        ("Bip001 Pelvis", "Bip001", [0.0, 93.7, -1.5]),
+        ("Bip001 Spine", "Bip001 Pelvis", [0.0, 106.9, 1.9]),
+        ("Bip001 Spine1", "Bip001 Spine", [0.0, 117.4, 1.9]),
+        ("Bip001 Neck", "Bip001 Spine1", [0.0, 134.0, -3.6]),
+        ("Bip001 Head", "Bip001 Neck", [0.0, 139.0, -2.3]),
+        ("Bip001 Ponytail1", "Bip001 Head", [0.0, 142.9, -10.5]),
+        ("Bip001 Ponytail11", "Bip001 Ponytail1", [0.0, 126.2, -13.6]),
+        ("Bip001 Ponytail12", "Bip001 Ponytail11", [0.0, 109.9, -18.1]),
+        ("Bip001 Ponytail2", "Bip001 Head", [0.0, 143.8, -16.1]),
+        ("Bip001 Ponytail21", "Bip001 Ponytail2", [0.0, 131.5, -20.2]),
+        ("Bip001 eyes", "Bip001 Head", [0.0, 147.4, 7.1]),
+        ("Bip001 hair_f", "Bip001 Head", [0.0, 159.8, 9.7]),
+        ("Bip001 hair_l", "Bip001 Head", [9.2, 148.0, 1.4]),
+        ("Bip001 hair_l02", "Bip001 hair_l", [7.9, 139.3, 1.5]),
+        ("Bip001 hair_r", "Bip001 Head", [-9.2, 148.0, 1.4]),
+        ("Bip001 hair_r02", "Bip001 hair_r", [-7.9, 139.3, 1.5]),
+        ("Bip001 jaw", "Bip001 Head", [0.0, 140.1, 1.4]),
+        ("Bip001 L Clavicle", "Bip001 Spine1", [2.0, 130.4, -3.4]),
+        ("Bip001 L UpperArm", "Bip001 L Clavicle", [12.0, 129.5, -3.3]),
+        ("Bip001 L Forearm", "Bip001 L UpperArm", [30.8, 122.1, -2.9]),
+        ("Bip001 L Hand", "Bip001 L Forearm", [51.9, 113.4, 1.3]),
+        ("Bip001 L Finger0", "Bip001 L Hand", [54.7, 108.5, 5.1]),
+        ("Bip001 L Finger01", "Bip001 L Finger0", [56.1, 106.3, 5.9]),
+        ("Bip001 L Finger1", "Bip001 L Hand", [59.1, 109.0, 4.6]),
+        ("Bip001 L Finger11", "Bip001 L Finger1", [61.4, 106.7, 5.0]),
+        ("Bip001 L Finger2", "Bip001 L Hand", [58.8, 109.2, 1.1]),
+        ("Bip001 L Finger21", "Bip001 L Finger2", [61.0, 106.5, 1.0]),
+        ("bow_bone", "Bip001 L Hand", [58.4, 106.3, 2.7]),
+        ("Bow_Wing02", "bow_bone", [58.4, 106.3, 2.7]),
+        ("Bow_Wing01", "bow_bone", [58.4, 106.3, 2.7]),
+        ("bowstring_bone", "bow_bone", [43.5, 116.8, 0.6]),
+        ("weapon", "bow_bone", [57.5, 106.9, 2.5]),
+        ("Bip001 R Clavicle", "Bip001 Spine1", [-2.0, 130.4, -3.4]),
+        ("Bip001 R UpperArm", "Bip001 R Clavicle", [-12.0, 129.5, -3.3]),
+        ("Bip001 R Forearm", "Bip001 R UpperArm", [-30.8, 122.1, -2.9]),
+        ("Bip001 R Hand", "Bip001 R Forearm", [-51.9, 113.4, 1.3]),
+        ("Bip001 R Finger0", "Bip001 R Hand", [-54.7, 108.5, 5.1]),
+        ("Bip001 R Finger01", "Bip001 R Finger0", [-56.1, 106.3, 5.9]),
+        ("Bip001 R Finger1", "Bip001 R Hand", [-59.1, 109.0, 4.6]),
+        ("Bip001 R Finger11", "Bip001 R Finger1", [-61.4, 106.7, 5.0]),
+        ("Bip001 R Finger2", "Bip001 R Hand", [-58.8, 109.2, 1.1]),
+        ("Bip001 R Finger21", "Bip001 R Finger2", [-61.0, 106.5, 1.0]),
+        ("Bip001 L Thigh", "Bip001 Pelvis", [9.8, 93.7, -1.5]),
+        ("Bip001 L Calf", "Bip001 L Thigh", [11.5, 53.8, -3.7]),
+        ("Bip001 L Foot", "Bip001 L Calf", [13.0, 17.1, -6.5]),
+        ("Bip001 R Thigh", "Bip001 Pelvis", [-9.8, 93.7, -1.5]),
+        ("Bip001 R Calf", "Bip001 R Thigh", [-11.5, 53.8, -3.7]),
+        ("Bip001 R Foot", "Bip001 R Calf", [-13.0, 17.1, -6.5]),
+    ];
+    let j: Joints = rows
+        .iter()
+        .map(|&(n, p, at)| {
+            (
+                n.to_owned(),
+                (!p.is_empty()).then(|| p.to_owned()),
+                at.map(|v| v / 100.0),
+            )
+        })
+        .collect();
+    // Named only for where each comes, so its names say nothing (Biped's `Finger0` would say little anyway).
+    let to = unnamed(&j);
+    let map = Mapping::new(&from, &to);
+    let played = |b: &str| {
+        let k = j.iter().position(|x| x.0 == b).expect("listed");
+        let b = to.index_of(&format!("j{k}")).expect("bone");
+        map.source_of(b)
+            .map(|a| from.bones()[a].name.clone())
+            .unwrap_or_default()
+    };
+    for side in ["L", "R"] {
+        let part = |b: &str| played(&format!("Bip001 {side} {b}"));
+        assert!(
+            part("UpperArm").ends_with("Arm"),
+            "{side} UpperArm plays {}",
+            part("UpperArm")
+        );
+        assert!(part("Hand").ends_with("Hand"), "{side} Hand plays {}", part("Hand"));
+        assert!(
+            part("Finger0").contains("Thumb"),
+            "{side} Finger0 plays {}",
+            part("Finger0")
+        );
+        assert!(
+            part("Finger1").contains("Index"),
+            "{side} Finger1 plays {}",
+            part("Finger1")
+        );
+    }
+    for b in ["Bow_Wing02", "Bow_Wing01", "weapon"] {
+        assert!(!played(b).contains("Hand"), "{b} plays {}", played(b));
+    }
+
+    // And from a figure as plain as Khronos's BrainStem, its arms held out, three one-bone fingers on its left forearm
+    // and none on its right, nothing named: its hips and head are found under the archer's pants and ponytail, its
+    // fingers go to the archer's, and none to the bow's wings, bare points with nothing to aim.
+    let plain = [
+        ("root", "", [0.0, 0.0, 0.0]),
+        ("root2", "root", [0.0, 0.0, 0.0]),
+        ("root3", "root2", [0.0, 0.0, 0.0]),
+        ("hips", "root3", [0.0, 91.5, 0.0]),
+        ("chest", "hips", [0.0, 102.2, -2.4]),
+        ("head", "chest", [0.0, 154.7, -3.9]),
+        ("r_upperarm", "chest", [-41.9, 136.3, -3.7]),
+        ("r_forearm", "r_upperarm", [-61.1, 137.6, -3.9]),
+        ("l_upperarm", "chest", [41.9, 136.3, -3.7]),
+        ("l_forearm", "l_upperarm", [60.5, 137.1, -3.9]),
+        ("finger_a", "l_forearm", [101.4, 137.4, -2.4]),
+        ("finger_b", "l_forearm", [101.7, 139.2, 1.8]),
+        ("finger_c", "l_forearm", [101.8, 134.9, 1.6]),
+        ("r_thigh", "hips", [-14.2, 87.6, 0.0]),
+        ("r_shin", "r_thigh", [-11.5, 51.9, -2.9]),
+        ("r_foot", "r_shin", [-11.0, 12.3, -5.8]),
+        ("r_toe", "r_foot", [-11.0, 4.2, 4.2]),
+        ("l_thigh", "hips", [14.2, 87.6, 0.0]),
+        ("l_shin", "l_thigh", [11.5, 51.9, -2.9]),
+        ("l_foot", "l_shin", [11.0, 12.3, -5.8]),
+        ("l_toe", "l_foot", [11.0, 4.2, 4.2]),
+    ];
+    let pj: Joints = plain
+        .iter()
+        .map(|&(n, p, at)| {
+            (
+                n.to_owned(),
+                (!p.is_empty()).then(|| p.to_owned()),
+                at.map(|v| v / 100.0),
+            )
+        })
+        .collect();
+    let from = unnamed(&pj);
+    let map = Mapping::new(&from, &to);
+    let played = |b: &str| {
+        let k = j.iter().position(|x| x.0 == b).expect("listed");
+        let b = to.index_of(&format!("j{k}")).expect("bone");
+        map.source_of(b)
+            .map(|a| pj[from.bones()[a].name[1..].parse::<usize>().expect("index")].0.clone())
+            .unwrap_or_default()
+    };
+    for (b, by) in [
+        ("Bip001 Pelvis", "hips"),
+        ("Bip001 Head", "head"),
+        ("Bip001 L UpperArm", "l_upperarm"),
+        ("Bip001 L Forearm", "l_forearm"),
+        ("Bip001 R UpperArm", "r_upperarm"),
+        ("Bip001 R Forearm", "r_forearm"),
+        ("Bip001 L Thigh", "l_thigh"),
+        ("Bip001 R Foot", "r_foot"),
+    ] {
+        assert_eq!(played(b), by, "{b}");
+    }
+    for b in ["Bip001 L Finger1", "Bip001 L Finger2"] {
+        assert!(played(b).starts_with("finger"), "{b} plays {}", played(b));
+    }
+    for b in ["Bow_Wing02", "Bow_Wing01", "bowstring_bone", "weapon"] {
+        assert_eq!(played(b), "", "{b}");
     }
 }
 

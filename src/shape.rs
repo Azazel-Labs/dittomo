@@ -53,8 +53,16 @@ pub(crate) struct Shape {
     /// the height: the longer of each two.
     pub span: [f32; 2],
     /// For each bone past where a hand begins, where it stands from there, turned as the arm would be held straight out
-    /// to its side.
+    /// to its side, over how far the hand's digits start from it on average.
     pub palm: Vec<Option<Vec3>>,
+    /// For each bone past where a hand begins, the turn holding its arm straight out to its side, as for `palm`: its
+    /// `dir` and `inward` turned by it point the same whether the arm hangs down or out at rest.
+    pub out: Vec<Quat>,
+    /// For each bone in a hand's digit, which digit: -1 for the thumb, then 0, 1, 2 and on for the others from the
+    /// thumb's side, by how far each starts from it. The thumb is the digit standing clearly furthest from its nearest,
+    /// or of two, the one starting clearly nearer the wrist. Only for a hand with a thumb and another digit, and only
+    /// digits that don't branch, as something held does.
+    pub digit: Vec<Option<f32>>,
     /// For each bone up from the chest to the head, how many bones up it is (0 for the first) and how many the neck and
     /// head have: those at the middle between the shoulders' roots, from no lower than them (not a bag on the back) to
     /// 1.4 times as high (not a vent on a robot's head, above where any head's root stands), not counting a bone
@@ -135,6 +143,8 @@ impl Shape {
                 along: Vec::new(),
                 span: [0.0; 2],
                 palm: Vec::new(),
+                out: Vec::new(),
+                digit: Vec::new(),
                 names,
             };
         }
@@ -236,6 +246,8 @@ impl Shape {
                 along: Vec::new(),
                 span: [0.0; 2],
                 palm: Vec::new(),
+                out: Vec::new(),
+                digit: Vec::new(),
                 names,
             };
         }
@@ -360,13 +372,15 @@ impl Shape {
             }
         }
         // The limbs hanging from each bone: those of more than one bone, or, in an arm, three or more of one bone
-        // each, a hand of one-bone fingers as a low-detail rig has.
+        // each standing off it, a hand of one-bone fingers as a low-detail rig has (not a held bow's points, two of
+        // them where the bow is).
         let digits: Vec<Vec<usize>> = (0..n)
             .map(|i| {
                 let kids = &children[i];
                 let long: Vec<usize> = kids.iter().copied().filter(|&c| joints[c] >= 2).collect();
                 let arm = limb[i].is_some_and(|(r, _)| r == 0);
-                if long.len() < 2 && arm && kids.len() >= 3 && kids.iter().all(|&c| joints[c] == 1) {
+                let off = |c: usize| pos[c].distance(pos[i]) > 0.01 * height;
+                if long.len() < 2 && arm && kids.len() >= 3 && kids.iter().all(|&c| joints[c] == 1 && off(c)) {
                     kids.clone()
                 } else {
                     long
@@ -402,16 +416,80 @@ impl Shape {
         }
         let span = [arms, legs];
         // Past where each hand begins, where each bone stands from it, the arm turned out straight to its side: a
-        // finger stands where it does whether the arm hangs down or out, at rest.
+        // finger stands where it does whether the arm hangs down or out, at rest. In the hand's own size, as far as
+        // its digits start from it: one rig's palm is twice another's for its height, its thumb further down it.
         let mut palm = vec![None; n];
+        let mut turned = vec![Quat::IDENTITY; n];
+        let mut digit = vec![None; n];
         for h in hands.into_iter().flatten() {
             let Some(p) = parents[h] else { continue };
             let side = if at[h].x > at[p].x { Vec3::X } else { Vec3::NEG_X };
             let out = Quat::from_rotation_arc((at[h] - at[p]).normalize_or(side), side);
+            let size = digits[h].iter().map(|&c| at[c].distance(at[h])).sum::<f32>() / digits[h].len().max(1) as f32;
+            if size <= 1e-6 {
+                continue;
+            }
             let mut stack = children[h].clone();
             while let Some(c) = stack.pop() {
-                palm[c] = Some(out * (at[c] - at[h]));
+                palm[c] = Some(out * (at[c] - at[h]) / size);
+                turned[c] = out;
                 stack.extend(&children[c]);
+            }
+            // Where each digit parts from the others: its first bone, or, for digits starting at one point (a robot's
+            // palms at its wrist), the next. A finger is a chain: what branches is something held, a bow.
+            let chain = |mut b: usize| loop {
+                match children[b].as_slice() {
+                    [] => break true,
+                    &[c] => b = c,
+                    _ => break false,
+                }
+            };
+            let ds: &Vec<usize> = &digits[h].iter().copied().filter(|&d| chain(d)).collect();
+            let parts: Vec<Vec3> = ds
+                .iter()
+                .map(|&d| {
+                    let shared = ds.iter().any(|&e| e != d && at[e].distance(at[d]) < 0.01 * size);
+                    match (shared, children[d].as_slice()) {
+                        (true, &[c]) => at[c],
+                        _ => at[d],
+                    }
+                })
+                .collect();
+            // The thumb stands apart from the fingers, further from its nearest than any finger is from its own; of
+            // two digits, it starts clearly nearer the wrist. The index is the one nearest the thumb.
+            let apart: Vec<f32> = (0..ds.len())
+                .map(|i| {
+                    (0..ds.len())
+                        .filter(|&j| j != i)
+                        .map(|j| parts[i].distance(parts[j]))
+                        .fold(f32::INFINITY, f32::min)
+                })
+                .collect();
+            let mut order: Vec<usize> = (0..ds.len()).collect();
+            let thumb = if ds.len() >= 3 {
+                order.sort_by(|&i, &j| apart[j].total_cmp(&apart[i]));
+                (apart[order[0]] > 1.25 * apart[order[1]]).then_some(order[0])
+            } else {
+                order.sort_by(|&i, &j| at[ds[i]].distance(at[h]).total_cmp(&at[ds[j]].distance(at[h])));
+                (order.len() == 2 && at[ds[order[0]]].distance(at[h]) < 0.85 * at[ds[order[1]]].distance(at[h]))
+                    .then_some(order[0])
+            };
+            if let Some(thumb) = thumb {
+                let mut rest: Vec<usize> = (0..ds.len()).filter(|&i| i != thumb).collect();
+                rest.sort_by(|&i, &j| {
+                    parts[i]
+                        .distance(parts[thumb])
+                        .total_cmp(&parts[j].distance(parts[thumb]))
+                });
+                let ranked =
+                    std::iter::once((ds[thumb], -1.0)).chain(rest.into_iter().zip(0..).map(|(i, r)| (ds[i], r as f32)));
+                for (base, rank) in ranked {
+                    let mut stack = vec![base];
+                    while let Some(c) = stack.pop() {
+                        digit[c] = Some(rank);
+                        stack.extend(&children[c]);
+                    }
+                }
             }
         }
         let mut neck = vec![None; n];
@@ -511,6 +589,8 @@ impl Shape {
             along,
             span,
             palm,
+            out: turned,
+            digit,
             neck,
             spine,
             doubled,
@@ -706,6 +786,13 @@ fn mirrored(
             .max_by_key(|&c| (under[c], std::cmp::Reverse(c)));
         main.map(|c| (pos[c] - pos[i]).normalize_or_zero())
     };
+    // The child with most below it.
+    let way_to = |i: usize| {
+        children[i]
+            .iter()
+            .copied()
+            .max_by_key(|&c| (under[c], std::cmp::Reverse(c)))
+    };
     // Where a bone's chain leaves its parent: of a bone standing where its parent does (a BVH's zero-offset joint, a
     // hip or a shoulder at the middle of the body), where the only child it goes on to stands.
     let off = |mut i: usize| {
@@ -754,9 +841,25 @@ fn mirrored(
                     }
                 }
                 // As much below each; or, placed as nearly exact mirror images, limbs one of which stops short (an arm
-                // with a hand and one without).
+                // with a hand and one without, or with a bow in it): their chains, as far as the shorter goes, mirror
+                // each other across one upright plane through the parent, wherever it stands (a Biped's collarbones
+                // start behind its spine).
                 let (a, b) = (under[i].min(under[j]), under[i].max(under[j]));
-                let exact = a >= 2 && (di + dj).length() < 0.1 * apart.length();
+                let across = apart.normalize();
+                let exact = a >= 2 && {
+                    let (mut x, mut y, mut steps, mut fit) = (i, j, 0, true);
+                    while fit && steps < 3 {
+                        let (px, py) = (flat(pos[x] - pos[p]), flat(pos[y] - pos[p]));
+                        let image = py - 2.0 * py.dot(across) * across;
+                        fit = (px - image).length() < 0.1 * apart.length()
+                            && (pos[x].y - pos[y].y).abs() < 0.1 * apart.length().max(0.02 * height);
+                        match (way_to(x), way_to(y)) {
+                            (Some(cx), Some(cy)) => (x, y, steps) = (cx, cy, steps + 1),
+                            _ => break,
+                        }
+                    }
+                    fit
+                };
                 if 4 * a < 3 * b && !exact {
                     continue;
                 }

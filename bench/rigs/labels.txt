@@ -4,6 +4,29 @@
 # for IK), is left out; a pair is scored on the joints both rigs label. godot-robot's r- limbs are on its own left
 # (its knees point the way it faces), so they are labeled l_.
 
+[archer.fbx]
+hips = Bip001 Pelvis
+spine = Bip001 Spine
+chest = Bip001 Spine1
+neck = Bip001 Neck
+head = Bip001 Head
+l_clavicle = Bip001 L Clavicle
+l_upperarm = Bip001 L UpperArm
+l_forearm = Bip001 L Forearm
+l_hand = Bip001 L Hand
+l_index = Bip001 L Finger1
+r_clavicle = Bip001 R Clavicle
+r_upperarm = Bip001 R UpperArm
+r_forearm = Bip001 R Forearm
+r_hand = Bip001 R Hand
+r_index = Bip001 R Finger1
+l_thigh = Bip001 L Thigh
+l_shin = Bip001 L Calf
+l_foot = Bip001 L Foot
+r_thigh = Bip001 R Thigh
+r_shin = Bip001 R Calf
+r_foot = Bip001 R Foot
+
 [brainstem.glb]
 hips = node3
 chest = node12
@@ -347,6 +370,30 @@ r_thigh = J_Bip_R_UpperLeg
 r_shin = J_Bip_R_LowerLeg
 r_foot = J_Bip_R_Foot
 r_toe = J_Bip_R_ToeBase
+
+[warrior.fbx]
+hips = Bip001 Spine
+spine = Bip001 Spine1
+chest = Bip001 Neck
+head = Bip001 Head
+l_clavicle = Bip001 L Clavicle
+l_upperarm = Bip001 L UpperArm
+l_forearm = Bip001 L Forearm
+l_hand = Bip001 L Hand
+l_index = Bip001 L Finger1
+r_clavicle = Bip001 R Clavicle
+r_upperarm = Bip001 R UpperArm
+r_forearm = Bip001 R Forearm
+r_hand = Bip001 R Hand
+r_index = Bip001 R Finger1
+l_thigh = Bip001 L Thigh
+l_shin = Bip001 L Calf
+l_foot = Bip001 L Foot
+l_toe = Bip001 L Toe0
+r_thigh = Bip001 R Thigh
+r_shin = Bip001 R Calf
+r_foot = Bip001 R Foot
+r_toe = Bip001 R Toe0
 
 [xbot.glb]
 hips = mixamorig:Hips

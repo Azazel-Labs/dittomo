@@ -188,6 +188,14 @@ Phase 1 so far (November 2026):
   T-pose's (the warrior's were all left out); and a bone as near across to one leg's end as to the other's is held by
   neither, so the archer's mesh node at the origin, between its toeless feet, no longer plays a toe. The 17 bench rigs
   are unchanged.
+- **The archer and warrior on the bench** (19 rigs, 342 pairs): the archer's arms went unpaired, its bow making one arm
+  four bones longer and its collarbones starting behind the spine; two chains now mirror when they do across one upright
+  plane through their parent, step by step along them. One-bone fingers must stand off the hand (not a held bow's
+  points), palms are in the hand's own size and finger directions are compared with the arm held straight out, the
+  thumb is the digit standing clearly apart (or of two, nearer the wrist) and the rest are ranked from it, and a leaf
+  standing where its parent does (the bow's wings) plays nothing with a length. Joints found over all nineteen went from
+  98.7% to 99.7%, index fingers 86% to 95%. Their clips raise limb error from 1.6° to 2.8° (2.6° with the bones set by
+  hand), so what's left there is playback on these rigs, not finding bones.
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for
@@ -202,8 +210,8 @@ frame in 3.6 µs, setup included, against `SkeletonUtils.retargetClip`'s 221 µs
 on a busy machine, best of five runs each, dittomo played a frame in 7.0 µs against its 50 µs (7×), or 143 µs with the
 hips' path scaled (20×). Babylon corrects for rests that differ but only bakes whole clips.
 
-Godot's humanoid auto mapping, ported from its editor into the rig benchmark, finds 63.2% of joints against dittomo's
-100.0% over seventeen rigs. Missing: Unity's and Unreal's humanoid matchers.
+Godot's humanoid auto mapping, ported from its editor into the rig benchmark, finds 65.3% of joints against dittomo's
+99.7% over nineteen rigs. Missing: Unity's and Unreal's humanoid matchers.
 
 ## Open-source landscape
 
@@ -291,7 +299,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 100.0% of joints found on 17 real rigs (exact names: 22.2%); limbs within 1.6° of the source's on their 54 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.7% of joints found on 19 real rigs (exact names: 18.1%); limbs within 2.8° of the source's on their 62 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their
@@ -416,7 +424,7 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       and, headless, three.js SkeletonUtils, Babylon AnimatorAvatar, Godot's importer, R2ET and SAN. Unreal's IK
       Retargeter joins through editor Python where its license allows. Mixamo's terms likely forbid redistributing its
       files, so publish the scripts and have users download the data. Done for bone-finding: `bench/rigs/fetch.sh`
-      downloads seventeen rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
+      downloads nineteen rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
       `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching and Godot's humanoid auto
       mapping (ported), then plays every rig's clips on every other and scores limb directions against copying rotations
       and foot contact with each fix. SAN's Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`):

@@ -4,7 +4,8 @@
 #
 # They're fetched, not committed: each keeps its own license, as its source says.
 #   three.js examples (MIT repository; Xbot, Michelle, Soldier and Samba Dancing come from Mixamo; RobotExpressive
-#     from Tomás Laulhé, CC0; readyplayer.me.glb from Ready Player Me)
+#     from Tomás Laulhé, CC0; readyplayer.me.glb from Ready Player Me; the archer and warrior are 3ds Max
+#     Bipeds)
 #   Khronos glTF-Sample-Assets: CesiumMan, RiggedFigure, BrainStem (see each model's README for its license)
 #   VRM Consortium's Seed-san sample and pixiv three-vrm's constraint sample (the license is in each file's VRM meta)
 #   Babylon.js Assets: HVGirl
@@ -58,6 +59,8 @@ fetch michelle.glb "$three/gltf/Michelle.glb" 7a87e15a99ccbc5e5877be66e1e4ecae0a
 fetch soldier.glb "$three/gltf/Soldier.glb" dfb230fc1f942f259dd00281a1186953ad602fc5d69067ce63e24b2aa439736b
 fetch robot-expressive.glb "$three/gltf/RobotExpressive/RobotExpressive.glb" 047f5e5fb3bb6d378bd1df16ca6137f2a596c99b3a1b5690b4020c05aaf6f319
 fetch readyplayerme.glb "$three/gltf/readyplayer.me.glb" b69cec7a5cc7dc7e1c1f19c324024d090ae06e1315441a7bce4bf236112addc1
+fetch archer.fbx "$three/fbx/archer/ArcherRi01.fbx" f926e7439bcd6e733b05e6f7fa18aae011cfeed424d24ae5f4ca2fe434ab7115
+fetch warrior.fbx "$three/fbx/warrior/Warrior.fbx" f00e5b65fface7d30beeb96b7469f129809810020b694af53c7e25affcb6762c
 fetch samba-dancing.fbx "$three/fbx/Samba%20Dancing.fbx" b9003ee562c87bf03051c3a502411b0808d3513f1d74a2011f7530d9f067069f
 fetch cesium-man.glb "$khronos/CesiumMan/glTF-Binary/CesiumMan.glb" b7001eaeea8254bd44773bcd247e78696d94169388fbb2a1800fc69434e777d9
 fetch rigged-figure.glb "$khronos/RiggedFigure/glTF-Binary/RiggedFigure.glb" d6be85417d3e256861ee733eea6916093a7af7c79c16366181fd8abcaeb38cf5
@@ -70,4 +73,4 @@ fetch godot-robot.glb "$godot/platformer/player/player.glb" 2c7e11f0d7e84bac8a45
 fetch mannequiny.glb "$godot/ragdoll_physics/characters/mannequiny.glb" 6b0273d9e8eef159aee9cbc0e75752bbe6abbea56fbcb1a8534e6173f80dda3c
 fetch male-base-mesh.glb "$boqsc/Original/male_base_mesh.glb" 206cb651484baf9aaa29a030a38feecbe29575c3e1cbd820a58fa343c2ae14c4
 fetch cmu-mocap.bvh "$cmu/002/02_03.bvh" 6f4d38b92b041221030de2e1058903e0f7a8fa08f9c6c9efabf7df9a128011ac
-echo "17 rigs in $dir"
+echo "19 rigs in $dir"

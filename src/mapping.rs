@@ -338,6 +338,12 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
     if s.doubled[a] != t.doubled[b] {
         v -= 1.2;
     }
+    // A leaf standing where its parent does is a bare point with no way to aim it (a bow's wing on the bow, an
+    // attachment): it plays nothing that has a length to aim, and nothing with a length plays it.
+    let bare = |sh: &Shape, x: usize| sh.length[x] < 1e-3 && sh.children[x].is_empty();
+    if bare(s, a) != bare(t, b) {
+        v -= 0.8;
+    }
     // On opposite sides of the body.
     let (la, lb) = (s.at[a].x, t.at[b].x);
     if la * lb < 0.0 && la.abs() > 0.03 && lb.abs() > 0.03 {
@@ -354,8 +360,14 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         }
     };
     let bell = |d: f32, w: f32| (-(d / w) * (d / w)).exp();
-    v += 0.4 * way(s.dir[a], t.dir[b]);
-    v += 0.4 * way(s.inward[a], t.inward[b]);
+    // Past where the hands begin, with each arm held straight out: a finger points the same whether its arm hangs at
+    // its side or is held out at rest.
+    let (oa, ob) = match (s.palm[a], t.palm[b]) {
+        (Some(_), Some(_)) => (s.out[a], t.out[b]),
+        _ => (glam::Quat::IDENTITY, glam::Quat::IDENTITY),
+    };
+    v += 0.4 * way(oa * s.dir[a], ob * t.dir[b]);
+    v += 0.4 * way(oa * s.inward[a], ob * t.inward[b]);
     // How long it is, from its parent and on to its child where it has one: a stub at the shoulder is as far from the
     // chest as one rig's upper arm, the upper arm after it hardly any way from it, but they go on very differently.
     let long = |la: f32, lb: f32| match (la > 1e-4, lb > 1e-4) {
@@ -373,12 +385,16 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         };
     // Where it stands, over the height; past where the hands begin, from its hand, however the arm hangs at rest: a
     // figure's arms held out, the other's down at its sides, have their hands far apart, and the fingers with them.
-    let (pa, pb) = match (s.palm[a], t.palm[b]) {
-        (Some(pa), Some(pb)) => (pa, pb),
-        _ => (s.at[a], t.at[b]),
+    let (pa, pb, high, near) = match (s.palm[a], t.palm[b]) {
+        (Some(pa), Some(pb)) => (pa, pb, 0.25, 0.35),
+        _ => (s.at[a], t.at[b], 0.1, 0.08 + 0.35 * s.reach[a].min(t.reach[b])),
     };
-    let near = 0.08 + 0.35 * s.reach[a].min(t.reach[b]);
-    let mut placed = 0.4 * bell(pa.y - pb.y, 0.1) + 0.8 * bell(pa.distance(pb), near);
+    let mut placed = 0.4 * bell(pa.y - pb.y, high) + 0.8 * bell(pa.distance(pb), near);
+    // Which digit: a hand of three has its thumb, index and middle finger, not a thumb, middle and ring by where they
+    // stand on a broader palm.
+    if let (Some(da), Some(db)) = (s.digit[a], t.digit[b]) {
+        placed += 0.6 * bell(da - db, 0.5);
+    }
     // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with nothing
     // beyond it says nothing of how much body would be.
     placed += 0.4

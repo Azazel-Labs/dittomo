@@ -88,30 +88,31 @@ hung from helpers beside the upper arms, which turn with the arms rather than st
 
 ### Finding the right bones on real rigs
 
-Seventeen real characters, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot, Michelle, Soldier and
-Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan, RiggedFigure and
+Nineteen real characters, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot, Michelle, Soldier and
+Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive and its Archer and Warrior (3ds Max Bipeds, as
+FBX), Khronos's CesiumMan, RiggedFigure and
 BrainStem, two VRM avatars, Babylon's HVGirl, Mesh2Motion's human, from Godot's demo projects the platformer's robot and
 GDQuest's Mannequiny, BoQsc's base mesh on a Rigify metarig, and a CMU motion capture take as BVH. Each rig's body
-joints are labeled by hand (`bench/rigs/labels.txt`); every one of the 272 ordered pairs is mapped, and a joint counts
+joints are labeled by hand (`bench/rigs/labels.txt`); every one of the 342 ordered pairs is mapped, and a joint counts
 as found when the target's joint plays the source's. Godot's humanoid auto mapping (its `BoneMapper`, ported faithfully
 from the editor's source into `benches/rigs/godot.rs`, MIT) maps both rigs onto its humanoid profile, as a `BoneMap`
 does, so it gets a joint when both rigs' bones get the same profile bone. `cargo bench --features fs --bench rigs`:
 
-| Matcher | Joints found (5328) |
+| Matcher | Joints found (6716) |
 | --- | ---: |
-| dittomo | 100.0% |
-| Godot's humanoid auto mapping (`BoneMapper`) | 63.2% |
-| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 22.2% |
+| dittomo | 99.7% |
+| Godot's humanoid auto mapping (`BoneMapper`) | 65.3% |
+| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 18.1% |
 
 | Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
-| hips | 100% | 76% | 24% | | thighs | 100% | 49% | 18% |
-| spine | 100% | 77% | 24% | | shins | 100% | 49% | 17% |
-| chest | 100% | 40% | 12% | | feet | 100% | 55% | 21% |
-| neck | 100% | 88% | 31% | | toes | 100% | 63% | 22% |
-| head | 100% | 88% | 40% | | clavicles | 100% | 100% | 31% |
-| upper arms | 100% | 57% | 17% | | forearms | 100% | 57% | 17% |
-| hands | 100% | 73% | 26% | | index fingers | 100% | 59% | 28% |
+| hips | 99% | 69% | 19% | | thighs | 100% | 53% | 15% |
+| spine | 100% | 71% | 19% | | shins | 100% | 53% | 14% |
+| chest | 100% | 35% | 10% | | feet | 100% | 59% | 17% |
+| neck | 100% | 88% | 27% | | toes | 100% | 65% | 19% |
+| head | 100% | 89% | 33% | | clavicles | 100% | 100% | 24% |
+| upper arms | 100% | 61% | 14% | | forearms | 100% | 61% | 14% |
+| hands | 100% | 76% | 21% | | index fingers | 95% | 64% | 22% |
 
 What it got wrong, and what fixed it:
 
@@ -156,6 +157,18 @@ What it got wrong, and what fixed it:
   looked for past a bone standing where the chest does; a bone standing where its parent does, beside others with bones
   beyond it, is a second joint at that point, not the next one along. Against the other rigs it went from 68%–95% of
   joints found to 100%.
+- **three.js's Archer and Warrior**, 3ds Max Bipeds, hang their arms at their sides and start their collarbones a hair
+  either side of the neck and behind the spine. The archer holds a bow in its left hand, four bones more in that arm, two
+  of them standing where the bow does, and each hand has a thumb and two fingers. Its arms had gone unpaired: two chains
+  are now each other's mirror image when they mirror across one upright plane through their parent, step by step out
+  along them, however many more bones one arm holds. Two of the bow's bones had been taken for one-bone fingers; such
+  fingers now stand off the hand. Past the hand, where each bone stands is measured in the hand's own size, as far as
+  its digits start from it, and which way it points with the arm held straight out, so fingers a centimeter apart are
+  told apart whether the arm hangs or is held out. The thumb is the digit standing clearly apart from the rest, or of
+  two the one nearer the wrist, and the others are counted from it, so a hand of three plays thumb, index and middle. A
+  leaf standing where its parent does, as the bow's wings, is a bare point with nothing to aim, and plays nothing that
+  has a length. Over all nineteen rigs that took joints found from 98.7% to 99.7%, hips from 97% to 99%, spines from
+  96% to 100% and index fingers from 86% to 95%; the misses left are mostly the Bipeds' index fingers.
 - Godot's mapper looks for words in names and walks down from what it finds, so a rig it can't start on loses everything
   below: BrainStem's unnamed bones get nothing; CesiumMan's hips are taken for its `torso_joint_3`, the chest, and its
   arms and legs aren't found; RiggedFigure has no bone named foot or hand, so only its trunk is; RobotExpressive's feet
@@ -167,9 +180,9 @@ matchers aren't open source, and need the engine running.
 
 ### Playing real clips
 
-The same rigs' own 54 clips (Mixamo's 14 dances, walks, runs and gestures, RobotExpressive's 14, Mannequiny's 10, the
-platformer robot's 8, CesiumMan's and RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four and the CMU take)
-played on every other rig: 864 clip and rig pairs. Each labeled limb segment, shoulder to elbow and so on, is compared
+The same rigs' own 62 clips (Mixamo's 14 dances, walks, runs and gestures, RobotExpressive's 14, Mannequiny's 10, the
+platformer robot's 8, the Warrior's 8, CesiumMan's and RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four
+and the CMU take) played on every other rig: 1,116 clip and rig pairs. Each labeled limb segment, shoulder to elbow and so on, is compared
 with the source's direction frame by frame, each in its own body's frame. A foot is judged by where it points, the way
 it points across the floor at rest turned as it has turned from rest: every rig stands flat at rest, and how steeply an
 ankle comes down to the toes is anatomy. The trunk, hips to chest and chest to head, is judged by how it leans, tilted
@@ -180,17 +193,19 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.6° | 0.2° | 4.8° | 98% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.6° | 0.2° | 4.8° | 98% |
-| World turns from rest copied onto the right bones | 13.8° | 5.4° | 46.3° | 76% |
-| Local rotations copied onto the right bones | 75.8° | 85.3° | 153.3° | 19% |
+| dittomo | 2.8° | 0.2° | 9.0° | 94% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.6° | 0.2° | 8.8° | 94% |
+| World turns from rest copied onto the right bones | 17.2° | 9.2° | 47.0° | 62% |
+| Local rotations copied onto the right bones | 79.7° | 85.8° | 148.9° | 14% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
 both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied are, by twist:
 a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the shoulder of one
 built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips below (0.72 against
-0.66 across skeletons), so dittomo keeps the whole turn. dittomo finds every labeled bone, so setting them by hand
-changes nothing. CI fails if the mean passes 3°.
+0.66 across skeletons), so dittomo keeps the whole turn. Without the Warrior's clips it was 1.6°, and setting the bones by hand
+changed nothing: played onto the other rigs they are the worst here, 5° to 11° off, the trunk and collarbones most, as
+the Biped's chest is its neck bone, with no neck between it and the head. Setting by hand the Bipeds' index fingers
+dittomo misses takes the rest. CI fails if the mean passes 3°.
 
 A bone with no length places nothing: the bone under it that every one of its played bones hangs from, starting where
 it does, plays its turn instead. The CMU take turns each wrist's twist in the hand and its bend in a finger base starting
@@ -199,11 +214,11 @@ and had its fingers slid off it to where the source's went. Hand to index finger
 1.0° (31.6° to 1.0° on the right), and limbs overall from 1.7° to 1.6°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
-It's off by under 0.05° on average (local rotations copied: 65.2°). It was 11.8° when the neck and head took their
+It's off by under 0.05° on average (local rotations copied: 67.4°). It was 11.8° when the neck and head took their
 source's turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the
 target's own rest look and take only the turn away from it, as the spine below them does.
 
-The same pairs again, with each contact fix alone and all together, over the 40,410 frames where a source foot is
+The same pairs again, with each contact fix alone and all together, over the 83,504 frames where a source foot is
 planted (within 5% of its height of the lowest it gets, moving under a tenth of its height a second), of each clip's
 first 300 frames. A clip whose foot never comes within a tenth of the height of where it stands at rest, as the robot's
 fall, plants nothing, as dittomo itself judges it. Slide is how far the target's foot moves each such frame; sole height
@@ -216,15 +231,16 @@ source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00476 | 0.0106 | 1.7° | 0.20% |
-| travel | 0.00123 | 0.0106 | 1.7° | 0.20% |
-| planted feet | 0.00347 | 0.0001 | 2.4° | 0.29% |
-| push-out | 0.00476 | 0.0106 | 1.7° | 0.21% |
-| all (`apply_with`) | 0.00002 | 0.0001 | 2.6° | 0.36% |
-| all, live (`Live`) | 0.00008 | 0.0001 | 2.8° | 0.43% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 2.6° | 0.39% |
+| none (`apply`) | 0.00301 | 0.0201 | 3.9° | 0.19% |
+| travel | 0.00089 | 0.0201 | 3.9° | 0.19% |
+| planted feet | 0.00215 | 0.0001 | 4.7° | 0.25% |
+| push-out | 0.00301 | 0.0201 | 3.9° | 0.19% |
+| all (`apply_with`) | 0.00001 | 0.0000 | 4.9° | 0.29% |
+| all, live (`Live`) | 0.00017 | 0.0102 | 4.8° | 0.33% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00017 | 0.0102 | 4.7° | 0.31% |
 
-Together they cut foot slide hundreds of times and the height error a hundred. The body travels across the floor by how
+Together they cut foot slide hundreds of times and the height error to nothing. Live the height is still off by a
+hundredth, where without the Warrior it was off by a ten-thousandth. The body travels across the floor by how
 high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits
 below where its short legs start, so on the rigged figure the body went a fifth further each step than the figure's legs
 stepped, and late in each stance the held foot was out of reach and dragged along. Up and down it still goes by how high
@@ -263,18 +279,19 @@ the first pose it stands on, judged by how fast it comes or goes, whichever is s
 feet jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a
 hand through the body.
 
-Hands on the body, over the 96 pairs where both rigs have a skinned mesh: 16,392 hand frames, 6,360 of them with the
+Hands on the body, over the 126 pairs where both rigs have a skinned mesh: 28,000 hand frames, 12,250 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it, over
 each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0304 | 0.0648 | 5.1% |
-| all (`apply_touching`) | 0.0081 | 0.0179 | 0.3% |
-| all, live (`Live::touching`) | 0.0081 | 0.0179 | 0.3% |
+| all but touch (`apply_with`) | 0.0907 | 0.2421 | 4.8% |
+| all (`apply_touching`) | 0.0384 | 0.1117 | 0.6% |
+| all, live (`Live::touching`) | 0.0384 | 0.1118 | 0.6% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-3.7 times closer and hands end up inside the body an eighteenth as often.
+2.4 times closer and hands end up inside the body an eighth as often. Without the Warrior, 4.4 mm tall in its file, it
+was 3.7 times closer and an eighteenth as often (0.0081 against 0.0304).
 
 ### Against the learned retargeters
 
@@ -544,12 +561,13 @@ hips hang from is lowered with the body for planted feet, so it is left out.
 
 ## Tested on
 
-The seventeen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
+The nineteen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
 bone holding two fingers, a COLLADA export stopping at the base of the head with numbered limbs in an A-pose, a nameless
 rig with one hand missing, a chest whose collarbones start beside it rather than above it, and a robot named from in
 front, its arms stopping at the elbow, heads with nothing beyond them, on a short neck or none, hips hung below the bone
-the legs hang from, a bag hung from the chest on the back, a body whose middle stands off its root's, and a BVH whose
-branches each start with a joint standing where its parent's does.
+the legs hang from, a bag hung from the chest on the back, a body whose middle stands off its root's, a BVH whose
+branches each start with a joint standing where its parent's does, and a Biped with its arms down holding a bow, its
+collarbones behind its spine.
 
 Made-up humanoids that differ the ways real rigs do: names from different tools or none, extra roots and twist bones,
 two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimeters
