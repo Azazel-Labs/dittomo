@@ -15,6 +15,9 @@ pub(crate) struct Name {
     pub words: Vec<String>,
     /// The last number in it (`Spine2`, `spine_03`, `Bone.004`).
     pub number: Option<u32>,
+    /// [`Name::helper`] and [`Name::end`], worked out once.
+    helper: bool,
+    end: bool,
 }
 
 /// Words that say nothing about which part a bone is.
@@ -144,12 +147,12 @@ const ENDS: &[&str] = &["end", "nub", "tip", "leaf", "headtop"];
 impl Name {
     /// Whether the name marks a bone that helps another rather than a joint of the body.
     pub(crate) fn helper(&self) -> bool {
-        self.words.iter().any(|w| HELPERS.contains(&w.as_str()))
+        self.helper
     }
 
     /// Whether the name marks where a chain ends rather than a joint.
     pub(crate) fn end(&self) -> bool {
-        self.words.iter().any(|w| ENDS.contains(&w.as_str()))
+        self.end
     }
 }
 
@@ -231,7 +234,15 @@ pub(crate) fn parse(name: &str) -> Name {
         words.retain(|w| w != "hand" && w != "finger" && w != "fingers");
     }
     words.dedup();
-    Name { side, words, number }
+    let has = |list: &[&str]| words.iter().any(|w| list.contains(&w.as_str()));
+    let (helper, end) = (has(HELPERS), has(ENDS));
+    Name {
+        side,
+        words,
+        number,
+        helper,
+        end,
+    }
 }
 
 /// Lowercase words, split at anything not a letter or digit, where lowercase turns upper, and between letters and

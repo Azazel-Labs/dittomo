@@ -28,6 +28,8 @@ pub(crate) struct Shape {
     pub inward: Vec<Vec3>,
     /// How far it is from its parent, over the height; zero for a root.
     pub length: Vec<f32>,
+    /// The natural log of each `length`, to weigh two lengths by their ratio.
+    pub ln_length: Vec<f32>,
     /// How far along the body each bone is from the middle bone, over the height.
     pub reach: Vec<f32>,
     /// How far along the body its farthest descendant is, over the height.
@@ -49,15 +51,15 @@ pub(crate) struct Shape {
     /// hand begins (the fingers' roots, or the arm's end), so 1 or more in the hand; in a leg, the way to it from the
     /// hips over the way to the leg's end. Not a number for a bone in no limb.
     pub along: Vec<f32>,
-    /// How long the arms are, from the chest to where the hand begins, then the legs, from the hips to their ends, over
-    /// the height: the longer of each two.
-    pub span: [f32; 2],
+    /// The natural log of how long the arms are, from the chest to where the hand begins, then the legs, from the hips
+    /// to their ends, over the height: the longer of each two.
+    pub ln_span: [f32; 2],
     /// For each bone past where a hand begins, where it stands from there, turned as the arm would be held straight out
     /// to its side, over how far the hand's digits start from it on average.
     pub palm: Vec<Option<Vec3>>,
-    /// For each bone past where a hand begins, the turn holding its arm straight out to its side, as for `palm`: its
-    /// `dir` and `inward` turned by it point the same whether the arm hangs down or out at rest.
-    pub out: Vec<Quat>,
+    /// Each bone's `dir` and `inward`, turned past where a hand begins as its arm would be held straight out to its
+    /// side, as for `palm`: they point the same whether the arm hangs down or out at rest.
+    pub out: Vec<[Vec3; 2]>,
     /// For each bone in a hand's digit, which digit: -1 for the thumb, then 0, 1, 2 and on for the others from the
     /// thumb's side, by how far each starts from it. The thumb is the digit standing clearly furthest from its nearest,
     /// or of two, the one starting clearly nearer the wrist. Only for a hand with a thumb and another digit, and only
@@ -129,6 +131,7 @@ impl Shape {
                 dir: Vec::new(),
                 inward: Vec::new(),
                 length: Vec::new(),
+                ln_length: Vec::new(),
                 reach: Vec::new(),
                 beyond: Vec::new(),
                 forks: Vec::new(),
@@ -141,7 +144,7 @@ impl Shape {
                 doubled: Vec::new(),
                 topped: Vec::new(),
                 along: Vec::new(),
-                span: [0.0; 2],
+                ln_span: [f32::NEG_INFINITY; 2],
                 palm: Vec::new(),
                 out: Vec::new(),
                 digit: Vec::new(),
@@ -232,6 +235,7 @@ impl Shape {
                 dir: Vec::new(),
                 inward: Vec::new(),
                 length: Vec::new(),
+                ln_length: Vec::new(),
                 reach: Vec::new(),
                 beyond: Vec::new(),
                 forks: Vec::new(),
@@ -244,7 +248,7 @@ impl Shape {
                 doubled: Vec::new(),
                 topped: Vec::new(),
                 along: Vec::new(),
-                span: [0.0; 2],
+                ln_span: [f32::NEG_INFINITY; 2],
                 palm: Vec::new(),
                 out: Vec::new(),
                 digit: Vec::new(),
@@ -357,7 +361,7 @@ impl Shape {
                     .map_or(Vec3::ZERO, |p| (back * (pos[i] - pos[p])).normalize_or_zero())
             })
             .collect();
-        let dir = dir
+        let dir: Vec<Vec3> = dir
             .into_iter()
             .zip(&inward)
             .map(|(d, w): (Vec3, &Vec3)| if d == Vec3::ZERO { *w } else { d })
@@ -568,6 +572,9 @@ impl Shape {
                 }
             }
         }
+        let out = (0..n)
+            .map(|i| [turned[i] * dir[i], turned[i] * inward[i]])
+            .collect::<Vec<[Vec3; 2]>>();
         Self {
             rest,
             children,
@@ -578,6 +585,7 @@ impl Shape {
             at,
             dir,
             inward,
+            ln_length: length.iter().map(|l| l.ln()).collect(),
             length,
             reach,
             beyond,
@@ -587,9 +595,9 @@ impl Shape {
             limbs,
             limb,
             along,
-            span,
+            ln_span: span.map(f32::ln),
             palm,
-            out: turned,
+            out,
             digit,
             neck,
             spine,
@@ -600,9 +608,9 @@ impl Shape {
     }
 }
 
-/// How far along its limb each bone is, how long the limbs are (see [`Shape::along`] and [`Shape::span`]) and the bone
-/// each hand begins at, if it branches, for the two limbs starting at `arms`. `hand` is, for a bone limbs of more than one bone hang from, how far the nearest
-/// of them starts from it: where the hand begins.
+/// How far along its limb each bone is, how long the limbs are (see [`Shape::along`] and [`Shape::ln_span`]) and the
+/// bone each hand begins at, if it branches, for the two limbs starting at `arms`. `hand` is, for a bone limbs of more
+/// than one bone hang from, how far the nearest of them starts from it: where the hand begins.
 fn along_limbs(
     arms: Option<[usize; 2]>,
     parents: &[Option<usize>],

@@ -10,7 +10,7 @@
 
 use glam::{Quat, Vec3};
 
-use crate::assign::assign;
+use crate::assign::Assign;
 use crate::contact::{self, Fixes};
 use crate::names::{self, Lexicon};
 use crate::shape::Shape;
@@ -375,51 +375,52 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
             x.dot(y)
         }
     };
-    let bell = |d: f32, w: f32| (-(d / w) * (d / w)).exp();
     // Past where the hands begin, with each arm held straight out: a finger points the same whether its arm hangs at
     // its side or is held out at rest.
-    let (oa, ob) = match (s.palm[a], t.palm[b]) {
+    let ([da, ia], [db, ib]) = match (s.palm[a], t.palm[b]) {
         (Some(_), Some(_)) => (s.out[a], t.out[b]),
-        _ => (glam::Quat::IDENTITY, glam::Quat::IDENTITY),
+        _ => ([s.dir[a], s.inward[a]], [t.dir[b], t.inward[b]]),
     };
-    v += 0.4 * way(oa * s.dir[a], ob * t.dir[b]);
-    v += 0.4 * way(oa * s.inward[a], ob * t.inward[b]);
+    v += 0.4 * way(da, db);
+    v += 0.4 * way(ia, ib);
     // How long it is, from its parent and on to its child where it has one: a stub at the shoulder is as far from the
     // chest as one rig's upper arm, the upper arm after it hardly any way from it, but they go on very differently.
-    let long = |la: f32, lb: f32| match (la > 1e-4, lb > 1e-4) {
-        (true, true) => bell((la / lb).ln(), 0.4),
+    let long = |sh: &Shape, x: usize, th: &Shape, y: usize| match (sh.length[x] > 1e-4, th.length[y] > 1e-4) {
+        (true, true) => bell(sh.ln_length[x] - th.ln_length[y], 0.4),
         _ => 0.5,
     };
     let on = |sh: &Shape, x: usize| match sh.children[x].as_slice() {
-        &[c] => Some(sh.length[c]),
+        &[c] => Some(c),
         _ => None,
     };
     v += 0.4
         * match (on(s, a), on(t, b)) {
-            (Some(oa), Some(ob)) => (long(s.length[a], t.length[b]) + long(oa, ob)) / 2.0,
-            _ => long(s.length[a], t.length[b]),
+            (Some(ca), Some(cb)) => (long(s, a, t, b) + long(s, ca, t, cb)) / 2.0,
+            _ => long(s, a, t, b),
         };
     // Where it stands, over the height; past where the hands begin, from its hand, however the arm hangs at rest: a
     // figure's arms held out, the other's down at its sides, have their hands far apart, and the fingers with them.
-    let (pa, pb, high, near) = match (s.palm[a], t.palm[b]) {
-        (Some(pa), Some(pb)) => (pa, pb, 0.25, 0.35),
-        _ => (s.at[a], t.at[b], 0.1, 0.08 + 0.35 * s.reach[a].min(t.reach[b])),
-    };
-    let mut placed = 0.4 * bell(pa.y - pb.y, high) + 0.8 * bell(pa.distance(pb), near);
-    // Which digit: a hand of three has its thumb, index and middle finger, not a thumb, middle and ring by where they
-    // stand on a broader palm.
-    if let (Some(da), Some(db)) = (s.digit[a], t.digit[b]) {
-        placed += 0.6 * bell(da - db, 0.5);
-    }
-    // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with nothing
-    // beyond it says nothing of how much body would be.
-    placed += 0.4
-        * if s.children[a].is_empty() || t.children[b].is_empty() {
-            0.5
-        } else {
-            bell(s.beyond[a] - t.beyond[b], 0.1)
+    let placed = || {
+        let (pa, pb, high, near) = match (s.palm[a], t.palm[b]) {
+            (Some(pa), Some(pb)) => (pa, pb, 0.25, 0.35),
+            _ => (s.at[a], t.at[b], 0.1, 0.08 + 0.35 * s.reach[a].min(t.reach[b])),
         };
-    placed += 0.4 * bell(s.reach[a] - t.reach[b], 0.1);
+        let mut placed = 0.4 * bell(pa.y - pb.y, high) + 0.8 * bell(pa.distance(pb), near);
+        // Which digit: a hand of three has its thumb, index and middle finger, not a thumb, middle and ring by where
+        // they stand on a broader palm.
+        if let (Some(da), Some(db)) = (s.digit[a], t.digit[b]) {
+            placed += 0.6 * bell(da - db, 0.5);
+        }
+        // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with
+        // nothing beyond it says nothing of how much body would be.
+        placed += 0.4
+            * if s.children[a].is_empty() || t.children[b].is_empty() {
+                0.5
+            } else {
+                bell(s.beyond[a] - t.beyond[b], 0.1)
+            };
+        placed + 0.4 * bell(s.reach[a] - t.reach[b], 0.1)
+    };
     // A cartoon's arms may be twice a man's for its height: then a man's elbow stands where its shoulder does, and his
     // wrist where its elbow does. How far along the limb holds, from the chest to where the hand begins. Within the
     // hand, past it, the fingers are told apart by where they are. The hand of an arm a hair shorter than the other is
@@ -439,12 +440,17 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         && xb.is_finite()
         && (xa < 0.999 || xb < 0.999)
     {
-        let alike = bell((s.span[r] / t.span[r]).ln(), 0.4);
-        let far = match (next(s, a), next(t, b)) {
+        let alike = bell(s.ln_span[r] - t.ln_span[r], 0.4);
+        let far = || match (next(s, a), next(t, b)) {
             (Some(ya), Some(yb)) => (bell(xa - xb, 0.2) + bell(ya - yb, 0.2)) / 2.0,
             _ => bell(xa - xb, 0.2),
         };
-        alike * placed + (1.0 - alike) * 2.0 * far
+        // Limbs as long as each other's, as one rig's against itself, have no need of how far along.
+        if alike == 1.0 {
+            placed()
+        } else {
+            alike * placed() + (1.0 - alike) * 2.0 * far()
+        }
     } else if let (Some(ra), Some(rb)) = (rise(s, a), rise(t, b)) {
         // Up the spine, how far from the hips to the chest, however high the hips stand.
         2.0 * bell(ra - rb, 0.2)
@@ -455,7 +461,7 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         // of different counts, one may count a bone marking the top of the head, unnamed, that the other doesn't.
         if x == y { 2.0 } else { 0.0 }
     } else {
-        placed
+        placed()
     };
     // Whatever the proportions, the arms hang from the chest and the legs from the hips.
     let role = |sh: &Shape, x: usize| sh.girdles.iter().position(|&g| g == Some(x));
@@ -520,6 +526,42 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
     v
 }
 
+/// 2^(k/16) for k from 0 to 15.
+const STEPS: [f32; 16] = [
+    1.0,
+    1.044_273_7,
+    1.090_507_7,
+    1.138_788_6,
+    1.189_207_1,
+    1.241_857_8,
+    1.296_839_6,
+    1.354_255_6,
+    std::f32::consts::SQRT_2,
+    1.476_826_2,
+    1.542_210_8,
+    1.610_490_3,
+    1.681_792_9,
+    1.756_252_2,
+    1.834_008_1,
+    1.915_206_6,
+];
+
+/// A bell curve of `d` over the width `w`: 1 at 0, about a third at `w`, and nothing past four widths, where it would
+/// be about a ten-millionth. Its own `exp`, quick and as good for this as the full one, as likeness takes a dozen of
+/// these for every two bones.
+fn bell(d: f32, w: f32) -> f32 {
+    let x = -(d / w) * (d / w);
+    if x < -16.0 {
+        return 0.0;
+    }
+    // e^x as 2^(n/16) eʳ, |r| ≤ ln 2 / 32: n is 16 x log₂ e rounded, x never being above zero, 2^(n/16) a power of two
+    // times one of sixteen steps between 1 and 2, and eʳ a cubic.
+    let n = (x * 23.083_12 - 0.5) as i32;
+    let r = x - n as f32 * 0.043_321_61 - n as f32 * 8.928_792e-8;
+    let p = 1.0 + r * (1.0 + r * (0.5 + r * (1.0 / 6.0)));
+    p * STEPS[(n & 15) as usize] * f32::from_bits((((n >> 4) + 127) as u32) << 23)
+}
+
 #[derive(Clone, Copy)]
 enum Tree {
     None,
@@ -578,6 +620,7 @@ fn matched(s: &Shape, js: &[u8], t: &Shape, jt: &[u8]) -> Vec<(usize, usize, f32
     // The pairs of every forest's best pairing, one after another, and the pairings being weighed.
     let (mut paired, mut won, mut tried) = (Vec::new(), Vec::new(), Vec::new());
     let mut spliced = Vec::new();
+    let mut room = Assign::default();
     // Children come after their parents (the stand-in root is 0), so going backwards meets them first.
     for a in (0..na).rev() {
         for b in (0..nb).rev() {
@@ -585,7 +628,7 @@ fn matched(s: &Shape, js: &[u8], t: &Shape, jt: &[u8]) -> Vec<(usize, usize, f32
             let mut best = (0.0f32, Forest::None);
             let worth = |i: usize, j: usize| tree[at(i, j)];
             if !ka[a].is_empty() && !kb[b].is_empty() {
-                let total = pairing(&ka[a], &kb[b], worth, &mut tried);
+                let total = pairing(&ka[a], &kb[b], worth, &mut room, &mut tried);
                 if total > best.0 {
                     best = (total, Forest::Paired(0..0));
                     std::mem::swap(&mut won, &mut tried);
@@ -598,7 +641,7 @@ fn matched(s: &Shape, js: &[u8], t: &Shape, jt: &[u8]) -> Vec<(usize, usize, f32
                     for &i in ka[a].iter().filter(|&&i| ka[i].len() > 1) {
                         spliced.clear();
                         spliced.extend(ka[a].iter().copied().filter(|&x| x != i).chain(ka[i].iter().copied()));
-                        let total = pairing(&spliced, &kb[b], worth, &mut tried);
+                        let total = pairing(&spliced, &kb[b], worth, &mut room, &mut tried);
                         if total > best.0 {
                             best = (total, Forest::Paired(0..0));
                             std::mem::swap(&mut won, &mut tried);
@@ -609,7 +652,7 @@ fn matched(s: &Shape, js: &[u8], t: &Shape, jt: &[u8]) -> Vec<(usize, usize, f32
                     for &j in kb[b].iter().filter(|&&j| kb[j].len() > 1) {
                         spliced.clear();
                         spliced.extend(kb[b].iter().copied().filter(|&x| x != j).chain(kb[j].iter().copied()));
-                        let total = pairing(&ka[a], &spliced, worth, &mut tried);
+                        let total = pairing(&ka[a], &spliced, worth, &mut room, &mut tried);
                         if total > best.0 {
                             best = (total, Forest::Paired(0..0));
                             std::mem::swap(&mut won, &mut tried);
@@ -692,8 +735,15 @@ fn matched(s: &Shape, js: &[u8], t: &Shape, jt: &[u8]) -> Vec<(usize, usize, f32
     out
 }
 
-/// The pairing of the trees of `rows` with those of `cols` worth most, as pairs of them, into `out`, and its worth.
-fn pairing(rows: &[usize], cols: &[usize], worth: impl Fn(usize, usize) -> f32, out: &mut Vec<(usize, usize)>) -> f32 {
+/// The pairing of the trees of `rows` with those of `cols` worth most, as pairs of them, into `out`, and its worth,
+/// working in `room`.
+fn pairing(
+    rows: &[usize],
+    cols: &[usize],
+    worth: impl Fn(usize, usize) -> f32,
+    room: &mut Assign,
+    out: &mut Vec<(usize, usize)>,
+) -> f32 {
     out.clear();
     if rows.len() == 1 || cols.len() == 1 {
         // One tree on a side pairs with the worthiest on the other, the first of the worthiest, as [`assign`] would.
@@ -709,12 +759,10 @@ fn pairing(rows: &[usize], cols: &[usize], worth: impl Fn(usize, usize) -> f32, 
         out.extend(best.1);
         return best.0;
     }
-    let w: Vec<Vec<f32>> = rows
-        .iter()
-        .map(|&i| cols.iter().map(|&j| worth(i, j)).collect())
-        .collect();
-    let (total, pairs) = assign(&w);
-    out.extend(pairs.into_iter().map(|(i, j)| (rows[i], cols[j])));
+    let total = room.pairs(rows.len(), cols.len(), |i, j| worth(rows[i], cols[j]), out);
+    for p in out.iter_mut() {
+        *p = (rows[p.0], cols[p.1]);
+    }
     total
 }
 
@@ -834,5 +882,26 @@ fn fill(ka: &[Vec<usize>], kb: &[Vec<usize>], like: &[f32], out: &mut Vec<(usize
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bell;
+
+    #[test]
+    fn a_bell_is_as_good_as_the_full_exp() {
+        for i in 0..=5000 {
+            let d = i as f32 / 1000.0;
+            let full = (-d * d).exp();
+            let near = if d > 4.0 { 0.0 } else { full };
+            assert!(
+                (bell(d, 1.0) - near).abs() <= 2e-7 * full + 1e-7,
+                "{d}: {} vs {full}",
+                bell(d, 1.0)
+            );
+            assert_eq!(bell(-d, 1.0), bell(d, 1.0));
+        }
+        assert_eq!(bell(0.0, 0.3), 1.0);
     }
 }

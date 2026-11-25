@@ -381,15 +381,17 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 
 | Case | Time |
 | --- | ---: |
-| Map a 65-bone Mixamo-layout rig onto itself | 0.5 ms |
-| Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 0.9 ms |
+| Map a 65-bone Mixamo-layout rig onto itself | 0.6 ms |
+| Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 1.1 ms |
 | Play a clip, mixamo → mannequin, setup included | 2.5 µs per frame |
 | Pose one frame with a reused `Player` | 1.3 µs per frame |
 | A walk with every fix on: travel, planted feet, push-out | 3.3 µs per frame |
 | The same walk done in place, travel worked out from the feet | 3.3 µs per frame |
 | Set up a `Player` for a pair of rigs | 40 µs |
 
-Mapping's times are scaled from runs back to back with the earlier, slower mapping, which took 1.1 and 2.3 ms here.
+Mapping's times are scaled from runs back to back with an earlier mapping that took 0.5 and 0.9 ms. Matching more rigs
+since had doubled them; working out what each name says once, a quicker bell curve for likeness and pairing children
+without allocating brought them back to within a quarter of it.
 On a busier run, where the walk with every fix took 4.5 µs a frame, `Live` played the same walk with every fix but touch
 in 3.1 µs a frame, the walk done in place in 3.0 µs (the whole clip: 4.9 µs), and the walk six poses late in 3.4 µs.
 Where a reused `Player` posed a frame in 1.8 µs, a `Crowd` of 64 characters posed each in 0.89 µs. Keeping hands at the
