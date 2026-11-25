@@ -214,9 +214,9 @@ source's is, by over 1% of the height.
 | travel | 0.00123 | 0.0106 | 1.9° | 0.20% |
 | planted feet | 0.00347 | 0.0001 | 2.8° | 0.29% |
 | push-out | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| all (`apply_with`) | 0.00001 | 0.0001 | 3.0° | 0.41% |
-| all, live (`Live`) | 0.00007 | 0.0001 | 3.2° | 0.46% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 3.0° | 0.42% |
+| all (`apply_with`) | 0.00001 | 0.0001 | 2.9° | 0.35% |
+| all, live (`Live`) | 0.00007 | 0.0001 | 3.1° | 0.41% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 3.0° | 0.37% |
 
 Together they cut foot slide hundreds of times and the height error a hundred. The body travels across the floor by how
 high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits
@@ -256,7 +256,7 @@ each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0302 | 0.0652 | 5.3% |
+| all but touch (`apply_with`) | 0.0303 | 0.0655 | 5.2% |
 | all (`apply_touching`) | 0.0081 | 0.0178 | 0.3% |
 | all, live (`Live::touching`) | 0.0081 | 0.0178 | 0.3% |
 
@@ -438,8 +438,10 @@ tails are left out, and fingers hanging low aren't taken for feet.
   follow as the head turns. The head's size comes from its skin with `apply_touching`, else from the bone at its top,
   where there is one. A hand that can't get there (short arms on a big head) goes as near as it can over the head's
   surface, not into it, and the elbow swings round the line from shoulder to hand till the arm is no deeper in the head
-  than the source's. A hand darting to the head is eased on over a quarter of a second, ahead of the source's, moving a
-  share of the way to where it lands so it arrives along its own path; one sweeping past the head is left alone.
+  than the source's, swinging round only as far as it is eased on. A hand darting to the head is eased on over a
+  quarter of a second, ahead of the source's, moving a share of the way to where it lands so it arrives along its own
+  path; one sweeping past the head is left alone, as is one with its wrist over half its forearm's length off the
+  head's surface: a cartoon's head is so big that a hand raised beside it, well clear, is within two of its radii.
 - **Touch** (`Mapping::apply_touching`, given each rig's `Surface`; `load::Model` reads it as `skin` from the skinned
   mesh). Each skin is thinned to points about 1/80 of the height apart, each bound to the bone that moves it most;
   a face wider than that, all of it moving with one bone (a box for a head), is filled in between its corners.

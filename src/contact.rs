@@ -2579,7 +2579,10 @@ fn played(map: &Mapping, s_body: &Body, t_body: &Body) -> Vec<(Limb, usize)> {
 /// out of the head's turn from rest, turned into the target's frame, scaled from one head to the other and turned with
 /// the target's head, so the hand lands on the same place on a head of any size, even one that sits differently on its
 /// neck. Within one and a half head radii of the middle of the source's head the hand is put there; past two it is left
-/// alone; in between, the two blend. A hand sweeping past the head is not on it: one moving over fifteen head radii a
+/// alone; in between, the two blend. Nor is a hand on the head with its wrist over half its forearm's length off the
+/// head's surface, blending from two fifths: a cartoon's head is so big that a hand raised beside it, well clear, is
+/// within two of its radii, and put there, on a head of common size, it would be pulled onto it. A hand sweeping past
+/// the head is not on it: one moving over fifteen head radii a
 /// second against the head lets go, and past thirty is left alone. A hand that can't get there (short arms, a big head)
 /// goes as near as it can over the head's surface, not into it, and the elbow swings round the line from shoulder to
 /// hand till the arm is no deeper in the head than the source's. Reached with two-bone IK, so the hand keeps its turn.
@@ -2653,6 +2656,8 @@ pub(crate) struct OnHead {
     heads: [Head; 2],
     /// Each target arm playing a source arm: the target's limb, the source's hand and the source's limb.
     arms: Vec<(Limb, usize, Limb)>,
+    /// How long each source arm's forearm is.
+    fores: Vec<f32>,
     turn: Quat,
     scale: f32,
     /// Each head bone's rest turn, undone.
@@ -2680,8 +2685,13 @@ impl OnHead {
         if arms.is_empty() {
             return None;
         }
+        let fores = arms
+            .iter()
+            .map(|(_, a, sl)| s.rest[sl.lower].position().distance(s.rest[*a].position()))
+            .collect();
         Some(Self {
             heads: [sh, th],
+            fores,
             turn: map.turn(),
             scale: th.radius / sh.radius,
             rests: [s.rest[sh.bone].rotation.inverse(), t.rest[th.bone].rotation.inverse()],
@@ -2725,25 +2735,34 @@ impl OnHead {
     }
 
     /// Sets how far onto the head each source hand is ([`Self::on`]), placed in `sw` `dt` seconds after the pose
-    /// before: within `near` head radii of the middle of its head fully, past `far` not at all; and moving against the
-    /// head under `slow` head radii a second fully, over `fast` (sweeping past) not at all.
+    /// before: within `near` head radii of the middle of its head fully, past `far` not at all; its wrist off the
+    /// head's surface under `close` of its forearm fully, over `clear` not at all; and moving against the head under
+    /// `slow` head radii a second fully, over `fast` (sweeping past) not at all.
     fn weigh(&mut self, dt: f32, sw: &[At]) {
         let (near, far, slow, fast) = (1.5, 2.0, 15.0, 30.0);
+        let (close, clear) = (0.4, 0.6);
         let (sh, s_rest) = (self.heads[0], self.rests[0]);
         let (sc, s_turn) = (sh.center(sw), sw[sh.bone].rotation * s_rest);
         self.on.clear();
-        self.on
-            .extend(self.arms.iter().zip(&mut self.last).map(|(&(_, a, _), last)| {
-                let d = sw[a].position() - sc;
-                let local = s_turn.inverse() * d;
-                let speed = last
-                    .filter(|_| dt > 0.0)
-                    .map_or(0.0, |l| local.distance(l) / dt / sh.radius);
-                *last = Some(local);
-                let w = (1.0 - smooth((d.length() / sh.radius - near) / (far - near)))
-                    * (1.0 - smooth((speed - slow) / (fast - slow)));
-                (w, Vec3::ZERO)
-            }));
+        self.on.extend(
+            self.arms
+                .iter()
+                .zip(&self.fores)
+                .zip(&mut self.last)
+                .map(|((&(_, a, _), &fore), last)| {
+                    let d = sw[a].position() - sc;
+                    let local = s_turn.inverse() * d;
+                    let speed = last
+                        .filter(|_| dt > 0.0)
+                        .map_or(0.0, |l| local.distance(l) / dt / sh.radius);
+                    *last = Some(local);
+                    let off = (d.length() - sh.radius) / fore.max(1e-6);
+                    let w = (1.0 - smooth((d.length() / sh.radius - near) / (far - near)))
+                        * (1.0 - smooth((off - close) / (clear - close)))
+                        * (1.0 - smooth((speed - slow) / (fast - slow)));
+                    (w, Vec3::ZERO)
+                }),
+        );
     }
 
     /// Sets where each target hand on the head at all ([`Self::on`]) goes: the way from where it is in `played` to the
@@ -2797,7 +2816,7 @@ impl OnHead {
             let s_arm = [sl.upper, sl.lower, a].map(|b| sw[b].position());
             let need = deep(s_arm, sc).min(sh.radius) / sh.radius * th.radius;
             place(target, played, &self.t_path, tw);
-            swivel(target, played, tw, &limb, |arm| deep(arm, center), need);
+            swivel(target, played, tw, &limb, |arm| deep(arm, center), need, w);
         }
     }
 }
@@ -2811,7 +2830,9 @@ fn off_line(p: Vec3, a: Vec3, b: Vec3) -> f32 {
 
 /// Turns an arm about the line from its shoulder to its hand, the elbow swinging round while the hand stays where it
 /// is and keeps its turn, as little as gets `clear` of the arm's three joints (shoulder, elbow, hand) to `need`;
-/// failing that, as far as gets the most. `world` is the pose placed.
+/// failing that, as far as gets the most. Then only `share` of that, so an arm eased onto the head swings round as it
+/// goes. The least turn is found to within a fraction of a degree, not to the step searched by, so as `need` grows
+/// pose by pose the elbow swings round smoothly rather than in steps. `world` is the pose placed.
 fn swivel(
     skeleton: &Skeleton,
     pose: &mut [Transform],
@@ -2819,6 +2840,7 @@ fn swivel(
     limb: &Limb,
     clear: impl Fn([Vec3; 3]) -> f32,
     need: f32,
+    share: f32,
 ) {
     let (a, b, c) = (
         world[limb.upper].position(),
@@ -2829,23 +2851,37 @@ fn swivel(
     let Some(axis) = (c - a).try_normalize().filter(|_| now < need) else {
         return;
     };
-    let mut best = (now, Quat::IDENTITY);
+    const STEP: f32 = std::f32::consts::PI / 12.0;
+    let got = |angle: f32| clear([a, a + Quat::from_axis_angle(axis, angle) * (b - a), c]);
+    let mut best = (now, 0.0);
     'search: for k in 1..=12 {
         for sign in [1.0, -1.0] {
-            let turn = Quat::from_axis_angle(axis, sign * k as f32 * std::f32::consts::PI / 12.0);
-            let got = clear([a, a + turn * (b - a), c]);
-            if got > best.0 {
-                best = (got, turn);
-                if got >= need {
+            let angle = sign * k as f32 * STEP;
+            let g = got(angle);
+            if g > best.0 {
+                best = (g, angle);
+                if g >= need {
+                    // The least turn clearing it lies within the step before.
+                    let (mut lo, mut hi) = (angle - sign * STEP, angle);
+                    for _ in 0..10 {
+                        let mid = 0.5 * (lo + hi);
+                        if got(mid) >= need {
+                            hi = mid;
+                        } else {
+                            lo = mid;
+                        }
+                    }
+                    best.1 = hi;
                     break 'search;
                 }
             }
         }
     }
-    let turn = best.1;
-    if turn == Quat::IDENTITY {
+    let angle = best.1 * share.clamp(0.0, 1.0);
+    if angle == 0.0 {
         return;
     }
+    let turn = Quat::from_axis_angle(axis, angle);
     let parent = |b: usize| skeleton.bones()[b].parent;
     let above = parent(limb.upper).map_or(Quat::IDENTITY, |p| world[p].rotation);
     pose[limb.upper].rotation = (above.inverse() * turn * world[limb.upper].rotation).normalize();
