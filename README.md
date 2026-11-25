@@ -214,7 +214,7 @@ source's is, by over 1% of the height.
 | travel | 0.00123 | 0.0106 | 1.9° | 0.20% |
 | planted feet | 0.00347 | 0.0001 | 2.6° | 0.29% |
 | push-out | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| all (`apply_with`) | 0.00002 | 0.0001 | 2.8° | 0.36% |
+| all (`apply_with`) | 0.00002 | 0.0001 | 2.8° | 0.35% |
 | all, live (`Live`) | 0.00008 | 0.0001 | 3.0° | 0.42% |
 | all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 2.8° | 0.39% |
 
@@ -229,11 +229,11 @@ source's. Where a planted foot is further below the hip than the target's leg re
 is lowered, eased in and out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001.
 The body is lowered a tenth of the leg at most, and never so far that a bone but the feet goes under the floor. Where a
 planted foot is played under the floor instead, the body is raised to hold it there bent as it was played, rather than
-the knee bent further, as far as every foot held still reaches standing nearly straight: a target standing with its
+the knee bent further, as far as every foot held still reaches a little short of straight: a target standing with its
 knees bent at rest, its legs straightening as far as a source's standing straight, reaches further down than its hips
 come up. On a walk played on such a rig that took the planted knees from 12° off as played to 0.5° (1.2° live), and
-the limbs here from 2.9° to 2.8° (3.1° to 3.0° live, 3.0° to 2.8° six poses late), for a few more pops (0.35% to 0.36%,
-live 0.41% to 0.42%). Against SAN's clips below, whose truth leaves the feet where Mixamo plays them, planted feet went
+the limbs here from 2.9° to 2.8° (3.1° to 3.0° live, 3.0° to 2.8° six poses late), for a few more pops live (0.41% to
+0.42%). Against SAN's clips below, whose truth leaves the feet where Mixamo plays them, planted feet went
 from 1.42 to 1.47. A foot
 let go, or about to plant, is moved as it is played, and as far again as the hold moves it at that end, eased out,
 rather than eased from the hold toward where it is played: that lagged behind a foot swinging off and jerked the leg,
