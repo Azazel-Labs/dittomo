@@ -390,24 +390,26 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 
 | Case | Time |
 | --- | ---: |
-| Map a 65-bone Mixamo-layout rig onto itself | 0.74 ms |
-| Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 0.80 ms |
-| Play a clip, mixamo → mannequin, setup included | 2.1 µs per frame |
-| Pose one frame with a reused `Player` | 1.2 µs per frame |
-| Pose each of a `Crowd` of 64 | 0.81 µs per frame |
-| A walk with every fix on: travel, planted feet, push-out | 6.1 µs per frame |
-| The same walk done in place, travel worked out from the feet | 7.3 µs per frame |
-| `Live`, the walk with every fix but touch, a pose at a time | 4.2 µs per frame |
-| `Live`, the walk done in place | 5.3 µs per frame |
-| `Live`, the walk six poses late | 6.9 µs per frame |
-| `Live`, keeping hands at the skin's distance too (skins of 5,570 and 6,697 points) | 13.3 µs per frame |
-| Set up a `Player` for a pair of rigs | 59 µs |
-| Set up a `Live` player | 85 µs |
+| Map a 65-bone Mixamo-layout rig onto itself | 0.61 ms |
+| Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 0.67 ms |
+| Play a clip, mixamo → mannequin, setup included | 1.8 µs per frame |
+| Pose one frame with a reused `Player` | 1.0 µs per frame |
+| Pose each of a `Crowd` of 64 | 0.62 µs per frame |
+| A walk with every fix on: travel, planted feet, push-out | 4.4 µs per frame |
+| The same walk done in place, travel worked out from the feet | 4.4 µs per frame |
+| `Live`, the walk with every fix but touch, a pose at a time | 3.7 µs per frame |
+| `Live`, the walk done in place | 3.6 µs per frame |
+| `Live`, the walk six poses late | 4.5 µs per frame |
+| `Live`, keeping hands at the skin's distance too (skins of 5,570 and 6,697 points) | 7.7 µs per frame |
+| Set up a `Player` for a pair of rigs | 37 µs |
+| Set up a `Live` player | 51 µs |
 
 The fixes cost more than they once did because they do more: a foot plants by its sole and toes over the floor it
 finds, the trunk leans as the source's does and hands point by their fingers. Touch places the skin's balls round each
 bone once a pose, not once a hand, and measures a hand's reach toward the skin in each bone's own frame, so only its
-points that could reach farthest are looked at.
+points that could reach farthest are looked at. A whole clip places each rig once a frame for the fixes that share
+it, the arm fixes run as one pass, and the floor fix looks at the source only once a bone is under the floor; that took
+the walk from 1.45 times `Live`'s time a frame to 1.18, measured back to back.
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
 is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):

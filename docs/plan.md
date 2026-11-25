@@ -321,7 +321,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 1.2 µs per frame posing, 6.1 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.74 to 0.80 ms to map; 99.8% of joints found on 19 real rigs (exact names: 18.2%); limbs within 1.8° of the source's on their 62 clips | Import mapping, base retarget, β features |
+| dittomo | 1.0 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.61 to 0.67 ms to map; 99.8% of joints found on 19 real rigs (exact names: 18.2%); limbs within 1.8° of the source's on their 62 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their
