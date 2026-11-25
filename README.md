@@ -88,44 +88,47 @@ hung from helpers beside the upper arms, which turn with the arms rather than st
 
 ### Finding the right bones on real rigs
 
-Fifteen real characters, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot, Michelle, Soldier and
+Sixteen real characters, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot, Michelle, Soldier and
 Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan, RiggedFigure and
-BrainStem, two VRM avatars, Babylon's HVGirl, Mesh2Motion's human, and from Godot's demo projects the platformer's robot
-and GDQuest's Mannequiny. Each rig's body joints are labeled by hand (`bench/rigs/labels.txt`); every one of the 210
-ordered pairs is mapped, and a joint counts as found when the target's joint plays the source's. Godot's humanoid auto
-mapping (its `BoneMapper`, ported faithfully from the editor's source into `benches/rigs/godot.rs`, MIT) maps both rigs
-onto its humanoid profile, as a `BoneMap` does, so it gets a joint when both rigs' bones get the same profile bone.
-`cargo bench --features fs --bench rigs`:
+BrainStem, two VRM avatars, Babylon's HVGirl, Mesh2Motion's human, from Godot's demo projects the platformer's robot and
+GDQuest's Mannequiny, and BoQsc's base mesh on a Rigify metarig. Each rig's body joints are labeled by hand
+(`bench/rigs/labels.txt`); every one of the 240 ordered pairs is mapped, and a joint counts as found when the target's
+joint plays the source's. Godot's humanoid auto mapping (its `BoneMapper`, ported faithfully from the editor's source
+into `benches/rigs/godot.rs`, MIT) maps both rigs onto its humanoid profile, as a `BoneMap` does, so it gets a joint
+when both rigs' bones get the same profile bone. `cargo bench --features fs --bench rigs`:
 
-| Matcher | Joints found (4026) |
+| Matcher | Joints found (4654) |
 | --- | ---: |
-| dittomo | 98.8% |
-| Godot's humanoid auto mapping (`BoneMapper`) | 60.4% |
-| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 21.5% |
+| dittomo | 98.9% |
+| Godot's humanoid auto mapping (`BoneMapper`) | 62.8% |
+| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 19.7% |
 
 | Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
-| hips | 100% | 73% | 24% | | thighs | 100% | 43% | 16% |
-| spine | 89% | 86% | 24% | | shins | 100% | 43% | 15% |
-| chest | 100% | 36% | 16% | | feet | 100% | 49% | 19% |
-| neck | 99% | 100% | 41% | | toes | 100% | 58% | 21% |
-| head | 93% | 87% | 43% | | clavicles | 100% | 100% | 29% |
-| upper arms | 99% | 52% | 15% | | forearms | 99% | 52% | 15% |
-| hands | 100% | 68% | 24% | | index fingers | 100% | 65% | 27% |
+| hips | 100% | 74% | 21% | | thighs | 100% | 46% | 16% |
+| spine | 88% | 87% | 21% | | shins | 100% | 46% | 14% |
+| chest | 100% | 38% | 14% | | feet | 100% | 52% | 18% |
+| neck | 99% | 100% | 35% | | toes | 100% | 60% | 19% |
+| head | 96% | 88% | 38% | | clavicles | 100% | 100% | 27% |
+| upper arms | 99% | 55% | 14% | | forearms | 99% | 55% | 14% |
+| hands | 100% | 71% | 23% | | index fingers | 100% | 68% | 24% |
 
 What it gets wrong:
 
 - **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and no collarbones: 90% to 100% against
-  the other rigs, its arms and legs all found. Its head is one bone with nothing beyond it, and is taken for the neck,
-  or for the end bone atop another rig's head. Its upper arms start where a collarbone ends, a third of its height out
-  from the middle, and had been taken for RobotExpressive's shoulders, a stub as far out from the chest; told apart by
-  where each goes on to, against the robot went from 60% to 90%.
+  the other rigs, its arms and legs all found. Its head is one bone with nothing beyond it, hung from the chest with no
+  neck, and had been taken for another rig's neck, or for the end bone atop its head: up from the chest the head is the
+  last bone, however many the neck has, and a neck of as many bones as the other's is matched bone for bone, however
+  long each. That took heads from 92% to 96%, and the Rigify base mesh, whose head is a short bone atop a short neck,
+  from 88% to 100% against RobotExpressive, whose head's root is its highest joint. Its upper arms start where a
+  collarbone ends, a third of its height out from the middle, and had been taken for RobotExpressive's shoulders, a stub
+  as far out from the chest; told apart by where each goes on to, against the robot went from 60% to 90%.
 - **Godot's platformer robot** is named for its viewer's left and right, not its own: its `r-` limbs are on its left.
   Names would swap every limb, so where both of a two-legged body's knees bend clearly the other way from where its
   names put its front, dittomo takes its sides from the knees: against the other rigs it went from 15%–33% of joints
   found to 67%–100%, and clips played onto it from 19°–49° of limb error to 0.4°–8°. Its arms stop at the elbow, with no
   hand, so a limb of two bones is measured to where its hand would be, a forearm past the elbow. Against CesiumMan and
-  RiggedFigure it still finds 67% to 73%: its shoulders stand at two thirds of its height, under a big head, so their
+  RiggedFigure it still finds 67% to 80%: its shoulders stand at two thirds of its height, under a big head, so their
   elbows stand nearer its shoulders than their shoulders do, and an arm is taken one bone along.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it, or a spine of
   one bone taken for the second of a rig's two).
@@ -484,10 +487,10 @@ hips hang from is lowered with the body for planted feet, so it is left out.
 
 ## Tested on
 
-The fifteen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
-bone holding two fingers, a COLLADA export stopping at the base of the head with numbered limbs in an A-pose, a
-nameless rig with one hand missing, a chest whose collarbones start beside it rather than above it, and a robot named
-from in front, its arms stopping at the elbow.
+The sixteen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
+bone holding two fingers, a COLLADA export stopping at the base of the head with numbered limbs in an A-pose, a nameless
+rig with one hand missing, a chest whose collarbones start beside it rather than above it, and a robot named from in
+front, its arms stopping at the elbow, and heads with nothing beyond them, on a short neck or none.
 
 Made-up humanoids that differ the ways real rigs do: names from different tools or none, extra roots and twist bones,
 two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimeters

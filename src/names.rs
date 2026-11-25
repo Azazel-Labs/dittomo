@@ -138,8 +138,8 @@ const HELPERS: &[&str] = &[
 ];
 
 /// Words for bones that only mark where a chain ends, as the top of the head or the tips of the toes (`HeadTop_End`,
-/// `Bip01 L Toe0Nub`), rather than joints that turn.
-const ENDS: &[&str] = &["end", "nub", "tip", "headtop"];
+/// `Bip01 L Toe0Nub`, `head_leaf`), rather than joints that turn.
+const ENDS: &[&str] = &["end", "nub", "tip", "leaf", "headtop"];
 
 impl Name {
     /// Whether the name marks a bone that helps another rather than a joint of the body.
@@ -424,6 +424,7 @@ mod tests {
             "Bip01 L Toe0Nub",
             "mixamorig:LeftHandIndex4_end",
             "toe_tip_l",
+            "head_leaf",
         ] {
             assert!(parse(name).end(), "{name}");
         }

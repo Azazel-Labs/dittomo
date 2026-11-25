@@ -52,6 +52,9 @@ pub(crate) struct Shape {
     /// How long the arms are, from the chest to where the hand begins, then the legs, from the hips to their ends, over
     /// the height: the longer of each two.
     pub span: [f32; 2],
+    /// For each bone up from the chest to the head, how many bones up it is (0 for the first) and how many the neck
+    /// and head have: not counting a bone marking where a chain ends, or one standing where its parent does.
+    pub neck: Vec<Option<(usize, usize)>>,
     pub names: Vec<Name>,
 }
 
@@ -108,6 +111,7 @@ impl Shape {
                 girdles: [None; 2],
                 limbs: [None; 2],
                 limb: Vec::new(),
+                neck: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -198,6 +202,7 @@ impl Shape {
                 girdles: [None; 2],
                 limbs: [None; 2],
                 limb: Vec::new(),
+                neck: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -357,6 +362,26 @@ impl Shape {
             }
         }
         let span = [arms, legs];
+        let mut neck = vec![None; n];
+        if let (Some(chest), Some(arms)) = (girdles[0], limbs[0]) {
+            let up = |i: usize| -> Vec<usize> {
+                let on = |&c: &usize| !arms.contains(&c) && !names[c].end() && length[c] > 0.01;
+                children[i]
+                    .iter()
+                    .copied()
+                    .filter(on)
+                    .filter(|&c| at[c].x.abs() < 0.03 && at[c].y > at[i].y)
+                    .collect()
+            };
+            let (mut chain, mut next) = (Vec::new(), up(chest));
+            while let [c] = next[..] {
+                chain.push(c);
+                next = up(c);
+            }
+            for (k, &c) in chain.iter().enumerate() {
+                neck[c] = Some((k, chain.len()));
+            }
+        }
         Self {
             rest,
             children,
@@ -377,6 +402,7 @@ impl Shape {
             limb,
             along,
             span,
+            neck,
             names,
         }
     }

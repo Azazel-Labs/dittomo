@@ -84,6 +84,31 @@ r_shin = mixamorig:RightLeg
 r_foot = mixamorig:RightFoot
 r_toe = mixamorig:RightToeBase
 
+[male-base-mesh.glb]
+hips = spine
+spine = spine.001
+chest = spine.003
+neck = spine.004
+head = spine.005
+l_clavicle = shoulder.L
+l_upperarm = upper_arm.L
+l_forearm = forearm.L
+l_hand = hand.L
+l_index = f_index.01.L
+l_thigh = thigh.L
+l_shin = shin.L
+l_foot = foot.L
+l_toe = toe.L
+r_clavicle = shoulder.R
+r_upperarm = upper_arm.R
+r_forearm = forearm.R
+r_hand = hand.R
+r_index = f_index.01.R
+r_thigh = thigh.R
+r_shin = shin.R
+r_foot = foot.R
+r_toe = toe.R
+
 [mannequiny.glb]
 hips = pelvis
 spine = spine_01

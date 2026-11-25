@@ -9,6 +9,7 @@
 #   VRM Consortium's Seed-san sample and pixiv three-vrm's constraint sample (the license is in each file's VRM meta)
 #   Babylon.js Assets: HVGirl
 #   Mesh2Motion: its human rig (CC0)
+#   BoQsc's Godot male base mesh, a Rigify metarig (CC0)
 #   Godot demo projects: the platformer's robot (MIT), and GDQuest's Mannequiny (CC-BY 4.0, GDQuest and
 #     contributors, https://www.gdquest.com/)
 set -eu
@@ -22,6 +23,7 @@ vrmc=https://raw.githubusercontent.com/vrm-c/vrm-specification/94e82dd346fa6cf03
 pixiv=https://raw.githubusercontent.com/pixiv/three-vrm/3caf7a21ee68f0d5dfa363ab3d577450bbf60136/packages/three-vrm/examples/models
 babylon=https://raw.githubusercontent.com/BabylonJS/Assets/6946e9be89e0d471d5caba0d2338b4c1ada250d0/meshes
 m2m=https://raw.githubusercontent.com/Mesh2Motion/mesh2motion-app/2609e0345371763c4c390f751d79021285da04b1/static/assets
+boqsc=https://raw.githubusercontent.com/BoQsc/Godot-Male-Base-Mesh/e7807327a8ebcc637831995a231dae701b6d4f56
 godot=https://raw.githubusercontent.com/godotengine/godot-demo-projects/281a99f02178db944bcddef39aa694e3bfbe354a/3d
 
 sum() {
@@ -63,4 +65,5 @@ fetch hvgirl.glb "$babylon/HVGirl.glb" ca7840ac8726d771ea75ad49df05e3d404a0654c5
 fetch mesh2motion-human.glb "$m2m/human/model.glb" bce15f56f0ca4daf4e085337b2412116ab18d3165cb51ea672d1cb9f1194b37f
 fetch godot-robot.glb "$godot/platformer/player/player.glb" 2c7e11f0d7e84bac8a45d724eab05d664a0a4ba41360ff2641e73635e2b5acf6
 fetch mannequiny.glb "$godot/ragdoll_physics/characters/mannequiny.glb" 6b0273d9e8eef159aee9cbc0e75752bbe6abbea56fbcb1a8534e6173f80dda3c
-echo "15 rigs in $dir"
+fetch male-base-mesh.glb "$boqsc/Original/male_base_mesh.glb" 206cb651484baf9aaa29a030a38feecbe29575c3e1cbd820a58fa343c2ae14c4
+echo "16 rigs in $dir"

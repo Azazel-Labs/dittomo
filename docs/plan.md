@@ -193,8 +193,8 @@ frame in 3.6 µs, setup included, against `SkeletonUtils.retargetClip`'s 221 µs
 on a busy machine, best of five runs each, dittomo played a frame in 7.0 µs against its 50 µs (7×), or 143 µs with the
 hips' path scaled (20×). Babylon corrects for rests that differ but only bakes whole clips.
 
-Godot's humanoid auto mapping, ported from its editor into the rig benchmark, finds 60.4% of joints against dittomo's
-98.8% over fifteen rigs. Missing: Unity's and Unreal's humanoid matchers.
+Godot's humanoid auto mapping, ported from its editor into the rig benchmark, finds 62.8% of joints against dittomo's
+98.9% over sixteen rigs. Missing: Unity's and Unreal's humanoid matchers.
 
 ## Open-source landscape
 
@@ -407,7 +407,7 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       and, headless, three.js SkeletonUtils, Babylon AnimatorAvatar, Godot's importer, R2ET and SAN. Unreal's IK
       Retargeter joins through editor Python where its license allows. Mixamo's terms likely forbid redistributing its
       files, so publish the scripts and have users download the data. Done for bone-finding: `bench/rigs/fetch.sh`
-      downloads fifteen rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
+      downloads sixteen rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
       `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching and Godot's humanoid auto
       mapping (ported), then plays every rig's clips on every other and scores limb directions against copying rotations
       and foot contact with each fix. SAN's Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`):

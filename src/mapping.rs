@@ -395,6 +395,16 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     if let (Some(x), Some(y)) = (s.limb[a], t.limb[b]) {
         v += if x == y { 0.5 } else { -0.5 };
     }
+    // Up from the chest, the head is the last bone, however many the neck has, or none, and whatever stands beyond
+    // it. Below it, in a neck of as many bones as the other's, however long each, each plays the one as many bones up.
+    if let (Some((x, m)), Some((y, k))) = (s.neck[a], t.neck[b]) {
+        let (ha, hb) = (x + 1 == m, y + 1 == k);
+        if ha || hb {
+            v += if ha == hb { 0.5 } else { -0.5 };
+        } else if m == k {
+            v += if x == y { 0.5 } else { -0.5 };
+        }
+    }
     // Limbs branch where they branch, however high: a bone two limbs hang from plays one, not a bone along a chain.
     // A bone with nothing beyond it might be either, on a rig that stops there.
     // An arm's bone whose limbs start far off is a forearm with the hand on its end: a hand, not one, and like a
