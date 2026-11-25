@@ -10,8 +10,8 @@
 //! cargo bench --features fs --bench rigs -- --max-degrees 3   # fail if limbs stray more than 3° on average (CI)
 //! ```
 //!
-//! `bench/rigs/labels.txt` names, for each rig, the bone playing each of 23 joints of the body (hips, spine, chest,
-//! neck, head, and on each side the clavicle, upper arm, forearm, hand, index finger, thigh, shin, foot and toe),
+//! `bench/rigs/labels.txt` names, for each rig, the bone playing each of 25 joints of the body (hips, spine, chest,
+//! neck, head, and on each side the clavicle, upper arm, forearm, hand, index finger, thumb, thigh, shin, foot and toe),
 //! labeled by hand; a rig without one of them leaves it out.
 //! Each ordered pair of rigs is mapped, and a joint is found when the target's joint bone plays the source's.
 //!
@@ -31,7 +31,7 @@ use glam::Mat3;
 #[path = "rigs/godot.rs"]
 mod godot;
 
-const JOINTS: [&str; 23] = [
+const JOINTS: [&str; 25] = [
     "hips",
     "spine",
     "chest",
@@ -55,6 +55,8 @@ const JOINTS: [&str; 23] = [
     "r_toe",
     "l_index",
     "r_index",
+    "l_thumb",
+    "r_thumb",
 ];
 
 struct Rig {
@@ -304,15 +306,17 @@ fn main() {
 }
 
 /// Limb segments, from one labeled joint to the next, whose directions a retarget should copy.
-const SEGMENTS: [(&str, &str); 16] = [
+const SEGMENTS: [(&str, &str); 18] = [
     ("hips", "chest"),
     ("chest", "head"),
     ("l_upperarm", "l_forearm"),
     ("l_forearm", "l_hand"),
     ("l_hand", "l_index"),
+    ("l_hand", "l_thumb"),
     ("r_upperarm", "r_forearm"),
     ("r_forearm", "r_hand"),
     ("r_hand", "r_index"),
+    ("r_hand", "r_thumb"),
     ("l_thigh", "l_shin"),
     ("l_shin", "l_foot"),
     ("l_foot", "l_toe"),

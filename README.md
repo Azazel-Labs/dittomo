@@ -98,11 +98,11 @@ as found when the target's joint plays the source's. Godot's humanoid auto mappi
 from the editor's source into `benches/rigs/godot.rs`, MIT) maps both rigs onto its humanoid profile, as a `BoneMap`
 does, so it gets a joint when both rigs' bones get the same profile bone. `cargo bench --features fs --bench rigs`:
 
-| Matcher | Joints found (6716) |
+| Matcher | Joints found (7028) |
 | --- | ---: |
-| dittomo | 99.7% |
-| Godot's humanoid auto mapping (`BoneMapper`) | 65.3% |
-| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 18.1% |
+| dittomo | 99.6% |
+| Godot's humanoid auto mapping (`BoneMapper`) | 65.6% |
+| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 18.2% |
 
 | Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
@@ -113,6 +113,7 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 | head | 100% | 89% | 33% | | clavicles | 100% | 100% | 24% |
 | upper arms | 100% | 61% | 14% | | forearms | 100% | 61% | 14% |
 | hands | 100% | 76% | 21% | | index fingers | 95% | 64% | 22% |
+| | | | | | thumbs | 97% | 71% | 21% |
 
 What it got wrong, and what fixed it:
 
@@ -158,17 +159,19 @@ What it got wrong, and what fixed it:
   beyond it, is a second joint at that point, not the next one along. Against the other rigs it went from 68%–95% of
   joints found to 100%.
 - **three.js's Archer and Warrior**, 3ds Max Bipeds, hang their arms at their sides and start their collarbones a hair
-  either side of the neck and behind the spine. The archer holds a bow in its left hand, four bones more in that arm, two
-  of them standing where the bow does, and each hand has a thumb and two fingers. Its arms had gone unpaired: two chains
-  are now each other's mirror image when they mirror across one upright plane through their parent, step by step out
-  along them, however many more bones one arm holds. Two of the bow's bones had been taken for one-bone fingers; such
-  fingers now stand off the hand. Past the hand, where each bone stands is measured in the hand's own size, as far as
-  its digits start from it, and which way it points with the arm held straight out, so fingers a centimeter apart are
+  either side of the neck and behind the spine. The archer holds a bow in its left hand, four bones more in that arm,
+  two of them standing where the bow does, and each hand has a thumb and two fingers. Its arms had gone unpaired: two
+  chains are now each other's mirror image when they mirror across one upright plane through their parent, step by step
+  out along them, however many more bones one arm holds. Two of the bow's bones had been taken for one-bone fingers;
+  such fingers now stand off the hand. Past the hand, where each bone stands is measured in the hand's own size, as far
+  as its digits start from it, and which way it points with the arm held straight out, so fingers a centimeter apart are
   told apart whether the arm hangs or is held out. The thumb is the digit standing clearly apart from the rest, or of
   two the one nearer the wrist, and the others are counted from it, so a hand of three plays thumb, index and middle. A
   leaf standing where its parent does, as the bow's wings, is a bare point with nothing to aim, and plays nothing that
-  has a length. Over all nineteen rigs that took joints found from 98.7% to 99.7%, hips from 97% to 99%, spines from
-  96% to 100% and index fingers from 86% to 95%; the misses left are mostly the Bipeds' index fingers.
+  has a length. Over all nineteen rigs that took joints found from 98.7% to 99.7%, hips from 97% to 99%, spines from 96%
+  to 100% and index fingers from 86% to 95%; the misses left are mostly the Bipeds' index fingers. Thumbs, counted
+  since, are found 97% of the time; a Biped's starts at its knuckle, where others' second thumb bone does, and dittomo
+  pairs it there.
 - Godot's mapper looks for words in names and walks down from what it finds, so a rig it can't start on loses everything
   below: BrainStem's unnamed bones get nothing; CesiumMan's hips are taken for its `torso_joint_3`, the chest, and its
   arms and legs aren't found; RiggedFigure has no bone named foot or hand, so only its trunk is; RobotExpressive's feet
@@ -193,18 +196,18 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.6° | 0.2° | 8.0° | 94% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.5° | 0.2° | 7.7° | 94% |
-| World turns from rest copied onto the right bones | 17.2° | 9.2° | 47.0° | 62% |
-| Local rotations copied onto the right bones | 79.7° | 85.8° | 148.9° | 14% |
+| dittomo | 2.6° | 0.2° | 7.6° | 95% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.4° | 0.2° | 7.4° | 96% |
+| World turns from rest copied onto the right bones | 17.9° | 9.8° | 47.2° | 60% |
+| Local rotations copied onto the right bones | 80.0° | 86.1° | 148.4° | 13% |
 
-What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
-both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied are, by twist:
-a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the shoulder of one
-built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips below (0.72 against
-0.66 across skeletons), so dittomo keeps the whole turn. The Warrior's clips are the worst here played onto the other
-rigs, the trunk and collarbones most. Setting by hand the Bipeds' index fingers dittomo misses takes the rest. CI fails
-if the mean passes 3°.
+What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger or thumb) can't point the
+same way on both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied
+are, by twist: a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the
+shoulder of one built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips
+below (0.72 against 0.66 across skeletons), so dittomo keeps the whole turn. The Warrior's clips are the worst here
+played onto the other rigs, the trunk and collarbones most. Setting by hand the Bipeds' index fingers dittomo misses
+takes the rest. CI fails if the mean passes 3°.
 
 A bone with no length places nothing: the bone under it that every one of its played bones hangs from, starting where
 it does, plays its turn instead. The CMU take turns each wrist's twist in the hand and its bend in a finger base starting
@@ -217,6 +220,13 @@ Biped's head turns on its chest, with no neck between. The target's bones betwee
 above and the one below takes the bend, rather than each bending part way and leaning the head off where the source's
 points. Played from the Warrior and the archer, the target's neck had bent with its chest and its head leaned further:
 chest to head went from 3.7° to 2.1°, hips to chest from 6.5° to 6.2° and limbs overall from 2.8° to 2.6°.
+
+A hand points the way its fingers do, their directions from the wrist summed, and its thumb only turns it about that.
+Fit to every digit at once, each counted alike, a hand was pointed part way toward its thumb, which stands off the
+fingers at an angle that differs from rig to rig, more on a hand of five spread than on a mitten. Hand to index finger
+went from 11.4° to 5.5° (12.0° to 6.6° on the right) and hand to thumb from 11.7° to 13.4° (12.7° to 14.4°): limbs
+overall from 3.0° to 2.6°, the 90th percentile from 9.2° to 7.6°. The thumbs were labeled then; a 3ds Max Biped's
+thumb starts at its knuckle, where other rigs' second thumb bone does, so the Bipeds' are left unlabeled.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by under 0.05° on average (local rotations copied: 67.4°). It was 11.8° when the neck and head took their
@@ -236,13 +246,13 @@ source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00302 | 0.0200 | 3.6° | 0.19% |
-| travel | 0.00090 | 0.0200 | 3.6° | 0.19% |
-| planted feet | 0.00215 | 0.0001 | 4.5° | 0.25% |
-| push-out | 0.00302 | 0.0200 | 3.7° | 0.20% |
-| all (`apply_with`) | 0.00001 | 0.0000 | 4.6° | 0.29% |
-| all, live (`Live`) | 0.00011 | 0.0042 | 4.8° | 0.35% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 4.6° | 0.34% |
+| none (`apply`) | 0.00302 | 0.0200 | 3.1° | 0.19% |
+| travel | 0.00090 | 0.0200 | 3.1° | 0.19% |
+| planted feet | 0.00215 | 0.0001 | 3.9° | 0.25% |
+| push-out | 0.00302 | 0.0200 | 3.1° | 0.20% |
+| all (`apply_with`) | 0.00001 | 0.0000 | 4.0° | 0.30% |
+| all, live (`Live`) | 0.00011 | 0.0042 | 4.2° | 0.35% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 4.0° | 0.34% |
 
 Together they cut foot slide hundreds of times and the height error to nothing. Live, with nothing ahead, a foot's
 ground is the lowest it has been, or where it stands at rest if lower, till a foot lifts well clear of the floor; but
@@ -296,12 +306,12 @@ each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0382 | 0.0819 | 5.2% |
-| all (`apply_touching`) | 0.0118 | 0.0257 | 0.7% |
-| all, live (`Live::touching`) | 0.0119 | 0.0260 | 0.7% |
+| all but touch (`apply_with`) | 0.0374 | 0.0797 | 5.2% |
+| all (`apply_touching`) | 0.0117 | 0.0253 | 0.9% |
+| all, live (`Live::touching`) | 0.0118 | 0.0256 | 0.9% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-3.2 times closer and hands end up inside the body a seventh as often. The body is the bones the hips hang from and
+3.2 times closer and hands end up inside the body a sixth as often. The body is the bones the hips hang from and
 those hanging from them: the Warrior's sword hangs from its root beside the hips, and its blade had been taken for
 skin, so a hand at its side was judged near its body and pushed off the target's to the sword's width. Leaving it out
 took the frames with a source hand near from 12,250 to 8,988 and the gap left from 0.0384 to 0.0118.

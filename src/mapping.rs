@@ -36,6 +36,8 @@ pub struct Mapping {
     quality: f32,
     turn: Quat,
     left: Vec3,
+    /// Which of the source's bones, then the target's, are in a thumb.
+    thumbs: [Vec<bool>; 2],
 }
 
 impl Mapping {
@@ -65,6 +67,7 @@ impl Mapping {
             quality: 0.0,
             turn: t.frame * s.frame.inverse(),
             left: t.frame * Vec3::X,
+            thumbs: [&s, &t].map(|k| (0..k.rest.len()).map(|b| k.digit.get(b) == Some(&Some(-1.0))).collect()),
         };
         mapping.quality = mapping.weigh(&t);
         // Back to the rigs' own orders.
@@ -96,6 +99,14 @@ impl Mapping {
             });
         }
         self.pairs = pairs;
+        let [s, t] = &mut self.thumbs;
+        for (thumbs, real) in [(s, &source as &dyn Fn(usize) -> usize), (t, &target)] {
+            let mut moved = vec![false; thumbs.len()];
+            for (b, &on) in thumbs.iter().enumerate() {
+                moved[real(b)] = on;
+            }
+            *thumbs = moved;
+        }
     }
 
     /// The source bone this target bone plays, if any.
@@ -126,6 +137,11 @@ impl Mapping {
     /// The target body's left, in the world.
     pub(crate) fn left(&self) -> Vec3 {
         self.left
+    }
+
+    /// Whether source bone `a` and target bone `b` are each in a thumb.
+    pub(crate) fn thumbs(&self, a: usize, b: usize) -> bool {
+        self.thumbs[0].get(a).copied().unwrap_or(false) && self.thumbs[1].get(b).copied().unwrap_or(false)
     }
 
     /// Make a target bone play another source bone, or none. For a bone the match got wrong; a pair that breaks the

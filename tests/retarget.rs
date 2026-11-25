@@ -1251,6 +1251,68 @@ fn a_hand_bent_in_a_finger_base_at_the_wrist_bends_the_hand() {
 }
 
 #[test]
+fn a_hand_points_where_its_fingers_do_however_far_its_thumb_splays() {
+    // The same hands but for the thumb, standing off the fingers twice as far on the target: the hand still points its
+    // fingers the way the source's go, the thumb only turning it about them.
+    let from = mixamo_like();
+    let to = {
+        let mut j: Joints = from
+            .bones()
+            .iter()
+            .enumerate()
+            .map(|(b, bone)| {
+                let parent = bone.parent.map(|p| from.bones()[p].name.clone());
+                (
+                    bone.name.clone(),
+                    parent,
+                    from.world(&from.rest())[b].position().to_array(),
+                )
+            })
+            .collect();
+        for x in &mut j {
+            if x.0.contains("Thumb") {
+                x.2[2] *= 2.0;
+                x.2[1] -= 0.02;
+            }
+        }
+        placed(&j)
+    };
+    let map = Mapping::new(&from, &to);
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[
+            ("LeftHandThumb1", "LeftHandThumb1"),
+            ("RightHandIndex1", "RightHandIndex1"),
+        ],
+    );
+    let mut pose = from.rest();
+    for (side, turn) in [
+        ("Left", Quat::from_rotation_z(0.6)),
+        ("Right", Quat::from_rotation_y(-0.8)),
+    ] {
+        pose[from.index_of(&format!("{side}Hand")).expect("hand")].rotation = turn * Quat::from_rotation_x(0.4);
+    }
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![pose],
+    };
+    let out = map.apply(&from, &to, &clip).expect("plays");
+    let (sw, tw) = (from.world(&clip.poses[0]), to.world(&out.poses[0]));
+    for side in ["Left", "Right"] {
+        let way = |s: &Skeleton, w: &[dittomo::Placed], f: &str| {
+            let at = |n: String| w[s.index_of(&n).expect("bone")].position();
+            (at(format!("{side}Hand{f}1")) - at(format!("{side}Hand"))).normalize()
+        };
+        for f in ["Index", "Middle"] {
+            let off = way(&from, &sw, f).angle_between(way(&to, &tw, f)).to_degrees();
+            assert!(off < 0.5, "{side} {f}: {off}°");
+        }
+    }
+}
+
+#[test]
 fn a_rig_stopping_at_the_base_of_the_head_in_an_a_pose_with_numbered_limbs() {
     // Laid out as COLLADA exports often are: no bone at the top of the head, limbs numbered along the chain, the arms
     // hanging down.

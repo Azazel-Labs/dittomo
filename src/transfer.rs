@@ -547,15 +547,34 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
     let s_parent: Vec<Option<usize>> = source.bones().iter().map(|b| b.parent).collect();
     for b in 0..n {
         let Some(a) = mapped(b) else { continue };
+        let mut thumb = None;
         let (pairs, below): (Vec<(Vec3, Vec3)>, Vec<usize>) = next[b]
             .iter()
             .filter_map(|&b2| {
                 let a2 = mapped(b2)?;
                 let u = turn * (s.rest[a2].position() - s.rest[a].position());
                 let v = t.rest[b2].position() - t.rest[b].position();
-                (u.length() > 1e-9 && v.length() > 1e-9).then_some(((u, v), a2))
+                let long = u.length() > 1e-9 && v.length() > 1e-9;
+                if long && map.thumbs(a2, b2) {
+                    thumb = Some((u, v));
+                }
+                long.then_some(((u, v), a2))
             })
             .unzip();
+        // The way a hand's fingers point is the way it points; its thumb, standing off them at an angle that differs
+        // from rig to rig (a mitten's one finger, five spread), only turns it about that.
+        let fingers = thumb.filter(|_| pairs.len() > 1).and_then(|(tu, tv)| {
+            let sum = |f: fn(&(Vec3, Vec3)) -> Vec3| {
+                pairs
+                    .iter()
+                    .filter(|p| **p != (tu, tv))
+                    .map(|p| f(p).normalize())
+                    .sum::<Vec3>()
+            };
+            let (u, v) = (sum(|p| p.0), sum(|p| p.1));
+            let apart = |a: Vec3, b: Vec3| a.length() > 1e-6 && a.normalize().cross(b.normalize()).length() > 0.1;
+            (apart(u, tu) && apart(v, tv)).then(|| align(u, tu, v, tv))
+        });
         let d = driver(&s_parent, &s.children, &s_mapped, s, a, &below);
         let fix = match pairs.as_slice() {
             _ if s_neck[a] && t_neck[b] || s_spine.contains(&a) && t_spine.contains(&b) => Quat::IDENTITY,
@@ -573,6 +592,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
                     })
             }
             [] => above(b).and_then(|p| fixes[p]).unwrap_or(Quat::IDENTITY),
+            _ if fingers.is_some() => fingers.unwrap_or_default(),
             // As a fox's hips, its legs starting above them, onto a husky's, its legs starting below.
             _ if pairs.len() > 1 && middle(s, a, turn.inverse() * left) && middle(t, b, left) => Quat::IDENTITY,
             [(u, v)] => Quat::from_rotation_arc(u.normalize(), v.normalize()),
