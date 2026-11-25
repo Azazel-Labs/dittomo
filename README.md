@@ -164,84 +164,86 @@ matchers aren't open source, and need the engine running.
 
 ### Playing real clips
 
-The same rigs' own 35 clips (Mixamo dances, walks, runs and gestures, RobotExpressive's 14, CesiumMan's and
-RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four) played on every other rig: 385 clip and rig pairs. Each
-labeled limb segment, shoulder to elbow and so on, is compared with the source's direction frame by frame, each in its
-own body's frame. A foot is judged by where it points, the way it points across the floor at rest turned as it has
-turned from rest: every rig stands flat at rest, and how steeply an ankle comes down to the toes is anatomy. The trunk,
-hips to chest and chest to head, is judged by how it leans, tilted as it has tilted from rest, as every rig stands
-upright at rest; a collarbone the same way, straight out to its side tilted as it has tilted, as how one slopes up or
-back to the shoulder is anatomy too. The other rows are what a clip gets without a retargeter, even given the right
-bones: an engine's animation mixer plays a clip on another rig by copying each bone's local rotation, and a hand-written
-script commonly copies each bone's turn from rest in the world.
+The same rigs' own 54 clips (Mixamo's 14 dances, walks, runs and gestures, RobotExpressive's 14, Mannequiny's 10, the
+platformer robot's 8, CesiumMan's and RiggedFigure's walks, BrainStem's 35-second take, HVGirl's four and the CMU take)
+played on every other rig: 864 clip and rig pairs. Each labeled limb segment, shoulder to elbow and so on, is compared
+with the source's direction frame by frame, each in its own body's frame. A foot is judged by where it points, the way
+it points across the floor at rest turned as it has turned from rest: every rig stands flat at rest, and how steeply an
+ankle comes down to the toes is anatomy. The trunk, hips to chest and chest to head, is judged by how it leans, tilted
+as it has tilted from rest, as every rig stands upright at rest; a collarbone the same way, straight out to its side
+tilted as it has tilted, as how one slopes up or back to the shoulder is anatomy too. The other rows are what a clip
+gets without a retargeter, even given the right bones: an engine's animation mixer plays a clip on another rig by
+copying each bone's local rotation, and a hand-written script commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.4° | 0.2° | 4.3° | 99% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.4° | 0.2° | 4.3° | 99% |
-| World turns from rest copied onto the right bones | 13.9° | 4.4° | 56.0° | 78% |
-| Local rotations copied onto the right bones | 73.9° | 81.9° | 150.2° | 20% |
+| dittomo | 1.8° | 0.2° | 5.1° | 98% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.7° | 0.2° | 5.0° | 98% |
+| World turns from rest copied onto the right bones | 13.8° | 5.4° | 46.3° | 76% |
+| Local rotations copied onto the right bones | 75.8° | 85.3° | 153.3° | 19% |
 
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
-both rigs when the bones between are in other ratios. The collarbones are off by 4° as world turns copied are, by twist:
+both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied are, by twist:
 a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the shoulder of one
-built at another slope. Keeping only the swing takes the error to under 2° here, but it is further from SAN's clips
-below (0.72 against 0.66 across skeletons), so dittomo keeps the whole turn. Setting the bones dittomo misses by hand no
-longer moves the mean. CI fails if the mean passes 3°.
+built at another slope. Keeping only the swing lowers that here, but it is further from SAN's clips below (0.72 against
+0.66 across skeletons), so dittomo keeps the whole turn. Setting the bones dittomo misses by hand moves the mean a tenth
+of a degree. CI fails if the mean passes 3°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
-It's off by 0.5° on average (local rotations copied: 54.6°). It was 11.8° when the neck and head took their source's
-turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the target's
-own rest look and take only the turn away from it, as the spine below them does.
+It's off by under 0.05° on average (local rotations copied: 65.2°). It was 11.8° when the neck and head took their
+source's turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the
+target's own rest look and take only the turn away from it, as the spine below them does.
 
-The same pairs again, with each contact fix alone and all together, over the 23,420 frames where a source foot is
-planted (within 5% of its height of the lowest it gets, moving under a tenth of its height a second). Slide is how far
-the target's foot moves each such frame; sole height off is how far its sole is from where the source's is, scaled; both
-are over the target's height. The sole is whichever of the foot and toe joints is lowest against the source's, each
-counted from where it stands at rest: a flat foot stands on its ankle's height and one rolled onto its toes on its
-toes'. Clips walked in place are judged on the travel their feet imply. Pops count how often a fix jerks a joint: of the
-frames of every joint both rigs label, the share where the joint, about the hips, is further from where it would be
-moving steadily from the frame before to the one after than the source's is, by over 1% of the height.
+The same pairs again, with each contact fix alone and all together, over the 40,410 frames where a source foot is
+planted (within 5% of its height of the lowest it gets, moving under a tenth of its height a second), of each clip's
+first 300 frames. A clip whose foot never comes within a tenth of the height of where it stands at rest, as the robot's
+fall, plants nothing, as dittomo itself judges it. Slide is how far the target's foot moves each such frame; sole height
+off is how far its sole is from where the source's is, scaled; both are over the target's height. The sole is whichever
+of the foot and toe joints is lowest against the source's, each counted from where it stands at rest: a flat foot stands
+on its ankle's height and one rolled onto its toes on its toes'. Clips walked in place are judged on the travel their
+feet imply. Pops count how often a fix jerks a joint: of the frames of every joint both rigs label, the share where the
+joint, about the hips, is further from where it would be moving steadily from the frame before to the one after than the
+source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00388 | 0.0097 | 1.7° | 0.03% |
-| travel | 0.00118 | 0.0097 | 1.7° | 0.03% |
-| planted feet | 0.00266 | 0.0001 | 2.5° | 0.08% |
-| push-out | 0.00388 | 0.0097 | 1.7° | 0.03% |
-| all (`apply_with`) | 0.00001 | 0.0001 | 2.7° | 0.16% |
-| all, live (`Live`) | 0.00004 | 0.0001 | 2.7° | 0.20% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00004 | 0.0001 | 2.6° | 0.16% |
+| none (`apply`) | 0.00476 | 0.0106 | 1.9° | 0.20% |
+| travel | 0.00143 | 0.0106 | 1.9° | 0.20% |
+| planted feet | 0.00355 | 0.0001 | 2.9° | 0.33% |
+| push-out | 0.00476 | 0.0106 | 1.9° | 0.20% |
+| all (`apply_with`) | 0.00002 | 0.0001 | 3.1° | 0.45% |
+| all, live (`Live`) | 0.00033 | 0.0001 | 3.2° | 0.52% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00034 | 0.0003 | 3.0° | 0.45% |
 
-Together they leave next to no foot slide and cut the height error nearly a hundred times. The degree they cost is the
-legs bending to keep feet down where the target's stride and leg proportions differ from the source's. Where a planted
-foot is further below the hip than the target's leg reaches, bent as it was played, the body is lowered, eased in and
-out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001. The body is lowered a
-tenth of the leg at most, and never so far that a bone but the feet goes under the floor. A foot let go, or about to
-plant, is moved as it is played, and as far again as the hold moves it at that end, eased out, rather than eased from
-the hold toward where it is played: that lagged behind a foot swinging off and jerked the leg, and cut the pops from
-0.50% to 0.17%. A contact split where the source's foot slips holds the foot where the part before did, moved on as far
-as it slips as played, rather than each part at its own average: a foot drifting as it is played jumped from one to the
-next. Played live, with nothing ahead, slide is cut about a hundred times: a foot is held from the pose it lands, where
-the target's was the pose before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a
-little more to hold it. The body is lowered there too, at once as far as the legs need, then eased back up over a tenth
-of a second. Six poses late slide is cut as much, with limbs closer and as few pops as the whole clip's. A foot is
-planted from the first pose it stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in
-steps, whose feet jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of
-these clips put a hand through the body.
+Together they cut foot slide over two hundred times and the height error a hundred. The degree they cost is the legs
+bending to keep feet down where the target's stride and leg proportions differ from the source's. Where a planted foot
+is further below the hip than the target's leg reaches, bent as it was played, the body is lowered, eased in and out,
+rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001. The body is lowered a tenth of
+the leg at most, and never so far that a bone but the feet goes under the floor. A foot let go, or about to plant, is
+moved as it is played, and as far again as the hold moves it at that end, eased out, rather than eased from the hold
+toward where it is played: that lagged behind a foot swinging off and jerked the leg, and cut the pops from 0.50% to
+0.17%. A contact split where the source's foot slips holds the foot where the part before did, moved on as far as it
+slips as played, rather than each part at its own average: a foot drifting as it is played jumped from one to the next.
+Played live, with nothing ahead, slide is cut fourteen times: a foot is held from the pose it lands, where the target's
+was the pose before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a little more to
+hold it. The body is lowered there too, at once as far as the legs need, then eased back up over a tenth of a second.
+Six poses late slide is cut as much, with limbs closer and as few pops as the whole clip's. A foot is planted from the
+first pose it stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in steps, whose feet
+jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a hand
+through the body.
 
-Hands on the body, over the 63 pairs where both rigs have a skinned mesh: 8,802 hand frames, 4,572 of them with the
-source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it,
-over each body's height; the target's should match the source's.
+Hands on the body, over the 96 pairs where both rigs have a skinned mesh: 16,392 hand frames, 6,360 of them with the
+source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it, over
+each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0259 | 0.0590 | 7.3% |
-| all (`apply_touching`) | 0.0076 | 0.0170 | 0.5% |
-| all, live (`Live::touching`) | 0.0076 | 0.0170 | 0.5% |
+| all but touch (`apply_with`) | 0.0302 | 0.0652 | 5.3% |
+| all (`apply_touching`) | 0.0081 | 0.0178 | 0.3% |
+| all, live (`Live::touching`) | 0.0081 | 0.0178 | 0.3% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-3.4 times closer and hands end up inside the body a fifteenth as often.
+3.7 times closer and hands end up inside the body an eighteenth as often.
 
 ### Against the learned retargeters
 

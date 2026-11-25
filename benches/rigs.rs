@@ -664,12 +664,16 @@ fn contact(rigs: &[Rig]) {
                     let sole: Vec<(usize, usize)> = std::iter::once((a, b))
                         .chain(s.labels.get(&toe).zip(t.labels.get(&toe)).map(|(&a, &b)| (a, b)))
                         .collect();
+                    // A clip whose foot never comes within a tenth of the height of where it stands at rest has it off the
+                    // ground throughout, as in a fall, held still at the lowest it gets: nothing is planted.
                     let ground = src.iter().map(|w| w[a].position().y).fold(f32::MAX, f32::min);
+                    let aloft = ground > s_rest[a].position().y + 0.1 * hs;
                     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
                     let still = |f: usize| {
                         let dt = clip.times[f + 1] - clip.times[f];
                         let p = src[f][a].position();
                         dt > 0.0
+                            && !aloft
                             && p.y - ground < 0.05 * hs
                             && flat(src[f + 1][a].position() - p).length() / dt < 0.1 * hs
                     };
