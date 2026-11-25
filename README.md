@@ -359,6 +359,11 @@ dittomo finds the bones itself, needs no training, and beats SAN on both. Three 
   the same of its own table, where copying beats every learned method on position error. This test rewards doing what
   Mixamo does more than looking right. The copy works only because all five skeletons share Mixamo's names, rest axes
   and T-pose; on the real rigs above it is off by 74.0°.
+  dittomo points each limb bone where the source's points; Mixamo keeps each character's own bend at rest, and
+  Goblin's knees are bent 18° at rest where Mousey's are nearly straight. Aligning each limb by its whole chain, hip
+  to ankle, and keeping each rig's bend as the copy does cuts dittomo's error here with the root put right by a third
+  (0.275 to 0.197), but on the real rigs above, whose bends at rest are pose more than build, limbs go from 2.0° to
+  4.9° off and soles from 0.020 to 0.023, so dittomo doesn't.
 - SAN's paper gives 8.86 for its copy baseline; unscaled, these runs get 43.0, mostly from Mousey being about half
   BigVegas's height. The scaled copy is the fair baseline.
 - The travel fix, which adds the travel an in-place clip's feet imply, does harm here (8.1 and 14.2): Mixamo's in-place
