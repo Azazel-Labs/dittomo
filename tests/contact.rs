@@ -1345,6 +1345,34 @@ fn live_travel_finds_the_ground_feet_walk_on_above_their_rest() {
 }
 
 #[test]
+fn live_travel_keeps_on_while_the_hips_sway_as_far_as_the_whole_clip_lets_them() {
+    // A walk in place leaning side to side, its hips swaying a seventh of the height, as a kick leans into the kick:
+    // the whole clip travels, so live travel mustn't stop once the hips have swayed a tenth of the height.
+    let sk = common::mixamo();
+    let frames = 90;
+    let mut swaying = common::gait(&sk, frames, true);
+    let h = height(&sk);
+    for (f, pose) in swaying.poses.iter_mut().enumerate() {
+        pose[0].translation.x += 0.15 * h * (std::f32::consts::PI * f as f32 / frames as f32).sin();
+    }
+    let map = Mapping::new(&sk, &sk);
+    let travel = Fixes {
+        travel: true,
+        ..Fixes::NONE
+    };
+    let z = |c: &Clip| c.poses[frames - 1][0].translation.z - swaying.poses[frames - 1][0].translation.z;
+    let whole = map.apply_with(&sk, &sk, &swaying, travel).expect("plays");
+    assert!(z(&whole).abs() > 0.5 * h, "the whole clip traveled {}", z(&whole));
+    let went = z(&live(&map, &sk, &sk, &swaying, travel));
+    eprintln!("live travel {went:.1}, the whole clip's {:.1}", z(&whole));
+    assert!(
+        (went - z(&whole)).abs() < 0.1 * z(&whole).abs(),
+        "traveled {went}, the whole clip {}",
+        z(&whole)
+    );
+}
+
+#[test]
 fn live_holds_the_first_step_of_a_foot_planting_higher_than_the_other() {
     // A run in place whose second foot comes down 6% of the height higher than the first, the clip starting with it
     // on the way down: the first foot found the floor, and the second is held from its first step, not only once it

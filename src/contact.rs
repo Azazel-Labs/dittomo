@@ -1493,8 +1493,9 @@ impl Ahead {
 /// The travel a clip walked in place implies ([`traveled`]), worked out as the poses come: each pose the body moves as
 /// far as the lowest foot slid back since the pose before, and on as it was going while no foot is down. Slides slower
 /// than a twentieth of the height a second are taken for a foot shuffling, not walking. Once the hips have wandered a
-/// tenth of the height from where they began, the clip travels on its own and the travel stops growing: a walk in place
-/// sways less, and a dance in place that sways more mustn't drift off far before it does.
+/// fifth of the height from where they began, as far as [`traveled`] lets them over the whole clip, the clip travels on
+/// its own and the travel stops growing: a walk or a kick in place sways less, and a dance in place that sways more
+/// mustn't drift off far before it does.
 pub(crate) struct Travel {
     /// Each leg's foot and upper bone, in the source.
     legs: Vec<(usize, usize)>,
@@ -1560,7 +1561,7 @@ impl Travel {
         place(source, pose, path, sw);
         let hips = self.legs.iter().map(|&(_, u)| sw[u].position()).sum::<Vec3>() / self.legs.len() as f32;
         let start = *self.start.get_or_insert(hips);
-        if flat(hips - start).length() > 0.1 * h {
+        if flat(hips - start).length() > 0.2 * h {
             self.on = false;
         }
         self.ground.see(|l| sw[self.legs[l].0].position().y);
