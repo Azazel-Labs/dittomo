@@ -98,10 +98,10 @@ pub struct Bone {
     pub rest: Transform,
 }
 
-/// Bones, each after its parent.
+/// Bones, each after its parent. Cloning one shares its bones rather than copying them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Skeleton {
-    bones: Vec<Bone>,
+    bones: std::sync::Arc<[Bone]>,
 }
 
 /// What can be wrong with what's handed in.
@@ -150,7 +150,7 @@ impl Skeleton {
                 return Err(Error::ParentNotBefore { bone: i });
             }
         }
-        Ok(Self { bones })
+        Ok(Self { bones: bones.into() })
     }
 
     #[must_use]
@@ -221,7 +221,7 @@ impl Skeleton {
     pub(crate) fn children(&self) -> Children {
         let n = self.bones.len();
         let mut start = vec![0; n + 1];
-        for b in &self.bones {
+        for b in self.bones.iter() {
             if let Some(p) = b.parent {
                 start[p + 1] += 1;
             }

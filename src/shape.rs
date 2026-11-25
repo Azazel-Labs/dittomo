@@ -5,12 +5,17 @@
 use glam::{Mat3, Quat, Vec3};
 
 use crate::names::{self, Name, Side};
+use std::sync::OnceLock;
+
+use crate::contact::Parts;
 use crate::{Children, Placed, Skeleton};
 
 pub(crate) struct Shape {
     /// Each bone at rest in the world.
     pub rest: Vec<Placed>,
     pub children: Children,
+    /// Its trunk and legs, found once when first asked for (see [`crate::contact`]).
+    pub parts: OnceLock<Option<Parts>>,
     /// The body's frame in the world: its columns the body's left, up and forward.
     pub frame: Quat,
     /// Its height in the world's units.
@@ -123,6 +128,7 @@ impl Shape {
             return Self {
                 rest,
                 children,
+                parts: OnceLock::new(),
                 frame: Quat::IDENTITY,
                 height: 1.0,
                 floor: 0.0,
@@ -221,6 +227,7 @@ impl Shape {
             return Self {
                 rest,
                 children,
+                parts: OnceLock::new(),
                 frame: Quat::IDENTITY,
                 height,
                 floor,
@@ -572,6 +579,7 @@ impl Shape {
         Self {
             rest,
             children,
+            parts: OnceLock::new(),
             frame,
             height,
             floor,

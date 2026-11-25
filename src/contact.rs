@@ -85,11 +85,28 @@ pub struct Limb {
 /// twist bones along it don't count.
 #[must_use]
 pub fn legs(skeleton: &Skeleton) -> Vec<Limb> {
-    legs_of(skeleton, &Shape::light(skeleton))
+    legs_of(skeleton, &Shape::light(skeleton)).to_vec()
 }
 
-pub(crate) fn legs_of(skeleton: &Skeleton, s: &Shape) -> Vec<Limb> {
-    trunk(skeleton, s).map_or_else(Vec::new, |t| legs_in(skeleton, s, &t))
+pub(crate) fn legs_of<'a>(skeleton: &Skeleton, s: &'a Shape) -> &'a [Limb] {
+    parts(skeleton, s).map_or(&[], |p| &p.legs)
+}
+
+/// A skeleton's trunk and the legs hanging from it, found once for each [`Shape`].
+pub(crate) struct Parts {
+    trunk: Trunk,
+    legs: Vec<Limb>,
+}
+
+/// The skeleton's trunk and legs: `s` is its shape, which keeps them.
+fn parts<'a>(skeleton: &Skeleton, s: &'a Shape) -> Option<&'a Parts> {
+    s.parts
+        .get_or_init(|| {
+            let trunk = trunk(skeleton, s)?;
+            let legs = legs_in(skeleton, s, &trunk);
+            Some(Parts { trunk, legs })
+        })
+        .as_ref()
 }
 
 fn legs_in(skeleton: &Skeleton, s: &Shape, trunk: &Trunk) -> Vec<Limb> {
@@ -280,11 +297,11 @@ pub(crate) fn frame(skeleton: &Skeleton, s: &Shape) -> Frame {
         arms: Vec::new(),
         collar: vec![false; n],
     };
-    let Some(trunk) = trunk(skeleton, s) else {
+    let Some(Parts { trunk, legs }) = parts(skeleton, s) else {
         return frame;
     };
-    frame.legs = legs_in(skeleton, s, &trunk);
-    frame.spine = if let Some(body) = body_in(skeleton, s, &trunk, &frame.legs) {
+    frame.legs.clone_from(legs);
+    frame.spine = if let Some(body) = body_in(skeleton, s, trunk, &frame.legs) {
         for arm in &body.arms {
             frame.arms.push(arm.limb);
             let mut b = skeleton.bones()[arm.limb.upper].parent;
@@ -606,7 +623,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         .get(gaps.len() / 2)
         .map_or(4, |dt| ((0.12 / dt).round() as usize).clamp(1, 10));
     let mut feet: Vec<Going> = Vec::new();
-    for leg in legs_of(target, t) {
+    for &leg in legs_of(target, t) {
         // A foot left unpaired plants with the first paired bone under it, as a paw held for IK above a toe that is.
         let Some(a) = map.source_of(leg.end).or_else(|| {
             (leg.end + 1..target.len())
@@ -1253,7 +1270,8 @@ impl Feet {
     /// Nothing if no target leg's foot plays a source bone.
     pub(crate) fn new(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> Option<Self> {
         let feet: Vec<Foot> = legs_of(target, t)
-            .into_iter()
+            .iter()
+            .copied()
             .filter_map(|leg| {
                 let a = map.source_of(leg.end)?;
                 Some(Foot {
@@ -1833,8 +1851,8 @@ fn head(above: &[usize], s: &Shape) -> Option<Head> {
 }
 
 pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
-    let trunk = trunk(skeleton, s)?;
-    body_in(skeleton, s, &trunk, &legs_in(skeleton, s, &trunk))
+    let Parts { trunk, legs } = parts(skeleton, s)?;
+    body_in(skeleton, s, trunk, legs)
 }
 
 fn body_in(skeleton: &Skeleton, s: &Shape, trunk: &Trunk, legs: &[Limb]) -> Option<Body> {
@@ -2091,7 +2109,8 @@ impl Floor {
             })
             .collect();
         let legs: Vec<(Limb, Vec<usize>, Vec<usize>, Vec3)> = legs_of(target, t)
-            .into_iter()
+            .iter()
+            .copied()
             .map(|leg| {
                 let mut between = Vec::new();
                 let mut b = parent(leg.end);
