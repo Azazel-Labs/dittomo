@@ -2795,3 +2795,85 @@ fn a_bvh_whose_branches_start_at_their_parents_joints_maps_by_the_bones_beyond()
     let pairs: Vec<(&str, &str)> = pairs.iter().map(|(a, b)| (*a, b.as_str())).collect();
     assert_plays(&mixamo, &nameless, &Mapping::new(&mixamo, &nameless), &pairs);
 }
+
+/// A robot laid out as Godot's platformer robot: a chest bone low in a big body, its shoulders wide and high under a
+/// big head, and arms of two bones stopping at the elbow, the hand skin past it; its head hung from a tracker, and
+/// controls for the arms and legs hung from the root.
+fn wide_robot() -> Joints {
+    let mut j: Joints = vec![
+        joint("root", None, [0.0, 0.0, 0.0]),
+        joint("hip", Some("root"), [0.0, 0.63, 0.0]),
+        joint("waist", Some("hip"), [0.0, 0.74, 0.0]),
+        joint("chest", Some("waist"), [0.0, 0.99, 0.0]),
+        joint("neck", Some("chest"), [0.0, 1.36, -0.02]),
+        joint("tracker", Some("neck"), [0.0, 1.51, -0.05]),
+        joint("head", Some("tracker"), [0.0, 1.51, -0.05]),
+        joint("vent", Some("head"), [0.0, 1.88, 0.05]),
+        joint("look", Some("root"), [0.0, 1.9, 1.74]),
+    ];
+    for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
+        let n = |s: &str| format!("{s}.{side}");
+        j.push(joint(n("arm"), Some("chest"), [0.28 * x, 1.22, 0.02]));
+        j.push(joint(n("forearm"), Some(&n("arm")), [0.48 * x, 1.05, -0.07]));
+        j.push(joint(n("thigh"), Some("hip"), [0.10 * x, 0.68, 0.02]));
+        j.push(joint(n("shin"), Some(&n("thigh")), [0.12 * x, 0.49, 0.03]));
+        j.push(joint(n("foot"), Some(&n("shin")), [0.16 * x, 0.06, 0.0]));
+        j.push(joint(n("leg_goal"), Some("root"), [0.16 * x, 0.06, 0.0]));
+        j.push(joint(n("knee_pole"), Some("root"), [0.12 * x, 0.49, 0.2]));
+        j.push(joint(n("arm_goal"), Some("root"), [0.79 * x, 0.77, 0.06]));
+        j.push(joint(n("elbow_pole"), Some("root"), [0.47 * x, 1.03, -0.15]));
+    }
+    j
+}
+
+/// A slim figure laid out as glTF's CesiumMan: its arms of three numbered bones, the first at the shoulder close by the
+/// chest, with no collarbone, drooping in an A-pose to a wrist with no hand beyond it.
+fn slim_figure() -> Joints {
+    let mut j: Joints = vec![
+        joint("root", None, [0.0, 0.0, 0.0]),
+        joint("torso_1", Some("root"), [0.0, 0.69, 0.0]),
+        joint("torso_2", Some("torso_1"), [0.0, 0.86, -0.01]),
+        joint("torso_3", Some("torso_2"), [0.0, 1.07, -0.01]),
+        joint("neck_1", Some("torso_3"), [0.0, 1.13, 0.0]),
+        joint("neck_2", Some("neck_1"), [0.0, 1.19, 0.0]),
+    ];
+    for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
+        let n = |s: &str, k: usize| format!("{s}_{side}_{k}");
+        j.push(joint(n("arm", 1), Some("torso_3"), [0.09 * x, 1.07, -0.01]));
+        j.push(joint(n("arm", 2), Some(&n("arm", 1)), [0.31 * x, 0.96, -0.02]));
+        j.push(joint(n("arm", 3), Some(&n("arm", 2)), [0.45 * x, 0.88, 0.07]));
+        j.push(joint(n("leg", 1), Some("torso_1"), [0.07 * x, 0.61, 0.0]));
+        j.push(joint(n("leg", 2), Some(&n("leg", 1)), [0.08 * x, 0.35, 0.06]));
+        j.push(joint(n("leg", 3), Some(&n("leg", 2)), [0.08 * x, 0.08, 0.0]));
+        j.push(joint(n("leg", 5), Some(&n("leg", 3)), [0.08 * x, 0.02, 0.03]));
+    }
+    j
+}
+
+/// The same joints, each named only for where it comes in the list, so the shape alone tells them apart.
+fn unnamed(j: &Joints) -> Skeleton {
+    let at = |n: &str| j.iter().position(|x| x.0 == n).expect("listed");
+    placed(
+        &j.iter()
+            .enumerate()
+            .map(|(i, (_, p, x))| (format!("j{i}"), p.as_deref().map(|q| format!("j{}", at(q))), *x))
+            .collect(),
+    )
+}
+
+#[test]
+fn a_wide_robots_shoulder_plays_a_slim_figures_shoulder_not_its_elbow() {
+    // The way out to the robot's shoulders from its low chest bone is as long as the figure's upper arms, and its
+    // forearms as long as theirs; each turns at the shoulder and the elbow all the same.
+    let (rj, fj) = (wide_robot(), slim_figure());
+    let (robot, figure) = (unnamed(&rj), unnamed(&fj));
+    let name = |j: &Joints, n: &str| format!("j{}", j.iter().position(|x| x.0 == n).expect("listed"));
+    let (map, back) = (Mapping::new(&robot, &figure), Mapping::new(&figure, &robot));
+    for side in ["L", "R"] {
+        for (a, b) in [("arm", 1), ("forearm", 2)] {
+            let (a, b) = (name(&rj, &format!("{a}.{side}")), name(&fj, &format!("arm_{side}_{b}")));
+            assert_plays(&robot, &figure, &map, &[(&a, &b)]);
+            assert_plays(&figure, &robot, &back, &[(&b, &a)]);
+        }
+    }
+}

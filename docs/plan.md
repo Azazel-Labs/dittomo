@@ -195,7 +195,7 @@ on a busy machine, best of five runs each, dittomo played a frame in 7.0 µs aga
 hips' path scaled (20×). Babylon corrects for rests that differ but only bakes whole clips.
 
 Godot's humanoid auto mapping, ported from its editor into the rig benchmark, finds 63.2% of joints against dittomo's
-99.8% over seventeen rigs. Missing: Unity's and Unreal's humanoid matchers.
+100.0% over seventeen rigs. Missing: Unity's and Unreal's humanoid matchers.
 
 ## Open-source landscape
 
@@ -283,7 +283,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.8% of joints found on 17 real rigs (exact names: 22.2%); limbs within 1.8° of the source's on their 54 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 100.0% of joints found on 17 real rigs (exact names: 22.2%); limbs within 1.7° of the source's on their 54 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their

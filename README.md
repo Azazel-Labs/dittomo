@@ -99,7 +99,7 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 
 | Matcher | Joints found (5328) |
 | --- | ---: |
-| dittomo | 99.8% |
+| dittomo | 100.0% |
 | Godot's humanoid auto mapping (`BoneMapper`) | 63.2% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 22.2% |
 
@@ -110,10 +110,10 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 | chest | 100% | 40% | 12% | | feet | 100% | 55% | 21% |
 | neck | 100% | 88% | 31% | | toes | 100% | 63% | 22% |
 | head | 100% | 88% | 40% | | clavicles | 100% | 100% | 31% |
-| upper arms | 99% | 57% | 17% | | forearms | 99% | 57% | 17% |
+| upper arms | 100% | 57% | 17% | | forearms | 100% | 57% | 17% |
 | hands | 100% | 73% | 26% | | index fingers | 100% | 59% | 28% |
 
-What it gets wrong:
+What it got wrong, and what fixed it:
 
 - **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and no collarbones: 92% to 100% against
   the other rigs, its arms and legs all found. Its head is one bone with nothing beyond it, hung from the chest with no
@@ -139,8 +139,11 @@ What it gets wrong:
   way. Up a neck of as many bones as the other's, each plays the one as many bones up, however big the head, and the
   vent on its head, beyond it, is not a head, which took necks and heads to 100%. A control hung far from every other
   bone, as a target well ahead of the head for it to look at, is left out of where the body's middle is. Against
-  CesiumMan and RiggedFigure it still finds 73% to 87%: its shoulders stand at two thirds of its height, under a big
-  head, so their elbows stand nearer its shoulders than their shoulders do, and an arm is taken one bone along.
+  CesiumMan and RiggedFigure it had found 73% to 87%: its shoulders stand wide and high, well out from a chest bone low
+  in its body, so the way out to them was as long as their upper arms, and an arm was taken one bone along. An arm turns
+  at the shoulder and the elbow wherever they stand, so each is picked from the arm's spans, as the arms' reach picks
+  them (spine to shoulder, shoulder to elbow, elbow to hand, all long), and an arm of two bones bends between them:
+  shoulders play shoulders and elbows elbows, which took both to 100% and every rig's arms with them.
 - With names to go by, the misses had mostly been one bone along a chain, a spine of one bone taken for the second of a
   rig's two. Up from the hips, the spine is the first bone, however many lie between the hips and the chest, not
   counting one no higher than the hips (RobotExpressive's `Hips` hang below `Body`, the bone its legs hang from), and a
@@ -177,7 +180,7 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.8° | 0.2° | 5.1° | 98% |
+| dittomo | 1.7° | 0.2° | 5.0° | 98% |
 | dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.7° | 0.2° | 5.0° | 98% |
 | World turns from rest copied onto the right bones | 13.8° | 5.4° | 46.3° | 76% |
 | Local rotations copied onto the right bones | 75.8° | 85.3° | 153.3° | 19% |
@@ -186,8 +189,8 @@ What's left is mostly proportions: a two-bone stretch (hips to chest, hand to in
 both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied are, by twist:
 a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the shoulder of one
 built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips below (0.72 against
-0.66 across skeletons), so dittomo keeps the whole turn. Setting the bones dittomo misses by hand moves the mean a tenth
-of a degree. CI fails if the mean passes 3°.
+0.66 across skeletons), so dittomo keeps the whole turn. dittomo finds every labeled bone, so setting them by hand
+changes nothing. CI fails if the mean passes 3°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by under 0.05° on average (local rotations copied: 65.2°). It was 11.8° when the neck and head took their
@@ -211,9 +214,9 @@ source's is, by over 1% of the height.
 | travel | 0.00123 | 0.0106 | 1.9° | 0.20% |
 | planted feet | 0.00347 | 0.0001 | 2.8° | 0.29% |
 | push-out | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| all (`apply_with`) | 0.00001 | 0.0001 | 3.1° | 0.41% |
+| all (`apply_with`) | 0.00001 | 0.0001 | 3.0° | 0.41% |
 | all, live (`Live`) | 0.00011 | 0.0001 | 3.2° | 0.46% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0001 | 3.1° | 0.42% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0001 | 3.0° | 0.42% |
 
 Together they cut foot slide hundreds of times and the height error a hundred. The body travels across the floor by how
 high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits

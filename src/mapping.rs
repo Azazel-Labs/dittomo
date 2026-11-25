@@ -44,12 +44,16 @@ impl Mapping {
     pub fn new(source: &Skeleton, target: &Skeleton) -> Self {
         // Feet held from the root are matched as the ends of their legs.
         let (hs, ht) = (held::held(source), held::held(target));
-        let s = Shape::of(hs.as_ref().map_or(source, |h| &h.skeleton));
-        let t = Shape::of(ht.as_ref().map_or(target, |h| &h.skeleton));
-        let found = matched(&s, &t);
+        let (ks, kt) = (
+            hs.as_ref().map_or(source, |h| &h.skeleton),
+            ht.as_ref().map_or(target, |h| &h.skeleton),
+        );
+        let (s, t) = (Shape::of(ks), Shape::of(kt));
+        let (js, jt) = (joints(ks, &s), joints(kt, &t));
+        let found = matched(&s, &js, &t, &jt);
         let mut pairs = vec![None; target.len()];
         for (a, b, like) in found {
-            let own = likeness(&t, b, &t, b, names::likeness(&t.names[b], &t.names[b])).max(1e-6);
+            let own = likeness(&t, b, &t, b, names::likeness(&t.names[b], &t.names[b]), (jt[b], jt[b])).max(1e-6);
             pairs[b] = Some(Pair {
                 source: a,
                 score: like / own,
@@ -285,6 +289,26 @@ impl Mapping {
 }
 
 /// How far up from the hips to the chest a bone of the spine stands, in bones.
+/// By bone, whether it turns at an arm's shoulder (1) or elbow (2), picked from the arm's spans as the arms' reach
+/// picks them, so not a collarbone by the spine, however far out the shoulder stands; otherwise 0. An arm of two bones
+/// bends between them, its hand the skin past the elbow.
+fn joints(skeleton: &Skeleton, s: &Shape) -> Vec<u8> {
+    let mut joint = vec![0; skeleton.len()];
+    for arm in contact::frame(skeleton, s).arms {
+        joint[arm.upper] = 1;
+        joint[arm.lower] = 2;
+    }
+    for &root in s.limbs[0].iter().flatten() {
+        if let &[c] = s.children[root].as_slice()
+            && s.children[c].is_empty()
+            && joint[root] == 0
+        {
+            (joint[root], joint[c]) = (1, 2);
+        }
+    }
+    joint
+}
+
 fn rise(sh: &Shape, x: usize) -> Option<f32> {
     let (k, m) = sh.spine[x]?;
     Some((k + 1) as f32 / (m + 1) as f32)
@@ -292,7 +316,7 @@ fn rise(sh: &Shape, x: usize) -> Option<f32> {
 
 /// How alike source bone `a` and target bone `b` are, given how alike their names are: above zero when more alike than
 /// not.
-fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32 {
+fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint: (u8, u8)) -> f32 {
     let mut v = 0.0;
     let (na, nb) = (&s.names[a], &t.names[b]);
     if let Some(n) = named {
@@ -450,6 +474,11 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     } else if s.forks[a] != t.forks[b] && !s.children[a].is_empty() && !t.children[b].is_empty() {
         v -= 0.5;
     }
+    // An arm turns at the shoulder and the elbow, wherever they stand: a wide robot's shoulder stands as far from its
+    // chest as a narrow figure's elbow does from its own, along an arm with no collarbone.
+    if joint.0 != 0 && joint.1 != 0 {
+        v += if joint.0 == joint.1 { 0.5 } else { -0.5 };
+    }
     v -= 1.2;
     v
 }
@@ -476,7 +505,7 @@ enum Forest {
 }
 
 /// The pairs (source bone, target bone, likeness) of the best match.
-fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
+fn matched(s: &Shape, js: &[u8], t: &Shape, jt: &[u8]) -> Vec<(usize, usize, f32)> {
     // Node 0 on each side stands above the roots, so a skeleton of several trees is one tree.
     let kids = |shape: &Shape| -> Vec<Vec<usize>> {
         let n = shape.children.len();
@@ -502,7 +531,7 @@ fn matched(s: &Shape, t: &Shape) -> Vec<(usize, usize, f32)> {
     for a in 1..na {
         for b in 1..nb {
             let named = words.likeness(a - 1, &s.names[a - 1], b - 1, &t.names[b - 1]);
-            like[at(a, b)] = likeness(s, a - 1, t, b - 1, named);
+            like[at(a, b)] = likeness(s, a - 1, t, b - 1, named, (js[a - 1], jt[b - 1]));
         }
     }
     let mut tree = vec![0.0f32; na * nb];
