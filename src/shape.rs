@@ -52,8 +52,10 @@ pub(crate) struct Shape {
     /// How long the arms are, from the chest to where the hand begins, then the legs, from the hips to their ends, over
     /// the height: the longer of each two.
     pub span: [f32; 2],
-    /// For each bone up from the chest to the head, how many bones up it is (0 for the first) and how many the neck
-    /// and head have: not counting a bone marking where a chain ends, or one standing where its parent does.
+    /// For each bone up from the chest to the head, how many bones up it is (0 for the first) and how many the neck and
+    /// head have: not counting a bone marking where a chain ends, or one more than 1.4 times as high as the shoulders,
+    /// above where any head's root stands (a vent on a robot's head). Of a bone and a child standing where it does,
+    /// only the child is counted, as its turn is the last word.
     pub neck: Vec<Option<(usize, usize)>>,
     /// For each bone between the hips and the chest, how many bones up from the hips it is (0 for the first) and how
     /// many there are: not counting one standing where its parent does, or one no higher than the hips (a pelvis hung
@@ -370,13 +372,26 @@ impl Shape {
         let span = [arms, legs];
         let mut neck = vec![None; n];
         if let (Some(chest), Some(arms)) = (girdles[0], limbs[0]) {
+            let top = 1.4 * at[arms[0]].y.max(at[arms[1]].y);
             let up = |i: usize| -> Vec<usize> {
-                let on = |&c: &usize| !arms.contains(&c) && !names[c].end() && length[c] > 0.01;
+                let on = |&c: &usize| !arms.contains(&c) && !names[c].end() && length[c] > 0.01 && at[c].y < top;
                 children[i]
                     .iter()
                     .copied()
                     .filter(on)
                     .filter(|&c| at[c].x.abs() < 0.03 && at[c].y > at[i].y)
+                    // Through a bone to a child standing where it does, as a head hung from a tracker.
+                    .map(|mut c| {
+                        while let [d] = children[c]
+                            .iter()
+                            .copied()
+                            .filter(|&d| length[d] <= 0.01 && !children[d].is_empty())
+                            .collect::<Vec<_>>()[..]
+                        {
+                            c = d;
+                        }
+                        c
+                    })
                     .collect()
             };
             let (mut chain, mut next) = (Vec::new(), up(chest));

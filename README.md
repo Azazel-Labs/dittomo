@@ -99,7 +99,7 @@ when both rigs' bones get the same profile bone. `cargo bench --features fs --be
 
 | Matcher | Joints found (4654) |
 | --- | ---: |
-| dittomo | 99.4% |
+| dittomo | 99.5% |
 | Godot's humanoid auto mapping (`BoneMapper`) | 62.8% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 19.7% |
 
@@ -109,7 +109,7 @@ when both rigs' bones get the same profile bone. `cargo bench --features fs --be
 | spine | 98% | 87% | 21% | | shins | 100% | 46% | 14% |
 | chest | 100% | 38% | 14% | | feet | 100% | 52% | 18% |
 | neck | 99% | 100% | 35% | | toes | 100% | 60% | 19% |
-| head | 96% | 88% | 38% | | clavicles | 100% | 100% | 27% |
+| head | 98% | 88% | 38% | | clavicles | 100% | 100% | 27% |
 | upper arms | 99% | 55% | 14% | | forearms | 99% | 55% | 14% |
 | hands | 100% | 71% | 23% | | index fingers | 100% | 68% | 24% |
 
@@ -127,9 +127,12 @@ What it gets wrong:
   Names would swap every limb, so where both of a two-legged body's knees bend clearly the other way from where its
   names put its front, dittomo takes its sides from the knees: against the other rigs it went from 15%–33% of joints
   found to 67%–100%, and clips played onto it from 19°–49° of limb error to 0.4°–8°. Its arms stop at the elbow, with no
-  hand, so a limb of two bones is measured to where its hand would be, a forearm past the elbow. Against CesiumMan and
-  RiggedFigure it still finds 67% to 80%: its shoulders stand at two thirds of its height, under a big head, so their
-  elbows stand nearer its shoulders than their shoulders do, and an arm is taken one bone along.
+  hand, so a limb of two bones is measured to where its hand would be, a forearm past the elbow. Its head hangs from a
+  tracker standing where it does, with a vent atop it reaching higher than any head's root: up from the chest, of a bone
+  and a child standing where it does the child is taken, and nothing more than 1.4 times as high as the shoulders is,
+  which took heads from 96% to 98%. Against CesiumMan and RiggedFigure it still finds 73% to 87%: its shoulders stand at
+  two thirds of its height, under a big head, so their elbows stand nearer its shoulders than their shoulders do, and an
+  arm is taken one bone along.
 - With names to go by, the misses had mostly been one bone along a chain, a spine of one bone taken for the second of a
   rig's two. Up from the hips, the spine is the first bone, however many lie between the hips and the chest, not
   counting one no higher than the hips (RobotExpressive's `Hips` hang below `Body`, the bone its legs hang from), and a

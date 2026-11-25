@@ -2438,13 +2438,15 @@ fn a_collarbone_in_two_stays_put_as_the_arm_rises() {
 #[test]
 fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
     // Godot's platformer robot is named as its viewer sees it: its `r-` limbs are on its own left, where its knees, bent
-    // the way it faces, put them. Its arms stop at the elbow, with no hand.
+    // the way it faces, put them. Its arms stop at the elbow, with no hand. Its head hangs from a tracker standing where
+    // it does, and a vent stands on top of it, higher above the shoulders than any head's root.
     let mut robot: Joints = vec![
         joint("hip", None, [0.0, 0.332, 0.0]),
         joint("waist", Some("hip"), [0.0, 0.392, 0.0]),
         joint("chest", Some("waist"), [0.0, 0.521, 0.0]),
         joint("neck", Some("chest"), [0.0, 0.718, -0.008]),
-        joint("head", Some("neck"), [0.0, 0.793, -0.025]),
+        joint("headtracker", Some("neck"), [0.0, 0.793, -0.025]),
+        joint("head", Some("headtracker"), [0.0, 0.793, -0.025]),
         joint("vent", Some("head"), [0.0, 0.987, 0.025]),
     ];
     for (side, x) in [("r", 1.0f32), ("l", -1.0)] {
@@ -2458,6 +2460,8 @@ fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
     let robot = placed(&robot);
     let man = mixamo_like();
     let pairs = [
+        ("Neck", "neck"),
+        ("Head", "head"),
         ("LeftArm", "r-arm"),
         ("LeftForeArm", "r-forearm"),
         ("RightArm", "l-arm"),
@@ -2492,6 +2496,7 @@ fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
     }
     let figure = placed(&figure);
     let pairs = [
+        ("n4", "head"),
         ("na1", "r-arm"),
         ("na2", "r-forearm"),
         ("nb1", "l-arm"),
