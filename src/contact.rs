@@ -1010,6 +1010,8 @@ pub(crate) struct Ground {
     ground: Vec<f32>,
     /// The lowest each foot has been, and whether it has since been well above it.
     low: Vec<(f32, bool)>,
+    /// How high each foot was the pose before.
+    last: Vec<f32>,
     /// The lowest any foot has been, and whether a foot has since been well above it, so that it is known to be the
     /// floor the feet walk on.
     floor: f32,
@@ -1025,6 +1027,7 @@ impl Ground {
             ground: rest.clone(),
             rest,
             low: vec![(f32::INFINITY, false); n],
+            last: vec![f32::INFINITY; n],
             floor: f32::INFINITY,
             known: false,
             height,
@@ -1035,6 +1038,7 @@ impl Ground {
     fn reset(&mut self) {
         self.ground.clone_from(&self.rest);
         self.low.fill((f32::INFINITY, false));
+        self.last.fill(f32::INFINITY);
         (self.floor, self.known) = (f32::INFINITY, false);
     }
 
@@ -1059,6 +1063,10 @@ impl Ground {
                 *own = y;
             }
             *lifted |= y - *own > 0.04 * h;
+            // A foot that stops coming down well above the floor, but within a tenth of the height of it, has come down
+            // to its own ground: one foot of a run can plant higher than the other, and would slide its first step.
+            *lifted |= self.known && y >= self.last[l] && *own - self.floor > 0.04 * h && *own - self.floor < 0.1 * h;
+            self.last[l] = y;
             self.ground[l] = if *lifted {
                 *own
             } else if self.known {

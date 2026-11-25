@@ -1343,6 +1343,43 @@ fn live_travel_finds_the_ground_feet_walk_on_above_their_rest() {
 }
 
 #[test]
+fn live_holds_the_first_step_of_a_foot_planting_higher_than_the_other() {
+    // A run in place whose second foot comes down 6% of the height higher than the first, the clip starting with it
+    // on the way down: the first foot found the floor, and the second is held from its first step, not only once it
+    // has lifted from where it came down.
+    let sk = common::mixamo();
+    let h = height(&sk);
+    let legs = contact::legs(&sk);
+    let (skip, frames) = (9, 45);
+    let mut clip = common::gait(&sk, frames, true);
+    for pose in &mut clip.poses {
+        let foot = at(&sk, pose, legs[1].end);
+        contact::reach(&sk, pose, &legs[1], foot + Vec3::new(0.0, 0.06 * h, 0.0));
+    }
+    let clip = Clip {
+        times: clip.times[skip..].to_vec(),
+        poses: clip.poses[skip..].to_vec(),
+    };
+    let map = Mapping::new(&sk, &sk);
+    let fixes = Fixes {
+        travel: true,
+        feet: true,
+        ..Fixes::NONE
+    };
+    let played = live(&map, &sk, &sk, &clip, fixes);
+    let down = planted(&sk, &contact::travel(&sk, &clip), legs[1].end);
+    let mut slid = 0.0f32;
+    for f in 1..clip.poses.len() {
+        if down[f - 1] && down[f] {
+            let step = at(&sk, &played.poses[f], legs[1].end) - at(&sk, &played.poses[f - 1], legs[1].end);
+            slid = slid.max(Vec3::new(step.x, 0.0, step.z).length() / h);
+        }
+    }
+    assert!(down.iter().any(|&d| d), "the second foot plants");
+    assert!(slid < 1e-3, "the second foot slid {slid} of the height in a frame");
+}
+
+#[test]
 fn live_claps_and_keeps_out_of_the_body_as_the_whole_clip_does() {
     let source = common::mixamo();
     let clip = claps(&source);
