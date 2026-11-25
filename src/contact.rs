@@ -421,15 +421,21 @@ pub fn planted(skeleton: &Skeleton, clip: &Clip, bone: usize) -> Vec<bool> {
 
 /// Where a bone is in the world, frame by frame.
 fn track(skeleton: &Skeleton, clip: &Clip, bone: usize) -> Vec<Vec3> {
-    let path = paths(skeleton, [bone]);
+    tracks(skeleton, clip, &[bone]).pop().unwrap_or_default()
+}
+
+/// Where each of these bones is in the world, frame by frame, a list each: the bones are placed together, once a frame.
+fn tracks(skeleton: &Skeleton, clip: &Clip, bones: &[usize]) -> Vec<Vec<Vec3>> {
+    let path = paths(skeleton, bones.iter().copied());
     let mut world = vec![At::IDENTITY; skeleton.len()];
-    clip.poses
-        .iter()
-        .map(|p| {
-            place(skeleton, p, &path, &mut world);
-            world[bone].position()
-        })
-        .collect()
+    let mut at = vec![Vec::with_capacity(clip.poses.len()); bones.len()];
+    for p in &clip.poses {
+        place(skeleton, p, &path, &mut world);
+        for (t, &b) in at.iter_mut().zip(bones) {
+            t.push(world[b].position());
+        }
+    }
+    at
 }
 
 fn contacts(at: &[Vec3], times: &[f32], rest_y: f32, height: f32) -> Vec<bool> {
@@ -609,7 +615,27 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         }) else {
             continue;
         };
-        let s_at = track(source, from, a);
+        let sole = sole(map, [(source, s), (target, t)], &leg, a);
+        // The foot's track, then each sole point's height, for each rig.
+        let mut s_tracks = tracks(
+            source,
+            from,
+            &[a].into_iter().chain(sole.iter().map(|p| p.source)).collect::<Vec<_>>(),
+        )
+        .into_iter();
+        let s_at = s_tracks.next().unwrap_or_default();
+        let s_ys: Vec<Vec<f32>> = s_tracks.map(|t| t.iter().map(|v| v.y).collect()).collect();
+        let mut t_tracks = tracks(
+            target,
+            out,
+            &[leg.end]
+                .into_iter()
+                .chain(sole.iter().map(|p| p.target))
+                .collect::<Vec<_>>(),
+        )
+        .into_iter();
+        let t_at = t_tracks.next().unwrap_or_default();
+        let t_ys: Vec<Vec<f32>> = t_tracks.map(|t| t.iter().map(|v| v.y).collect()).collect();
         let down = contacts(&s_at, &from.times, s.rest[a].position().y, s.height);
         let mut runs = Vec::new();
         let mut f = 0;
@@ -625,18 +651,8 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
                 f += 1;
             }
         }
-        let t_at = track(target, out, leg.end);
         let mut goals = vec![None; n];
         let locks = locks(&runs, &t_at);
-        let sole = sole(map, [(source, s), (target, t)], &leg, a);
-        let s_ys: Vec<Vec<f32>> = sole
-            .iter()
-            .map(|p| track(source, from, p.source).iter().map(|v| v.y).collect())
-            .collect();
-        let t_ys: Vec<Vec<f32>> = sole
-            .iter()
-            .map(|p| track(target, out, p.target).iter().map(|v| v.y).collect())
-            .collect();
         // How far each run moves the foot from where it is played, at its first frame and at its last.
         let off: Vec<(Vec3, Vec3)> = runs
             .iter()
@@ -750,7 +766,11 @@ fn lower(target: &Skeleton, t: &Shape, played: &Clip, feet: &[Going], ramp: usiz
         if goals.iter().all(Option::is_none) {
             continue;
         }
-        let [hip, knee, foot] = [leg.upper, leg.lower, leg.end].map(|b| track(target, played, b));
+        let Ok([hip, knee, foot]) =
+            <[Vec<Vec3>; 3]>::try_from(tracks(target, played, &[leg.upper, leg.lower, leg.end]))
+        else {
+            continue;
+        };
         for f in 0..n {
             let Some(goal) = goals[f] else { continue };
             need[f] = need[f].max(sink([hip[f], knee[f], foot[f]], goal));
@@ -1959,6 +1979,8 @@ pub(crate) struct Scratch {
     /// Room for [`least_turn`] to work in.
     waves: Vec<(f32, f32, f32)>,
     edges: Vec<f32>,
+    /// A mark on each target bone, all clear between uses.
+    moved: Vec<bool>,
 }
 
 impl Scratch {
@@ -1969,6 +1991,7 @@ impl Scratch {
             spheres: Vec::with_capacity(64),
             waves: Vec::with_capacity(16),
             edges: Vec::with_capacity(48),
+            moved: vec![false; target.len()],
         }
     }
 }
@@ -2104,16 +2127,21 @@ impl Floor {
     /// Lifts the bones of `pose`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]).
     pub(crate) fn pose(&self, target: &Skeleton, pose: &mut [Transform], scratch: &mut Scratch) {
         let Scratch {
-            sw, tw, waves, edges, ..
+            sw,
+            tw,
+            waves,
+            edges,
+            moved,
+            ..
         } = scratch;
         let [s_floor, t_floor] = self.floors;
         let parent = |b: usize| target.bones()[b].parent;
         let low =
             |b: usize| t_floor - self.sources[b].map_or(0.0, |a| (s_floor - sw[a].position().y).max(0.0) * self.k);
-        for &b in &self.t_path {
+        // Placed once: a bone turned places again only what hangs from it.
+        place(target, pose, &self.t_path, tw);
+        for (i, &b) in self.t_path.iter().enumerate() {
             let with = &self.lifted[b];
-            place(target, pose, &[b], tw);
-            place(target, pose, with, tw);
             let Some(p) = parent(b).filter(|_| !with.is_empty()) else {
                 continue;
             };
@@ -2134,7 +2162,18 @@ impl Floor {
             let above = parent(p).map_or(Quat::IDENTITY, |q| tw[q].rotation);
             pose[p].rotation = (above.inverse() * turn * tw[p].rotation).normalize();
             place(target, pose, &[p], tw);
-            place(target, pose, with, tw);
+            // `b` is all that hangs from `p`, and it and all under it come after it, parents first.
+            moved[p] = true;
+            for &x in &self.t_path[i..] {
+                if parent(x).is_some_and(|q| moved[q]) {
+                    place(target, pose, std::slice::from_ref(&x), tw);
+                    moved[x] = true;
+                }
+            }
+            moved[p] = false;
+            for &x in &self.t_path[i..] {
+                moved[x] = false;
+            }
         }
     }
 
