@@ -841,7 +841,7 @@ fn touching(rigs: &[Rig]) {
                 for (f, pose) in clip.poses.iter().enumerate() {
                     let sw = ss.world(pose);
                     for hand in ["l_hand", "r_hand"] {
-                        let Some(gs) = s.model.skin.gap(ss, &sw, s.labels[hand], &s_away) else {
+                        let Some(gs) = s.model.skin.gap(ss, &sw, s.labels[hand], &s_away, s.labels["hips"]) else {
                             continue;
                         };
                         let gs = gs / hs;
@@ -850,7 +850,7 @@ fn touching(rigs: &[Rig]) {
                         near += usize::from(close);
                         for (m, c) in played.iter().enumerate() {
                             let tw = ts.world(&c.poses[f]);
-                            let Some(gt) = t.model.skin.gap(ts, &tw, t.labels[hand], &t_away) else {
+                            let Some(gt) = t.model.skin.gap(ts, &tw, t.labels[hand], &t_away, t.labels["hips"]) else {
                                 continue;
                             };
                             let gt = gt / ht;

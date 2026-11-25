@@ -193,8 +193,8 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.8° | 0.2° | 9.0° | 94% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.6° | 0.2° | 8.8° | 94% |
+| dittomo | 2.6° | 0.2° | 8.0° | 94% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.5° | 0.2° | 7.7° | 94% |
 | World turns from rest copied onto the right bones | 17.2° | 9.2° | 47.0° | 62% |
 | Local rotations copied onto the right bones | 79.7° | 85.8° | 148.9° | 14% |
 
@@ -202,16 +202,21 @@ What's left is mostly proportions: a two-bone stretch (hips to chest, hand to in
 both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied are, by twist:
 a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the shoulder of one
 built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips below (0.72 against
-0.66 across skeletons), so dittomo keeps the whole turn. Without the Warrior's clips it was 1.6°, and setting the bones by hand
-changed nothing: played onto the other rigs they are the worst here, 5° to 11° off, the trunk and collarbones most, as
-the Biped's chest is its neck bone, with no neck between it and the head. Setting by hand the Bipeds' index fingers
-dittomo misses takes the rest. CI fails if the mean passes 3°.
+0.66 across skeletons), so dittomo keeps the whole turn. The Warrior's clips are the worst here played onto the other
+rigs, the trunk and collarbones most. Setting by hand the Bipeds' index fingers dittomo misses takes the rest. CI fails
+if the mean passes 3°.
 
 A bone with no length places nothing: the bone under it that every one of its played bones hangs from, starting where
 it does, plays its turn instead. The CMU take turns each wrist's twist in the hand and its bend in a finger base starting
 at the wrist, with the fingers under that; played from the hand alone, a target's hand kept the twist, lost the bend,
 and had its fingers slid off it to where the source's went. Hand to index finger, from the CMU take, went from 18.6° to
 1.0° (31.6° to 1.0° on the right), and limbs overall from 1.7° to 1.6°.
+
+Where the source's bone below hangs straight from its bone above, it bends there, at the joint of the one below: a
+Biped's head turns on its chest, with no neck between. The target's bones between, a neck, hold still under the one
+above and the one below takes the bend, rather than each bending part way and leaning the head off where the source's
+points. Played from the Warrior and the archer, the target's neck had bent with its chest and its head leaned further:
+chest to head went from 3.7° to 2.1°, hips to chest from 6.5° to 6.2° and limbs overall from 2.8° to 2.6°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by under 0.05° on average (local rotations copied: 67.4°). It was 11.8° when the neck and head took their
@@ -231,16 +236,22 @@ source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00301 | 0.0201 | 3.9° | 0.19% |
-| travel | 0.00089 | 0.0201 | 3.9° | 0.19% |
-| planted feet | 0.00215 | 0.0001 | 4.7° | 0.25% |
-| push-out | 0.00301 | 0.0201 | 3.9° | 0.19% |
-| all (`apply_with`) | 0.00001 | 0.0000 | 4.9° | 0.29% |
-| all, live (`Live`) | 0.00017 | 0.0102 | 4.8° | 0.33% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00017 | 0.0102 | 4.7° | 0.31% |
+| none (`apply`) | 0.00302 | 0.0200 | 3.6° | 0.19% |
+| travel | 0.00090 | 0.0200 | 3.6° | 0.19% |
+| planted feet | 0.00215 | 0.0001 | 4.5° | 0.25% |
+| push-out | 0.00302 | 0.0200 | 3.7° | 0.20% |
+| all (`apply_with`) | 0.00001 | 0.0000 | 4.6° | 0.29% |
+| all, live (`Live`) | 0.00011 | 0.0042 | 4.8° | 0.35% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 4.6° | 0.34% |
 
-Together they cut foot slide hundreds of times and the height error to nothing. Live the height is still off by a
-hundredth, where without the Warrior it was off by a ten-thousandth. The body travels across the floor by how
+Together they cut foot slide hundreds of times and the height error to nothing. Live, with nothing ahead, a foot's
+ground is the lowest it has been, or where it stands at rest if lower, till a foot lifts well clear of the floor; but
+the Warrior's clips stand its body 9% of its height above its rest pose, and stand still, so no foot ever came down to
+its ground and none was planted: live the height was off by a hundredth. Now once the lowest foot has held still for
+0.15 seconds, that is the floor. That took the height left live from 0.0102 to 0.0042 and the slide from 0.00017 to
+0.00011, for a few more pops (0.33% to 0.35%) as the legs bend to hold feet now planted; what's left is mostly those
+clips' first 0.15 seconds, as the bench plays each clip's first 300 frames and the Warrior's are keyed nearly 500 a second.
+The body travels across the floor by how
 high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits
 below where its short legs start, so on the rigged figure the body went a fifth further each step than the figure's legs
 stepped, and late in each stance the held foot was out of reach and dragged along. Up and down it still goes by how high
@@ -279,19 +290,21 @@ the first pose it stands on, judged by how fast it comes or goes, whichever is s
 feet jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of these clips put a
 hand through the body.
 
-Hands on the body, over the 126 pairs where both rigs have a skinned mesh: 28,000 hand frames, 12,250 of them with the
+Hands on the body, over the 126 pairs where both rigs have a skinned mesh: 28,000 hand frames, 8,988 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it, over
 each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0907 | 0.2421 | 4.8% |
-| all (`apply_touching`) | 0.0384 | 0.1117 | 0.6% |
-| all, live (`Live::touching`) | 0.0384 | 0.1118 | 0.6% |
+| all but touch (`apply_with`) | 0.0382 | 0.0819 | 5.2% |
+| all (`apply_touching`) | 0.0118 | 0.0257 | 0.7% |
+| all, live (`Live::touching`) | 0.0119 | 0.0260 | 0.7% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-2.4 times closer and hands end up inside the body an eighth as often. Without the Warrior, 4.4 mm tall in its file, it
-was 3.7 times closer and an eighteenth as often (0.0081 against 0.0304).
+3.2 times closer and hands end up inside the body a seventh as often. The body is the bones the hips hang from and
+those hanging from them: the Warrior's sword hangs from its root beside the hips, and its blade had been taken for
+skin, so a hand at its side was judged near its body and pushed off the target's to the sword's width. Leaving it out
+took the frames with a source hand near from 12,250 to 8,988 and the gap left from 0.0384 to 0.0118.
 
 ### Against the learned retargeters
 

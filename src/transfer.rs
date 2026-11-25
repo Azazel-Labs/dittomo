@@ -635,11 +635,17 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         } else {
             0.5
         };
+        let twist = joint[low].then(|| (t.rest[low].position() - t.rest[b].position()).normalize_or_zero());
+        // Where the source's bone below hangs straight from its bone above, it bends there, at the joint of the one
+        // below: a Biped's head turns on its chest, with no neck between. The target's bones between hold still
+        // under the one above, its own joint below taking the bend, rather than each bending part way and leaning
+        // the bone below off where the source's points.
+        let direct = matches!((mapped(top), mapped(low)), (Some(sa), Some(sb)) if s_parent[sb] == Some(sa));
         plans[b] = Plan::Between {
             above: top,
             below: low,
-            along,
-            twist: joint[low].then(|| (t.rest[low].position() - t.rest[b].position()).normalize_or_zero()),
+            along: if direct && twist.is_none() { 0.0 } else { along },
+            twist,
         };
     }
     // A bone with nothing mapped under it that starts where a mapped sibling starts and points along it, as VRoid's

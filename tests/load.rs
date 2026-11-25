@@ -380,9 +380,12 @@ fn a_low_poly_body_has_skin_across_its_faces() {
     // its side. The gap is from the hand's middle to the skin, less the hand's half-width.
     for (hand, want) in [(Vec3::new(0.2, 1.45, 0.25), 0.04), (Vec3::new(0.28, 1.2, 0.0), -0.03)] {
         let m = Model::from_bytes(chest_and_hand(hand).as_bytes(), "gltf").unwrap();
-        let hand = m.skeleton.index_of("Hand").unwrap();
+        let (hand, hips) = (
+            m.skeleton.index_of("Hand").unwrap(),
+            m.skeleton.index_of("Hips").unwrap(),
+        );
         let world = m.skeleton.world(&m.skeleton.rest());
-        let gap = m.skin.gap(&m.skeleton, &world, hand, &[hand]).unwrap();
+        let gap = m.skin.gap(&m.skeleton, &world, hand, &[hand], hips).unwrap();
         assert!((gap - want).abs() < 0.01, "{gap} for {want}");
     }
 }

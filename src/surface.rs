@@ -376,13 +376,16 @@ impl Surface {
     }
 
     /// How far a hand is from the rest of the body, the bones placed as `world` has them: from the middle of the skin
-    /// on `hand` to the nearest skin not on any bone under `away` (both arms from the shoulder down, say), less how far
-    /// the hand and its fingers reach that way. Below zero the hand is in the body. `None` if either has no skin.
+    /// on `hand` to the nearest skin of the body not on any bone under `away` (both arms from the shoulder down, say),
+    /// less how far the hand and its fingers reach that way. Below zero the hand is in the body. `None` if either has
+    /// no skin. The body is the bones `hips` hangs from and those hanging from it: a bone hung beside the hips, as a
+    /// 3ds Max Biped's prop bone carrying the sword in its hand, moves on its own, and its skin is not the body's.
     #[must_use]
-    pub fn gap(&self, skeleton: &Skeleton, world: &[Placed], hand: usize, away: &[usize]) -> Option<f32> {
+    pub fn gap(&self, skeleton: &Skeleton, world: &[Placed], hand: usize, away: &[usize], hips: usize) -> Option<f32> {
         let off = under(skeleton, away);
+        let body = on_body(skeleton, hips);
         let mut points = Vec::new();
-        self.posed(world, |b| !off[b], &mut points);
+        self.posed(world, |b| body[b] && !off[b], &mut points);
         let on = under(skeleton, &[hand]);
         let fingers = self.balls(|b| on[b]);
         let center = world.get(hand)?.matrix.transform_point3(self.center(hand)?);
@@ -480,6 +483,19 @@ impl Surface {
         }
         (count > 0).then(|| sum / count as f32)
     }
+}
+
+/// Which bones are the body's, given its hips: those the hips hang from, and those hanging from them. A bone hung from
+/// one above the hips but beside them, as a 3ds Max Biped's prop bone beside its pelvis, carrying the sword the hand
+/// holds, moves on its own: its skin is not the body's, and a hand on its hilt is not resting on the body.
+pub(crate) fn on_body(skeleton: &Skeleton, hips: usize) -> Vec<bool> {
+    let mut on = under(skeleton, &[hips]);
+    let mut b = skeleton.bones().get(hips).and_then(|x| x.parent);
+    while let Some(p) = b {
+        on[p] = true;
+        b = skeleton.bones()[p].parent;
+    }
+    on
 }
 
 /// Which bones are any of `tops` or hang under one.

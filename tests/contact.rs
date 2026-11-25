@@ -760,6 +760,11 @@ fn fingers_hanging_low_are_no_legs() {
 /// Skin on the mixamo rig: a trunk `r` wide around the spine from the hips to the chest, and a ball round each hand
 /// and its fingers.
 fn skin(sk: &Skeleton, r: f32) -> dittomo::Surface {
+    dittomo::Surface::new(sk, skin_points(sk, r), 1.0)
+}
+
+/// The points of [`skin`]: each a position, the way the skin faces there, and its bone.
+fn skin_points(sk: &Skeleton, r: f32) -> Vec<(Vec3, Vec3, usize)> {
     let rest = sk.world(&sk.rest());
     let bone = |n: &str| sk.index_of(&format!("mixamorig:{n}")).unwrap();
     let mut points = Vec::new();
@@ -790,7 +795,7 @@ fn skin(sk: &Skeleton, r: f32) -> dittomo::Surface {
             }
         }
     }
-    dittomo::Surface::new(sk, points, 1.0)
+    points
 }
 
 #[test]
@@ -825,7 +830,7 @@ fn a_hand_past_the_edge_of_the_skin_is_out_of_it() {
     contact::reach(&sk, &mut pose, &arm, Vec3::new(x * 5.0, 152.0, 0.0));
     let hand = at(&sk, &pose, arm.end);
     assert!(hand.y > 148.0 && hand.x.abs() < 8.0, "hand at {hand}");
-    let gap = s.gap(&sk, &sk.world(&pose), arm.end, &uppers).unwrap();
+    let gap = s.gap(&sk, &sk.world(&pose), arm.end, &uppers, 0).unwrap();
     assert!(gap > 0.0, "gap {gap}");
 }
 
@@ -837,7 +842,7 @@ fn a_hand_resting_on_a_thin_body_rests_on_a_thick_one() {
     let arm = contact::arms(&sk)[0];
     let x = at(&sk, &sk.rest(), arm.end).x.signum();
     let uppers: Vec<usize> = contact::arms(&sk).iter().map(|a| a.upper).collect();
-    let gap = |s: &dittomo::Surface, pose: &[Transform]| s.gap(&sk, &sk.world(pose), arm.end, &uppers).unwrap();
+    let gap = |s: &dittomo::Surface, pose: &[Transform]| s.gap(&sk, &sk.world(pose), arm.end, &uppers, 0).unwrap();
     let touch = Fixes {
         touch: true,
         ..Fixes::NONE
@@ -880,6 +885,57 @@ fn a_hand_resting_on_a_thin_body_rests_on_a_thick_one() {
     // And without skins, touch does nothing.
     let empty = dittomo::Surface::default();
     assert_eq!(play(&rest_on_hip, [&empty, &empty], touch), plain);
+}
+
+#[test]
+fn a_sword_hung_beside_the_hips_is_not_the_body() {
+    // As a 3ds Max Biped: a bone above the hips carries them and, beside them, a prop bone, its skin a sword held in
+    // the hand at rest. The hand held out is far from the body, whatever it holds, and is left where it is played.
+    let plain = common::mixamo();
+    let mut bones = vec![dittomo::Bone {
+        name: "Bip".into(),
+        parent: None,
+        rest: Transform::IDENTITY,
+    }];
+    bones.extend(plain.bones().iter().map(|b| dittomo::Bone {
+        parent: Some(b.parent.map_or(0, |p| p + 1)),
+        ..b.clone()
+    }));
+    let grip = at(&plain, &plain.rest(), contact::arms(&plain)[0].end);
+    bones.push(dittomo::Bone {
+        name: "Prop".into(),
+        parent: Some(0),
+        rest: Transform::new(grip, dittomo::Quat::IDENTITY),
+    });
+    let sk = Skeleton::new(bones).unwrap();
+    let (prop, hips) = (sk.len() - 1, sk.index_of("mixamorig:Hips").unwrap());
+    let mut points = skin_points(&sk, 10.0);
+    // A blade a centimeter thick standing up from the fist, and its hilt below it.
+    for i in 0..=60 {
+        for k in 0..12 {
+            let a = k as f32 / 12.0 * std::f32::consts::TAU;
+            let n = Vec3::new(a.cos(), 0.0, a.sin());
+            points.push((grip + Vec3::new(0.0, i as f32 - 15.0, 3.0) + n, n, prop));
+        }
+    }
+    let armed = dittomo::Surface::new(&sk, points, 1.0);
+    let arm = contact::arms(&sk)[0];
+    let uppers: Vec<usize> = contact::arms(&sk).iter().map(|a| a.upper).collect();
+    let gap = armed.gap(&sk, &sk.world(&sk.rest()), arm.end, &uppers, hips).unwrap();
+    assert!(gap > 20.0, "gap {gap}");
+
+    let map = Mapping::new(&sk, &plain);
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![sk.rest()],
+    };
+    let thick = skin(&plain, 16.0);
+    let play = |fixes| map.apply_touching(&sk, &plain, [&armed, &thick], &clip, fixes).unwrap();
+    let touch = Fixes {
+        touch: true,
+        ..Fixes::NONE
+    };
+    assert_eq!(play(touch), play(Fixes::NONE));
 }
 
 /// The same rig with its upper arms, forearms and hands `by` times as long.
@@ -1683,4 +1739,34 @@ fn a_hand_darting_to_the_head_is_eased_onto_it_and_one_sweeping_past_is_left_alo
             );
         }
     }
+}
+
+#[test]
+fn live_feet_stand_on_a_floor_found_where_a_clip_stands_above_its_rest() {
+    let source = common::mixamo();
+    let target = long_legs(&source, 1.3);
+    let map = Mapping::new(&source, &target);
+    let (hs, ht) = (height(&source), height(&target));
+    // Standing still the whole clip, the body a tenth of its height above where it stands at rest.
+    let hips = source.index_of("mixamorig:Hips").unwrap();
+    let mut pose = source.rest();
+    pose[hips].translation.y += 0.1 * hs;
+    let n = 30;
+    let clip = Clip {
+        times: (0..n).map(|f| f as f32 / 30.0).collect(),
+        poses: vec![pose; n],
+    };
+    let (s_foot, t_foot) = (
+        source.index_of("mixamorig:LeftFoot").unwrap(),
+        target.index_of("mixamorig:LeftFoot").unwrap(),
+    );
+    let s_rest = at(&source, &source.rest(), s_foot).y;
+    let t_rest = at(&target, &target.rest(), t_foot).y;
+    let want = (at(&source, &clip.poses[0], s_foot).y - s_rest) / hs;
+    let off = |played: &Clip| ((at(&target, &played.poses[n - 1], t_foot).y - t_rest) / ht - want).abs();
+    let plain = live(&map, &source, &target, &clip, Fixes::NONE);
+    let fixed = live(&map, &source, &target, &clip, feet_only());
+    eprintln!("sole height off: {:.4} -> {:.4}", off(&plain), off(&fixed));
+    assert!(off(&plain) > 0.01, "{}", off(&plain));
+    assert!(off(&fixed) < 0.002, "{}", off(&fixed));
 }

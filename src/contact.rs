@@ -10,7 +10,7 @@
 use glam::{Affine3A, Quat, Vec3, Vec3A};
 
 use crate::shape::Shape;
-use crate::surface::{Around, Balls, Surface, Toward, under};
+use crate::surface::{Around, Balls, Surface, Toward, on_body, under};
 use crate::{Clip, Mapping, Skeleton, Transform};
 
 /// The fixes [`Mapping::apply_with`] makes. All but travel are on by default.
@@ -858,6 +858,9 @@ fn raise(need: &[f32], lift: &[f32], ramp: usize) -> Vec<f32> {
 /// How long, in seconds, a foot takes to settle where it is held once it plants, and to let go once it lifts.
 const SETTLE: f32 = 0.12;
 
+/// How long, in seconds, the lowest foot holds still before the poses so far take it to be on the floor.
+const STAND: f32 = 0.15;
+
 /// The smooth step from 0 to 1 as `x` goes from 0 to 1.
 fn smooth(x: f32) -> f32 {
     let x = x.clamp(0.0, 1.0);
@@ -1086,7 +1089,9 @@ fn below(skeleton: &Skeleton, mut b: usize, top: usize) -> bool {
 /// tiptoe never come down to where they stand at rest: once one foot is well above where the lowest came down to, that
 /// is the floor, till a foot comes down well below it; and once a foot is well above where it came down to, that is its
 /// own ground, as feet needn't stand equally high. Till then a foot's ground is the lowest it has been, or where it
-/// stands at rest if lower, so a foot coming down from its first step isn't taken to be on the floor.
+/// stands at rest if lower, so a foot coming down from its first step isn't taken to be on the floor; but once the
+/// lowest foot has held still for [`STAND`], the floor is known: a clip can stand its body higher than its rest pose
+/// does, and its feet would never be taken to be down.
 #[derive(Clone)]
 pub(crate) struct Ground {
     /// Each foot's height at rest.
@@ -1096,6 +1101,8 @@ pub(crate) struct Ground {
     low: Vec<(f32, bool)>,
     /// How high each foot was the pose before.
     last: Vec<f32>,
+    /// Where each foot was when it last moved, and for how long it has held still near there since.
+    held: Vec<(Vec3, f32)>,
     /// The lowest any foot has been, and whether a foot has since been well above it, so that it is known to be the
     /// floor the feet walk on.
     floor: f32,
@@ -1112,6 +1119,7 @@ impl Ground {
             rest,
             low: vec![(f32::INFINITY, false); n],
             last: vec![f32::INFINITY; n],
+            held: vec![(Vec3::INFINITY, 0.0); n],
             floor: f32::INFINITY,
             known: false,
             height,
@@ -1123,15 +1131,16 @@ impl Ground {
         self.ground.clone_from(&self.rest);
         self.low.fill((f32::INFINITY, false));
         self.last.fill(f32::INFINITY);
+        self.held.fill((Vec3::INFINITY, 0.0));
         (self.floor, self.known) = (f32::INFINITY, false);
     }
 
-    /// Takes in how high foot `l` is in the next pose, as `at(l)`, for every foot.
-    fn see(&mut self, at: impl Fn(usize) -> f32) {
+    /// Takes in where foot `l` is in the next pose, as `at(l)`, for every foot, `dt` seconds after the pose before.
+    fn see(&mut self, dt: f32, at: impl Fn(usize) -> Vec3) {
         let h = self.height;
         let (mut bottom, mut top) = (f32::INFINITY, f32::NEG_INFINITY);
         for l in 0..self.rest.len() {
-            let y = at(l);
+            let y = at(l).y;
             (bottom, top) = (bottom.min(y), top.max(y));
         }
         if bottom < self.floor {
@@ -1140,7 +1149,17 @@ impl Ground {
         }
         self.known |= top - self.floor > 0.04 * h;
         for l in 0..self.rest.len() {
-            let y = at(l);
+            let p = at(l);
+            let (from, still) = &mut self.held[l];
+            if p.distance(*from) < 0.01 * h {
+                *still += dt.max(0.0);
+            } else {
+                (*from, *still) = (p, 0.0);
+            }
+            self.known |= *still >= STAND && p.y - bottom < 0.01 * h;
+        }
+        for l in 0..self.rest.len() {
+            let y = at(l).y;
             let (own, lifted) = &mut self.low[l];
             if y < *own {
                 *lifted &= *own - y < 0.01 * h;
@@ -1277,7 +1296,7 @@ impl Feet {
         let h = self.s_height;
         let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
         let Scratch { sw, tw, .. } = scratch;
-        self.ground.see(|l| sw[self.feet[l].source].position().y);
+        self.ground.see(dt, |l| sw[self.feet[l].source].position());
         place(target, played, &self.t_path, tw);
         for (l, f) in self.feet.iter_mut().enumerate() {
             let at = sw[f.source].position();
@@ -1459,7 +1478,7 @@ impl Ahead {
         self.times[slot] = self.clock;
         let Scratch { sw, tw, .. } = scratch;
         place(target, played, &self.t_path, tw);
-        self.ground.see(|l| sw[self.feet[l].source].position().y);
+        self.ground.see(dt, |l| sw[self.feet[l].source].position());
         for (i, f) in self.feet.iter().enumerate() {
             let at = sw[f.source].position();
             self.s_at[slot * n + i] = at;
@@ -1648,7 +1667,7 @@ impl Travel {
         if flat(hips - start).length() > 0.2 * h {
             self.on = false;
         }
-        self.ground.see(|l| sw[self.legs[l].0].position().y);
+        self.ground.see(dt, |l| sw[self.legs[l].0].position());
         let mut lowest: Option<(f32, Vec3)> = None;
         for (l, &(foot, _)) in self.legs.iter().enumerate() {
             let at = sw[foot].position();
@@ -2431,9 +2450,14 @@ impl Touch {
             .into_iter()
             .map(|(limb, a)| (limb, a, [under(source, &[a]), under(target, &[limb.end])]))
             .collect();
+        // The body's skin, but for the arms: not a prop's beside the hips.
         let off_arms = |skeleton: &Skeleton, b: &Body| {
             let off = under(skeleton, &b.arms.iter().map(|a| a.limb.upper).collect::<Vec<_>>());
-            off.into_iter().map(|o| !o).collect::<Vec<_>>()
+            let on = b
+                .spine
+                .first()
+                .map_or_else(|| vec![true; skeleton.len()], |&h| on_body(skeleton, h));
+            off.into_iter().zip(on).map(|(o, on)| on && !o).collect::<Vec<_>>()
         };
         let keep = [off_arms(source, s_body), off_arms(target, t_body)];
         // Every bone the skin a hand can touch moves with, and every bone under a hand with skin.

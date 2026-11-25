@@ -196,6 +196,12 @@ Phase 1 so far (November 2026):
   standing where its parent does (the bow's wings) plays nothing with a length. Joints found over all nineteen went from
   98.7% to 99.7%, index fingers 86% to 95%. Their clips raise limb error from 1.6° to 2.8° (2.6° with the bones set by
   hand), so what's left there is playback on these rigs, not finding bones.
+- **Bipeds played onto other rigs**: where the source's bone below hangs straight from the one above (a Biped's head on
+  its chest), the target's bones between hold still and the one below takes the bend: chest to head 3.7° to 2.1°, limbs
+  2.8° to 2.6°. Touch takes the body as the bones the hips hang from and those under them, so the Warrior's sword,
+  hung from its root, isn't skin: hand gap left 0.0384 to 0.0118. Live, once the lowest foot holds still for 0.15 s
+  that is the floor, as the Warrior's clips stand 9% above its rest pose and planted nothing: sole height left live
+  0.0102 to 0.0042, slide 0.00017 to 0.00011.
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for
@@ -299,7 +305,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.7% of joints found on 19 real rigs (exact names: 18.1%); limbs within 2.8° of the source's on their 62 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.7% of joints found on 19 real rigs (exact names: 18.1%); limbs within 2.6° of the source's on their 62 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their
