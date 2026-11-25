@@ -296,7 +296,7 @@ impl Live {
         };
         self.player.pose(from, out)?;
         if let Some(f) = &self.floor {
-            f.pose(&self.target, out, &mut self.scratch);
+            f.pose(&self.target, out, &mut self.scratch, None);
         }
         if let Some(f) = &mut self.feet {
             f.pose(&self.target, dt, out, &mut self.scratch);
@@ -336,7 +336,7 @@ impl Live {
         }
         self.player.pose(walked, played)?;
         if let Some(f) = &self.floor {
-            f.pose(&self.target, played, &mut self.scratch);
+            f.pose(&self.target, played, &mut self.scratch, None);
         }
         let treadmill = self.treadmill && self.travel.is_some();
         if treadmill {

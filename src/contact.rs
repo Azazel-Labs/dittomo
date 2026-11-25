@@ -600,8 +600,8 @@ pub(crate) fn traveled(skeleton: &Skeleton, s: &Shape, clip: &Clip) -> Option<Cl
     Some(out)
 }
 
-/// A leg, where its foot goes frame by frame if it moves, and where it is as played.
-type Going = (Limb, Vec<Option<Vec3>>, Vec<Vec3>);
+/// A leg, where its foot goes frame by frame if it moves, and where its hip, knee and foot are as played.
+type Going = (Limb, Vec<Option<Vec3>>, [Vec<Vec3>; 3]);
 
 /// Keeps the target's feet still while the source's are planted.
 pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, out: &mut Clip) {
@@ -622,7 +622,9 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
     let ramp = gaps
         .get(gaps.len() / 2)
         .map_or(4, |dt| ((0.12 / dt).round() as usize).clamp(1, 10));
-    let mut feet: Vec<Going> = Vec::new();
+    // Each leg with the source bone its foot plants with and its sole, then where they all are, each rig placed once a
+    // frame: the foot's track, each sole point's, and (the target's) its hip's and knee's.
+    let mut legs = Vec::new();
     for &leg in legs_of(target, t) {
         // A foot left unpaired plants with the first paired bone under it, as a paw held for IK above a toe that is.
         let Some(a) = map.source_of(leg.end).or_else(|| {
@@ -632,27 +634,32 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         }) else {
             continue;
         };
-        let sole = sole(map, [(source, s), (target, t)], &leg, a);
-        // The foot's track, then each sole point's height, for each rig.
-        let mut s_tracks = tracks(
-            source,
-            from,
-            &[a].into_iter().chain(sole.iter().map(|p| p.source)).collect::<Vec<_>>(),
-        )
-        .into_iter();
-        let s_at = s_tracks.next().unwrap_or_default();
-        let s_ys: Vec<Vec<f32>> = s_tracks.map(|t| t.iter().map(|v| v.y).collect()).collect();
-        let mut t_tracks = tracks(
-            target,
-            out,
-            &[leg.end]
-                .into_iter()
+        legs.push((leg, a, sole(map, [(source, s), (target, t)], &leg, a)));
+    }
+    let s_bones: Vec<usize> = legs
+        .iter()
+        .flat_map(|(_, a, sole)| std::iter::once(*a).chain(sole.iter().map(|p| p.source)))
+        .collect();
+    let t_bones: Vec<usize> = legs
+        .iter()
+        .flat_map(|(leg, _, sole)| {
+            std::iter::once(leg.end)
                 .chain(sole.iter().map(|p| p.target))
-                .collect::<Vec<_>>(),
-        )
-        .into_iter();
+                .chain([leg.upper, leg.lower])
+        })
+        .collect();
+    let (mut s_tracks, mut t_tracks) = (
+        tracks(source, from, &s_bones).into_iter(),
+        tracks(target, out, &t_bones).into_iter(),
+    );
+    let ys = |t: Vec<Vec3>| -> Vec<f32> { t.iter().map(|v| v.y).collect() };
+    let mut feet: Vec<Going> = Vec::new();
+    for (leg, a, sole) in legs {
+        let s_at = s_tracks.next().unwrap_or_default();
+        let s_ys: Vec<Vec<f32>> = s_tracks.by_ref().take(sole.len()).map(ys).collect();
         let t_at = t_tracks.next().unwrap_or_default();
-        let t_ys: Vec<Vec<f32>> = t_tracks.map(|t| t.iter().map(|v| v.y).collect()).collect();
+        let t_ys: Vec<Vec<f32>> = t_tracks.by_ref().take(sole.len()).map(ys).collect();
+        let (hip, knee) = (t_tracks.next().unwrap_or_default(), t_tracks.next().unwrap_or_default());
         let down = contacts(&s_at, &from.times, s.rest[a].position().y, s.height);
         let mut runs = Vec::new();
         let mut f = 0;
@@ -709,7 +716,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
                 Some(free.lerp(Vec3::new(held.x, y, held.z), w))
             };
         }
-        feet.push((leg, goals, t_at));
+        feet.push((leg, goals, [hip, knee, t_at]));
     }
     let drop = lower(target, t, out, &feet, ramp);
     let roots: Vec<usize> = (0..target.len())
@@ -724,7 +731,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             }
         }
         let mut placed = false;
-        for (leg, goals, t_at) in &feet {
+        for (leg, goals, [.., t_at]) in &feet {
             // A foot the body was lowered over is kept where it was going.
             let Some(goal) = goals[f].or(dropped.then_some(t_at[f])) else {
                 continue;
@@ -779,15 +786,10 @@ fn lower(target: &Skeleton, t: &Shape, played: &Clip, feet: &[Going], ramp: usiz
     let n = played.poses.len();
     let mut need = vec![0.0f32; n];
     let mut lift = vec![(0.0f32, f32::INFINITY); n];
-    for (leg, goals, _) in feet {
+    for (_, goals, [hip, knee, foot]) in feet {
         if goals.iter().all(Option::is_none) {
             continue;
         }
-        let Ok([hip, knee, foot]) =
-            <[Vec<Vec3>; 3]>::try_from(tracks(target, played, &[leg.upper, leg.lower, leg.end]))
-        else {
-            continue;
-        };
         for f in 0..n {
             let Some(goal) = goals[f] else { continue };
             need[f] = need[f].max(sink([hip[f], knee[f], foot[f]], goal));
@@ -2024,17 +2026,95 @@ impl Scratch {
     }
 }
 
-/// Pushes each pose's elbows and hands out of the spheres along its spine: the upper arm turns at the shoulder to
-/// clear the elbow, then the forearm at the elbow to clear the hand.
-pub(crate) fn push_out(target: &Skeleton, body: &Body, clip: &mut Clip) {
-    let path = body.path(target);
-    let mut scratch = Scratch::new(target, target);
-    for pose in &mut clip.poses {
-        push_pose(target, body, &path, pose, &mut scratch);
+/// The fixes to the arms, made in turn over a clip, as if each were made over the whole clip before the next, the source
+/// placed once a pose for them all: elbows and hands pushed out of the body ([`push_pose`]), with both bodies then
+/// hands brought together ([`Hands`]) and put on the head ([`OnHead`]), and last, as it sees the skin, hands brought
+/// to the gap the source's have ([`Touch`]). On the head comes in two passes, as each hand is eased on ahead of the
+/// source's: first where it would go, then put there; what comes after it waits for the second.
+pub(crate) fn fix_arms(
+    map: &Mapping,
+    rigs: [(&Skeleton, &Shape, &Surface); 2],
+    [s_body, t_body]: [Option<&Body>; 2],
+    fixes: Fixes,
+    from: &Clip,
+    out: &mut Clip,
+) {
+    let [(source, s, _), (target, t, _)] = rigs;
+    let push = t_body.filter(|_| fixes.push_out).map(|b| (b, b.path(target)));
+    let both = s_body.zip(t_body);
+    let shapes = [(source, s), (target, t)];
+    let mut hands = both
+        .filter(|_| fixes.hands)
+        .and_then(|(sb, tb)| Hands::new(map, shapes, [sb, tb]));
+    let mut head = both
+        .filter(|_| fixes.head)
+        .and_then(|(sb, tb)| OnHead::new(map, shapes, [sb, tb]));
+    let mut touch = both
+        .filter(|_| fixes.touch)
+        .and_then(|(sb, tb)| Touch::new(map, rigs, [sb, tb]));
+    let none: &[usize] = &[];
+    let first = union(&[
+        hands.as_ref().map_or(none, |h| h.s_path()),
+        head.as_ref().map_or(none, |h| h.s_path()),
+        touch.as_ref().filter(|_| head.is_none()).map_or(none, |t| t.s_path()),
+    ]);
+    let mut scratch = Scratch::new(source, target);
+    let dt = |f: usize| f.checked_sub(1).map_or(0.0, |e| from.times[f] - from.times[e]);
+    let k = head.as_ref().map_or(0, |h| h.arms.len());
+    let mut raw = Vec::with_capacity(from.poses.len() * k);
+    for (f, (pose, played)) in from.poses.iter().zip(&mut out.poses).enumerate() {
+        if let Some((body, path)) = &push {
+            push_pose(target, body, path, played, &mut scratch);
+        }
+        place(source, pose, &first, &mut scratch.sw);
+        if let (Some(fix), Some(tb)) = (&mut hands, t_body) {
+            fix.placed(target, tb, played, &mut scratch);
+        }
+        match &mut head {
+            Some(fix) => {
+                fix.weigh(dt(f), &scratch.sw);
+                fix.aim(target, played, &mut scratch);
+                raw.extend_from_slice(&fix.on);
+            }
+            None => {
+                if let Some(fix) = &mut touch {
+                    fix.placed(target, played, &mut scratch);
+                }
+            }
+        }
+    }
+    let Some(fix) = &mut head else {
+        return;
+    };
+    // Each hand eased onto the head ahead of the source's and off after it, over `ONTO` at least, never less than the
+    // source's is on its own head ([`carry`]).
+    let (mut eased, n) = (raw, from.poses.len());
+    let mut ease = |p: usize, q: usize, step: f32| eased[q] = carry(eased[p], eased[q], step);
+    for f in 1..n {
+        for i in 0..k {
+            ease((f - 1) * k + i, f * k + i, dt(f) / ONTO);
+        }
+    }
+    for f in (1..n).rev() {
+        for i in 0..k {
+            ease(f * k + i, (f - 1) * k + i, dt(f) / ONTO);
+        }
+    }
+    let second = union(&[fix.s_path(), touch.as_ref().map_or(none, |t| t.s_path())]);
+    for (f, (pose, played)) in from.poses.iter().zip(&mut out.poses).enumerate() {
+        place(source, pose, &second, &mut scratch.sw);
+        fix.on.clear();
+        fix.on
+            .extend(eased[f * k..(f + 1) * k].iter().map(|&(w, aim)| (smooth(w), aim)));
+        fix.put(target, played, &mut scratch);
+        if let Some(t) = &mut touch {
+            t.placed(target, played, &mut scratch);
+        }
     }
 }
 
-/// [`push_out`] for one pose, `path` being the body's.
+/// Pushes a pose's elbows and hands out of the spheres along its spine, `path` being the body's: the upper arm turns at
+/// the shoulder to clear the elbow, then the forearm at the elbow to clear the hand.
 pub(crate) fn push_pose(target: &Skeleton, body: &Body, path: &[usize], pose: &mut [Transform], scratch: &mut Scratch) {
     let parent = |b: usize| target.bones()[b].parent;
     let (world, centers) = (&mut scratch.tw, &mut scratch.spheres);
@@ -2153,8 +2233,15 @@ impl Floor {
         &self.s_path
     }
 
-    /// Lifts the bones of `pose`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]).
-    pub(crate) fn pose(&self, target: &Skeleton, pose: &mut [Transform], scratch: &mut Scratch) {
+    /// Lifts the bones of `pose`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]); or
+    /// given the source's pose and skeleton, placed only if a bone is under the floor, as only then is it looked at.
+    pub(crate) fn pose(
+        &self,
+        target: &Skeleton,
+        pose: &mut [Transform],
+        scratch: &mut Scratch,
+        mut source: Option<(&Skeleton, &[Transform])>,
+    ) {
         let Scratch {
             sw,
             tw,
@@ -2165,8 +2252,10 @@ impl Floor {
         } = scratch;
         let [s_floor, t_floor] = self.floors;
         let parent = |b: usize| target.bones()[b].parent;
-        let low =
-            |b: usize| t_floor - self.sources[b].map_or(0.0, |a| (s_floor - sw[a].position().y).max(0.0) * self.k);
+        // Never over the target's floor.
+        let low = |sw: &[At], b: usize| {
+            t_floor - self.sources[b].map_or(0.0, |a| (s_floor - sw[a].position().y).max(0.0) * self.k)
+        };
         // Placed once: a bone turned places again only what hangs from it.
         place(target, pose, &self.t_path, tw);
         for (i, &b) in self.t_path.iter().enumerate() {
@@ -2174,7 +2263,14 @@ impl Floor {
             let Some(p) = parent(b).filter(|_| !with.is_empty()) else {
                 continue;
             };
-            if with.iter().all(|&c| tw[c].position().y >= low(c)) {
+            if with.iter().all(|&c| tw[c].position().y >= t_floor) {
+                continue;
+            }
+            if let Some((skeleton, s_pose)) = source.take() {
+                place(skeleton, s_pose, &self.s_path, sw);
+            }
+            let sw = &*sw;
+            if with.iter().all(|&c| tw[c].position().y >= low(sw, c)) {
                 continue;
             }
             let from = tw[p].position();
@@ -2183,7 +2279,7 @@ impl Floor {
             let Some(axis) = Vec3::Y.cross(v).try_normalize() else {
                 continue;
             };
-            let points = with.iter().map(|&c| (tw[c].position(), low(c)));
+            let points = with.iter().map(|&c| (tw[c].position(), low(sw, c)));
             let Some(angle) = least_turn(from, axis, points, 1e-5 * v.length(), waves, edges) else {
                 continue;
             };
@@ -2331,8 +2427,7 @@ pub(crate) fn floor_clip(floor: &Floor, rigs: [&Skeleton; 2], from: &Clip, out: 
         if knees {
             floor.knees(target, pose, &mut scratch);
         } else {
-            place_source(source, s_pose, floor.s_path(), &mut scratch);
-            floor.pose(target, pose, &mut scratch);
+            floor.pose(target, pose, &mut scratch, Some((source, s_pose)));
         }
     }
 }
@@ -2453,27 +2548,6 @@ fn place(skeleton: &Skeleton, pose: &[Transform], bones: &[usize], world: &mut [
     }
 }
 
-/// Keeps each target hand as far from the target's skin as the source's hand is from the source's, scaled by height,
-/// while the source's is near its body: a hand resting on a hip rests on the target's hip, over a coat if it wears one.
-/// Far from the body the hand is left where it is, except that it is kept out of the skin; in between, the two blend.
-/// Reached with two-bone IK, so the hand keeps its turn.
-pub(crate) fn touch(
-    map: &Mapping,
-    rigs: [(&Skeleton, &Shape, &Surface); 2],
-    bodies: [&Body; 2],
-    from: &Clip,
-    out: &mut Clip,
-) {
-    let Some(mut fix) = Touch::new(map, rigs, bodies) else {
-        return;
-    };
-    let [(source, ..), (target, ..)] = rigs;
-    let mut scratch = Scratch::new(source, target);
-    for (pose, played) in from.poses.iter().zip(&mut out.poses) {
-        fix.pose([source, target], pose, played, &mut scratch);
-    }
-}
-
 /// Each arm the two rigs share, for [`Touch`]: the target's limb, the source's hand, each hand's middle in its own
 /// frame, and the skin points of each hand and its fingers.
 struct Reaching {
@@ -2485,7 +2559,10 @@ struct Reaching {
     below: Vec<usize>,
 }
 
-/// [`touch`], made ready for two rigs, then run a pose at a time.
+/// Keeps each target hand as far from the target's skin as the source's hand is from the source's, scaled by height,
+/// while the source's is near its body: a hand resting on a hip rests on the target's hip, over a coat if it wears one.
+/// Far from the body the hand is left where it is, except that it is kept out of the skin; in between, the two blend.
+/// Reached with two-bone IK, so the hand keeps its turn.
 pub(crate) struct Touch {
     skins: [Surface; 2],
     arms: Vec<Reaching>,
@@ -2569,18 +2646,7 @@ impl Touch {
         &self.s_path
     }
 
-    pub(crate) fn pose(
-        &mut self,
-        [source, target]: [&Skeleton; 2],
-        pose: &[Transform],
-        played: &mut [Transform],
-        scratch: &mut Scratch,
-    ) {
-        place(source, pose, &self.s_path, &mut scratch.sw);
-        self.placed(target, played, scratch);
-    }
-
-    /// [`Self::pose`], with the source's pose placed in `scratch` ([`Self::s_path`]).
+    /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]).
     pub(crate) fn placed(&mut self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch) {
         // Within `near` of the skin (over the height) a source hand is touching it; past `far` it is free.
         let (near, far) = (0.015, 0.05);
@@ -2626,24 +2692,6 @@ impl Touch {
 /// meet at the point nearest where they were that both arms reach and that keeps both out of the body and the head,
 /// so arms too short to clap overhead clap in front of the face, and long arms clap rather than cross. Reached with
 /// two-bone IK, so each hand keeps its turn.
-pub(crate) fn hands(
-    map: &Mapping,
-    rigs: [(&Skeleton, &Shape); 2],
-    [s_body, t_body]: [&Body; 2],
-    from: &Clip,
-    out: &mut Clip,
-) {
-    let Some(mut fix) = Hands::new(map, rigs, [s_body, t_body]) else {
-        return;
-    };
-    let [(source, _), (target, _)] = rigs;
-    let mut scratch = Scratch::new(source, target);
-    for (pose, played) in from.poses.iter().zip(&mut out.poses) {
-        fix.pose([source, target], t_body, pose, played, &mut scratch);
-    }
-}
-
-/// [`hands`], made ready for two rigs, then run a pose at a time.
 pub(crate) struct Hands {
     arms: Vec<(Limb, usize)>,
     pairs: Vec<(usize, usize)>,
@@ -2689,19 +2737,7 @@ impl Hands {
         &self.s_path
     }
 
-    pub(crate) fn pose(
-        &mut self,
-        [source, target]: [&Skeleton; 2],
-        t_body: &Body,
-        pose: &[Transform],
-        played: &mut [Transform],
-        scratch: &mut Scratch,
-    ) {
-        place(source, pose, &self.s_path, &mut scratch.sw);
-        self.placed(target, t_body, played, scratch);
-    }
-
-    /// [`Self::pose`], with the source's pose placed in `scratch` ([`Self::s_path`]).
+    /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]).
     pub(crate) fn placed(&mut self, target: &Skeleton, t_body: &Body, played: &mut [Transform], scratch: &mut Scratch) {
         // Within `near` of each other (over the height) the source's hands are together; past `far`, apart.
         let (near, far) = (0.06, 0.15);
@@ -2750,66 +2786,6 @@ fn played(map: &Mapping, s_body: &Body, t_body: &Body) -> Vec<(Limb, usize)> {
         .collect()
 }
 
-/// Keeps each target hand on its head where the source's hand is on theirs: covering an ear, clasped on top, a palm to
-/// the forehead, scratching the back of the head. The way from the middle of the source's head to its wrist is taken
-/// out of the head's turn from rest, turned into the target's frame, scaled from one head to the other and turned with
-/// the target's head, so the hand lands on the same place on a head of any size, even one that sits differently on its
-/// neck. Within one and a half head radii of the middle of the source's head the hand is put there; past two it is left
-/// alone; in between, the two blend. Nor is a hand on the head with its wrist over half its forearm's length off the
-/// head's surface, blending from two fifths: a cartoon's head is so big that a hand raised beside it, well clear, is
-/// within two of its radii, and put there, on a head of common size, it would be pulled onto it. A hand sweeping past
-/// the head is not on it: one moving over fifteen head radii a
-/// second against the head lets go, and past thirty is left alone. A hand that can't get there (short arms, a big head)
-/// goes as near as it can over the head's surface, not into it, and the elbow swings round the line from shoulder to
-/// hand till the arm is no deeper in the head than the source's. Reached with two-bone IK, so the hand keeps its turn.
-///
-/// A hand darting to the head would jump onto it, so each is eased on over a quarter of a second at least, ahead of the
-/// source's, and off as slowly after it lets go; while easing, the hand moves a share of the way from where it would be
-/// to where it lands on the head, so it arrives along its own path, on time ([`carry`]).
-pub(crate) fn on_head(
-    map: &Mapping,
-    rigs: [(&Skeleton, &Shape); 2],
-    [s_body, t_body]: [&Body; 2],
-    from: &Clip,
-    out: &mut Clip,
-) {
-    let Some(mut fix) = OnHead::new(map, rigs, [s_body, t_body]) else {
-        return;
-    };
-    let [(source, _), (target, _)] = rigs;
-    let mut scratch = Scratch::new(source, target);
-    let dt = |f: usize| f.checked_sub(1).map_or(0.0, |e| from.times[f] - from.times[e]);
-    let (k, n) = (fix.arms.len(), from.poses.len());
-    let mut raw = Vec::with_capacity(n * k);
-    for (f, (pose, played)) in from.poses.iter().zip(&out.poses).enumerate() {
-        place(source, pose, &fix.s_path, &mut scratch.sw);
-        fix.weigh(dt(f), &scratch.sw);
-        fix.aim(target, played, &mut scratch);
-        raw.extend_from_slice(&fix.on);
-    }
-    // Each hand eased onto the head ahead of the source's and off after it, over `ONTO` at least, never less than the
-    // source's is on its own head ([`carry`]).
-    let mut eased = raw;
-    let mut ease = |p: usize, q: usize, step: f32| eased[q] = carry(eased[p], eased[q], step);
-    for f in 1..n {
-        for i in 0..k {
-            ease((f - 1) * k + i, f * k + i, dt(f) / ONTO);
-        }
-    }
-    for f in (1..n).rev() {
-        for i in 0..k {
-            ease(f * k + i, (f - 1) * k + i, dt(f) / ONTO);
-        }
-    }
-    for (f, (pose, played)) in from.poses.iter().zip(&mut out.poses).enumerate() {
-        place(source, pose, &fix.s_path, &mut scratch.sw);
-        fix.on.clear();
-        fix.on
-            .extend(eased[f * k..(f + 1) * k].iter().map(|&(w, aim)| (smooth(w), aim)));
-        fix.put(target, played, &mut scratch);
-    }
-}
-
 /// How far onto the head a hand goes, and where it is aimed, `on` as the source's is, carried on from `from` a pose
 /// eased by `step` before or after: never less on than `from` but for `step`. Eased on further than the source's own,
 /// it is aimed where the source's is for as far on as that is, and where `from` aims it for the rest, so it is aimed
@@ -2827,7 +2803,22 @@ fn carry(from: (f32, Vec3), on: (f32, Vec3), step: f32) -> (f32, Vec3) {
 /// How long, in seconds, a hand takes at least to be put on the head, and to be taken off.
 const ONTO: f32 = 0.25;
 
-/// [`on_head`], made ready for two rigs, then run a pose at a time.
+/// Keeps each target hand on its head where the source's hand is on theirs: covering an ear, clasped on top, a palm to
+/// the forehead, scratching the back of the head. The way from the middle of the source's head to its wrist is taken
+/// out of the head's turn from rest, turned into the target's frame, scaled from one head to the other and turned with
+/// the target's head, so the hand lands on the same place on a head of any size, even one that sits differently on its
+/// neck. Within one and a half head radii of the middle of the source's head the hand is put there; past two it is left
+/// alone; in between, the two blend. Nor is a hand on the head with its wrist over half its forearm's length off the
+/// head's surface, blending from two fifths: a cartoon's head is so big that a hand raised beside it, well clear, is
+/// within two of its radii, and put there, on a head of common size, it would be pulled onto it. A hand sweeping past
+/// the head is not on it: one moving over fifteen head radii a
+/// second against the head lets go, and past thirty is left alone. A hand that can't get there (short arms, a big head)
+/// goes as near as it can over the head's surface, not into it, and the elbow swings round the line from shoulder to
+/// hand till the arm is no deeper in the head than the source's. Reached with two-bone IK, so the hand keeps its turn.
+///
+/// A hand darting to the head would jump onto it, so each is eased on over a quarter of a second at least, ahead of the
+/// source's, and off as slowly after it lets go; while easing, the hand moves a share of the way from where it would be
+/// to where it lands on the head, so it arrives along its own path, on time ([`carry`]).
 pub(crate) struct OnHead {
     heads: [Head; 2],
     /// Each target arm playing a source arm: the target's limb, the source's hand and the source's limb.
