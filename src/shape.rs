@@ -5,12 +5,12 @@
 use glam::{Mat3, Quat, Vec3};
 
 use crate::names::{self, Name, Side};
-use crate::{Placed, Skeleton};
+use crate::{Children, Placed, Skeleton};
 
 pub(crate) struct Shape {
     /// Each bone at rest in the world.
     pub rest: Vec<Placed>,
-    pub children: Vec<Vec<usize>>,
+    pub children: Children,
     /// The body's frame in the world: its columns the body's left, up and forward.
     pub frame: Quat,
     /// Its height in the world's units.
@@ -165,23 +165,17 @@ impl Shape {
             height = 1.0;
         }
 
-        // Distances along the bones, from every bone to every other.
-        let mut near: Vec<Vec<(usize, f32)>> = vec![Vec::new(); n];
-        for (i, b) in skeleton.bones().iter().enumerate() {
-            if let Some(p) = b.parent {
-                let d = pos[i].distance(pos[p]);
-                near[i].push((p, d));
-                near[p].push((i, d));
-            }
-        }
+        // Distances along the bones, from every bone to every other: each bone's parent and children are its neighbors.
+        let parent_of = |i: usize| skeleton.bones()[i].parent;
         let along = |from: usize| -> Vec<f32> {
             let mut d = vec![f32::INFINITY; n];
             d[from] = 0.0;
-            let mut stack = vec![from];
+            let mut stack = Vec::with_capacity(n);
+            stack.push(from);
             while let Some(i) = stack.pop() {
-                for &(j, len) in &near[i] {
+                for &j in parent_of(i).iter().chain(&children[i]) {
                     if d[j].is_infinite() {
-                        d[j] = d[i] + len;
+                        d[j] = d[i] + pos[i].distance(pos[j]);
                         stack.push(j);
                     }
                 }
@@ -313,7 +307,7 @@ impl Shape {
         let hub = {
             let roots = (0..n).filter(|&i| skeleton.bones()[i].parent.is_none());
             let mut at = roots.max_by_key(|&i| (under[i], std::cmp::Reverse(i))).unwrap_or(0);
-            while let [only] = children[at].as_slice() {
+            while let [only] = &children[at] {
                 at = *only;
             }
             at
@@ -329,7 +323,7 @@ impl Shape {
                     // On the side its chain goes, for a root standing where its parent does at the middle of the body
                     // (a BVH's hip joint).
                     let mut j = i;
-                    while let [only] = children[j].as_slice()
+                    while let [only] = &children[j]
                         && skeleton.bones()[j].parent.is_some_and(|p| at[j].distance(at[p]) < 1e-4)
                     {
                         j = *only;
@@ -385,7 +379,7 @@ impl Shape {
                 let arm = limb[i].is_some_and(|(r, _)| r == 0);
                 let off = |c: usize| pos[c].distance(pos[i]) > 0.01 * height;
                 if long.len() < 2 && arm && kids.len() >= 3 && kids.iter().all(|&c| joints[c] == 1 && off(c)) {
-                    kids.clone()
+                    kids.to_vec()
                 } else {
                     long
                 }
@@ -433,7 +427,7 @@ impl Shape {
             if size <= 1e-6 {
                 continue;
             }
-            let mut stack = children[h].clone();
+            let mut stack = children[h].to_vec();
             while let Some(c) = stack.pop() {
                 palm[c] = Some(out * (at[c] - at[h]) / size);
                 turned[c] = out;
@@ -442,7 +436,7 @@ impl Shape {
             // Where each digit parts from the others: its first bone, or, for digits starting at one point (a robot's
             // palms at its wrist), the next. A finger is a chain: what branches is something held, a bow.
             let chain = |mut b: usize| loop {
-                match children[b].as_slice() {
+                match &children[b] {
                     [] => break true,
                     &[c] => b = c,
                     _ => break false,
@@ -453,7 +447,7 @@ impl Shape {
                 .iter()
                 .map(|&d| {
                     let shared = ds.iter().any(|&e| e != d && at[e].distance(at[d]) < 0.01 * size);
-                    match (shared, children[d].as_slice()) {
+                    match (shared, &children[d]) {
                         (true, &[c]) => at[c],
                         _ => at[d],
                     }
@@ -512,7 +506,7 @@ impl Shape {
                     // Through a bone standing where its parent does to its only child, as a BVH's neck joint at the
                     // chest.
                     .map(|mut c| {
-                        while let [d] = children[c].as_slice()
+                        while let [d] = &children[c]
                             && length[c] <= 0.01
                             && !names[*d].end()
                         {
@@ -547,7 +541,7 @@ impl Shape {
         }
         let mut topped = vec![false; n];
         if let Some(head) = (0..n).find(|&i| neck[i].is_some_and(|(k, m)| k + 1 == m)) {
-            let mut stack = children[head].clone();
+            let mut stack = children[head].to_vec();
             while let Some(c) = stack.pop() {
                 topped[c] = !names[c].end();
                 stack.extend(&children[c]);
@@ -676,14 +670,7 @@ fn along_limbs(
 /// chest) or, failing those, across the plane the bones are most nearly mirrored in. It's towards the bones named
 /// left; failing names, towards where the feet point being forward; failing that, facing the world's +z, as glTF
 /// characters do.
-fn body_frame(
-    pos: &[Vec3],
-    names: &[Name],
-    children: &[Vec<usize>],
-    pairs: &[Mirrored],
-    height: f32,
-    floor: f32,
-) -> Quat {
+fn body_frame(pos: &[Vec3], names: &[Name], children: &Children, pairs: &[Mirrored], height: f32, floor: f32) -> Quat {
     let n = pos.len() as f32;
     let center = pos.iter().copied().sum::<Vec3>() / n;
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
@@ -745,7 +732,7 @@ struct Mirrored {
 fn mirrored(
     skeleton: &Skeleton,
     pos: &[Vec3],
-    children: &[Vec<usize>],
+    children: &Children,
     under: &[usize],
     names: &[Name],
     height: f32,
@@ -805,7 +792,7 @@ fn mirrored(
     // hip or a shoulder at the middle of the body), where the only child it goes on to stands.
     let off = |mut i: usize| {
         let at = skeleton.bones()[i].parent.map_or(pos[i], |p| pos[p]);
-        while let [only] = children[i].as_slice()
+        while let [only] = &children[i]
             && pos[i].distance(at) < 1e-4 * height
         {
             i = *only;

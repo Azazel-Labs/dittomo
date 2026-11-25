@@ -13,7 +13,7 @@
 //! frame time asked for (rotations slerped, translations and scales lerped). Units are the skeleton's own, BVH being
 //! Y up like glTF and silent about units. A name's whitespace becomes `_`, since most readers split on it.
 
-use crate::{Clip, Error, Quat, Skeleton, Transform, Vec3};
+use crate::{Children, Clip, Error, Quat, Skeleton, Transform, Vec3};
 use glam::EulerRot;
 use std::fmt::Write as _;
 
@@ -144,7 +144,7 @@ pub fn write(skeleton: &Skeleton, clip: &Clip, frame_time: Option<f32>) -> Resul
 fn hierarchy(
     out: &mut String,
     skeleton: &Skeleton,
-    children: &[Vec<usize>],
+    children: &Children,
     moves: &[bool],
     offset: &dyn Fn(usize) -> Vec3,
     b: usize,

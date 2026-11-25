@@ -22,7 +22,7 @@ use glam::{Affine3A, Mat3, Quat, Vec3};
 use crate::contact;
 use crate::held::{self, Held};
 use crate::shape::Shape;
-use crate::{Clip, Error, Mapping, Placed, Skeleton, Transform};
+use crate::{Children, Clip, Error, Mapping, Placed, Skeleton, Transform};
 
 pub use crowd::Crowd;
 
@@ -831,7 +831,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         let Some(p) = parent[b] else { continue };
         let at = t.rest[b].position();
         let reach = {
-            let (mut far, mut stack) = (Vec3::ZERO, t.children[b].clone());
+            let (mut far, mut stack) = (Vec3::ZERO, t.children[b].to_vec());
             while let Some(c) = stack.pop() {
                 let d = t.rest[c].position() - at;
                 if d.length() > far.length() {
@@ -895,7 +895,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
 /// fingers under that; played from the hand alone, a target's hand kept its twist and lost its bend.
 fn driver(
     parent: &[Option<usize>],
-    children: &[Vec<usize>],
+    children: &Children,
     mapped: &[bool],
     s: &Shape,
     a: usize,

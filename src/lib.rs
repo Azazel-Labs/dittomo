@@ -218,14 +218,54 @@ impl Skeleton {
         out
     }
 
-    pub(crate) fn children(&self) -> Vec<Vec<usize>> {
-        let mut out = vec![Vec::new(); self.bones.len()];
-        for (i, b) in self.bones.iter().enumerate() {
+    pub(crate) fn children(&self) -> Children {
+        let n = self.bones.len();
+        let mut start = vec![0; n + 1];
+        for b in &self.bones {
             if let Some(p) = b.parent {
-                out[p].push(i);
+                start[p + 1] += 1;
             }
         }
-        out
+        for i in 0..n {
+            start[i + 1] += start[i];
+        }
+        let mut all = vec![0; start[n]];
+        let mut next = start.clone();
+        for (i, b) in self.bones.iter().enumerate() {
+            if let Some(p) = b.parent {
+                all[next[p]] = i;
+                next[p] += 1;
+            }
+        }
+        Children { start, all }
+    }
+}
+
+/// Each bone's children, first to last, kept in one list: `children[b]` is `b`'s.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Children {
+    /// Where each bone's children begin in `all`, and where the last bone's end.
+    start: Vec<usize>,
+    all: Vec<usize>,
+}
+
+impl Children {
+    /// How many bones there are.
+    pub(crate) fn len(&self) -> usize {
+        self.start.len() - 1
+    }
+
+    /// Each bone's children, bone by bone.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &[usize]> {
+        self.start.windows(2).map(|w| &self.all[w[0]..w[1]])
+    }
+}
+
+impl std::ops::Index<usize> for Children {
+    type Output = [usize];
+
+    fn index(&self, b: usize) -> &[usize] {
+        &self.all[self.start[b]..self.start[b + 1]]
     }
 }
 

@@ -63,26 +63,31 @@ pub(crate) fn held(skeleton: &Skeleton) -> Option<Held> {
             None => break false,
         }
     };
+    // The bones that could end a limb, whatever bone they'd hold: tested once rather than with every bone.
+    let ends: Vec<(usize, usize)> = (0..n)
+        .filter_map(|l| {
+            let q = parent(l)?;
+            let can = leaf[l] && lowest[q] >= stands(l) && (0.05..0.5).contains(&stands(l)) && pos[q].y > pos[l].y;
+            can.then_some((l, q))
+        })
+        .collect();
     let mut found: Vec<(f32, usize, usize, f32)> = Vec::new();
     for d in 0..n {
         if stands(d) >= 0.15 || lowest[d] > 0.05 || size[d] > 8 {
             continue;
         }
-        for l in 0..n {
-            let Some(q) = parent(l) else { continue };
-            if l == d || above(d, l) {
-                continue;
-            }
+        for &(l, q) in &ends {
             let drop = pos[l].y - pos[d].y;
             let across = Vec3::new(pos[d].x - pos[l].x, 0.0, pos[d].z - pos[l].z).length();
-            let branches = parent(d).is_none_or(|p| 2 * size[p] >= n && above(p, l));
-            let short = lowest[q] >= stands(l);
+            if l == d || across >= drop {
+                continue;
+            }
             // A long forearm hanging straight down from a short upper leg, under a head held high with tall ears (a
             // wolf's): the limb's last bone starts nearly half way up.
             let hangs = Vec3::new(pos[q].x - pos[l].x, 0.0, pos[q].z - pos[l].z).length() < 0.5 * (pos[q].y - pos[l].y);
             let high = if hangs && across < 0.5 * drop { 0.5 } else { 0.4 };
-            if leaf[l] && short && (0.05..high).contains(&stands(l)) && pos[q].y > pos[l].y && across < drop && branches
-            {
+            let branches = || parent(d).is_none_or(|p| 2 * size[p] >= n && above(p, l));
+            if stands(l) < high && !above(d, l) && branches() {
                 found.push((pos[l].distance(pos[d]), d, l, across));
             }
         }

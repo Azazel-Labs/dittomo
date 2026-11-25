@@ -315,7 +315,7 @@ fn joints(skeleton: &Skeleton, s: &Shape) -> Vec<u8> {
         joint[arm.lower] = 2;
     }
     for &root in s.limbs[0].iter().flatten() {
-        if let &[c] = s.children[root].as_slice()
+        if let &[c] = &s.children[root]
             && s.children[c].is_empty()
             && joint[root] == 0
         {
@@ -389,7 +389,7 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         (true, true) => bell(sh.ln_length[x] - th.ln_length[y], 0.4),
         _ => 0.5,
     };
-    let on = |sh: &Shape, x: usize| match sh.children[x].as_slice() {
+    let on = |sh: &Shape, x: usize| match &sh.children[x] {
         &[c] => Some(c),
         _ => None,
     };
@@ -428,7 +428,7 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
     // a short-necked one's, its legs as long for theirs. And how far along the next bone starts, where it has one: a
     // stub at the shoulder starts about where an upper arm does, but ends near where it starts.
     let (xa, xb) = (s.along[a], t.along[b]);
-    let next = |sh: &Shape, x: usize| match sh.children[x].as_slice() {
+    let next = |sh: &Shape, x: usize| match &sh.children[x] {
         &[c] => Some(sh.along[c]).filter(|y| y.is_finite()),
         _ => None,
     };
