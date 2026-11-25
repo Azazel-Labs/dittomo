@@ -947,6 +947,68 @@ fn a_palm_bone_holding_two_fingers_still_gets_both() {
 }
 
 #[test]
+fn a_hand_bent_in_a_finger_base_at_the_wrist_bends_the_hand() {
+    // As CMU's mocap: the hand turns only the wrist's twist, and a bone starting at the wrist, that the fingers hang
+    // from, its bend.
+    let to = mixamo_like();
+    let from = {
+        let mut j: Joints = to
+            .bones()
+            .iter()
+            .enumerate()
+            .map(|(b, bone)| {
+                let parent = bone.parent.map(|p| to.bones()[p].name.clone());
+                (bone.name.clone(), parent, to.world(&to.rest())[b].position().to_array())
+            })
+            .collect();
+        for side in ["Left", "Right"] {
+            let hand = format!("{side}Hand");
+            let at = j.iter().find(|x| x.0 == hand).expect("hand").2;
+            for x in &mut j {
+                if x.1.as_deref() == Some(hand.as_str()) {
+                    x.1 = Some(format!("{side}FingerBase"));
+                }
+            }
+            let i = j.iter().position(|x| x.0 == hand).expect("hand");
+            j.insert(i + 1, joint(format!("{side}FingerBase"), Some(&hand), at));
+        }
+        placed(&j)
+    };
+    let map = Mapping::new(&from, &to);
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[("LeftHand", "LeftHand"), ("RightHand", "RightHand")],
+    );
+    let mut pose = from.rest();
+    for (side, bend) in [("Left", 0.7f32), ("Right", -0.5)] {
+        let base = from.index_of(&format!("{side}FingerBase")).expect("base");
+        pose[base].rotation = Quat::from_rotation_z(bend) * Quat::from_rotation_y(0.3);
+    }
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![pose],
+    };
+    let out = map.apply(&from, &to, &clip).expect("plays");
+    let (sw, tw) = (from.world(&clip.poses[0]), to.world(&out.poses[0]));
+    for side in ["Left", "Right"] {
+        let way = |s: &Skeleton, w: &[dittomo::Placed], f: &str| {
+            let at = |n: String| w[s.index_of(&n).expect("bone")].position();
+            (at(format!("{side}Hand{f}1")) - at(format!("{side}Hand"))).normalize()
+        };
+        for f in ["Index", "Middle", "Thumb"] {
+            let off = way(&from, &sw, f).angle_between(way(&to, &tw, f)).to_degrees();
+            assert!(off < 0.5, "{side} {f}: {off}°");
+            // Bent with the hand, not slid off it.
+            let b = to.index_of(&format!("{side}Hand{f}1")).expect("finger");
+            let slid = out.poses[0][b].translation.distance(to.bones()[b].rest.translation);
+            assert!(slid < 1e-5, "{side} {f} slid {slid}");
+        }
+    }
+}
+
+#[test]
 fn a_rig_stopping_at_the_base_of_the_head_in_an_a_pose_with_numbered_limbs() {
     // Laid out as COLLADA exports often are: no bone at the top of the head, limbs numbered along the chain, the arms
     // hanging down.

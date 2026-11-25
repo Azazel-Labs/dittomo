@@ -180,8 +180,8 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.7° | 0.2° | 5.0° | 98% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.7° | 0.2° | 5.0° | 98% |
+| dittomo | 1.6° | 0.2° | 4.8° | 98% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.6° | 0.2° | 4.8° | 98% |
 | World turns from rest copied onto the right bones | 13.8° | 5.4° | 46.3° | 76% |
 | Local rotations copied onto the right bones | 75.8° | 85.3° | 153.3° | 19% |
 
@@ -191,6 +191,12 @@ a source collarbone turning about its own length doesn't move its shoulder, but 
 built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips below (0.72 against
 0.66 across skeletons), so dittomo keeps the whole turn. dittomo finds every labeled bone, so setting them by hand
 changes nothing. CI fails if the mean passes 3°.
+
+A bone with no length places nothing: the bone under it that every one of its played bones hangs from, starting where
+it does, plays its turn instead. The CMU take turns each wrist's twist in the hand and its bend in a finger base starting
+at the wrist, with the fingers under that; played from the hand alone, a target's hand kept the twist, lost the bend,
+and had its fingers slid off it to where the source's went. Hand to index finger, from the CMU take, went from 18.6° to
+1.0° (31.6° to 1.0° on the right), and limbs overall from 1.7° to 1.6°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by under 0.05° on average (local rotations copied: 65.2°). It was 11.8° when the neck and head took their
@@ -210,13 +216,13 @@ source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| travel | 0.00123 | 0.0106 | 1.9° | 0.20% |
-| planted feet | 0.00347 | 0.0001 | 2.6° | 0.29% |
-| push-out | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| all (`apply_with`) | 0.00002 | 0.0001 | 2.8° | 0.35% |
-| all, live (`Live`) | 0.00008 | 0.0001 | 3.0° | 0.42% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 2.8° | 0.39% |
+| none (`apply`) | 0.00476 | 0.0106 | 1.7° | 0.20% |
+| travel | 0.00123 | 0.0106 | 1.7° | 0.20% |
+| planted feet | 0.00347 | 0.0001 | 2.4° | 0.29% |
+| push-out | 0.00476 | 0.0106 | 1.7° | 0.21% |
+| all (`apply_with`) | 0.00002 | 0.0001 | 2.6° | 0.36% |
+| all, live (`Live`) | 0.00008 | 0.0001 | 2.8° | 0.43% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 2.6° | 0.39% |
 
 Together they cut foot slide hundreds of times and the height error a hundred. The body travels across the floor by how
 high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits

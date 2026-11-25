@@ -180,6 +180,9 @@ Phase 1 so far (November 2026):
   as poses come, to the same numbers. Only the skin that could be nearest a hand is posed now: each bone's points are
   kept in balls of a few dozen, and a ball is passed over when even its nearest edge is too far to count. With skins of
   about 6,000 points, touch went from 509 µs a frame to about 16 µs, with the same results.
+- **A bone with no length** (CMU's hand, its bend in a finger base starting at the wrist) passes its turn to the bone
+  under it that all its played bones hang from: hand to index finger from the CMU take went from 18.6° to 1.0°, and
+  limbs overall from 1.7° to 1.6° (90th percentile 5.0° to 4.8°).
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for
@@ -283,7 +286,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 100.0% of joints found on 17 real rigs (exact names: 22.2%); limbs within 1.7° of the source's on their 54 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 100.0% of joints found on 17 real rigs (exact names: 22.2%); limbs within 1.6° of the source's on their 54 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their

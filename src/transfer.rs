@@ -538,17 +538,25 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
     let mut fixes: Vec<Option<Quat>> = vec![None; n];
     let mut plans = vec![Plan::Rest; n];
     let mut moving = Vec::new();
+    let mut s_mapped = vec![false; source.len()];
+    for b in 0..n {
+        if let Some(a) = mapped(b) {
+            s_mapped[a] = true;
+        }
+    }
+    let s_parent: Vec<Option<usize>> = source.bones().iter().map(|b| b.parent).collect();
     for b in 0..n {
         let Some(a) = mapped(b) else { continue };
-        let pairs: Vec<(Vec3, Vec3)> = next[b]
+        let (pairs, below): (Vec<(Vec3, Vec3)>, Vec<usize>) = next[b]
             .iter()
             .filter_map(|&b2| {
                 let a2 = mapped(b2)?;
                 let u = turn * (s.rest[a2].position() - s.rest[a].position());
                 let v = t.rest[b2].position() - t.rest[b].position();
-                (u.length() > 1e-9 && v.length() > 1e-9).then_some((u, v))
+                (u.length() > 1e-9 && v.length() > 1e-9).then_some(((u, v), a2))
             })
-            .collect();
+            .unzip();
+        let d = driver(&s_parent, &s.children, &s_mapped, s, a, &below);
         let fix = match pairs.as_slice() {
             _ if s_neck[a] && t_neck[b] || s_spine.contains(&a) && t_spine.contains(&b) => Quat::IDENTITY,
             // A collarbone is matched rest to rest too: how it slopes up or back to the shoulder is anatomy, where
@@ -594,7 +602,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
             moving.push((b, a, k));
         }
         plans[b] = Plan::Mapped {
-            source: a,
+            source: d,
             pre: fix.inverse(),
             travel: top.then_some(Vec3::new(across.unwrap_or(k), k, across.unwrap_or(k))),
         };
@@ -674,6 +682,43 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         }
     }
     (plans, moving)
+}
+
+/// The source bone whose turn places `a`'s mapped bones `below` it: `a` itself, or a bone under it that nothing plays,
+/// standing where `a` does, that every one of them is under. A bone with no length places nothing, so the one under it
+/// does: CMU's mocap turns its wrists' twist in the hand and their bend in a finger base starting at the wrist, with the
+/// fingers under that; played from the hand alone, a target's hand kept its twist and lost its bend.
+fn driver(
+    parent: &[Option<usize>],
+    children: &[Vec<usize>],
+    mapped: &[bool],
+    s: &Shape,
+    a: usize,
+    below: &[usize],
+) -> usize {
+    let at = s.rest[a].position();
+    let mut d = a;
+    while !below.is_empty() {
+        let next = children[d].iter().copied().find(|&c| {
+            !mapped[c]
+                && s.rest[c].position().distance(at) <= 1e-4 * s.height
+                && below.iter().all(|&a2| {
+                    let mut up = Some(a2);
+                    while let Some(x) = up {
+                        if x == c {
+                            return true;
+                        }
+                        up = parent[x];
+                    }
+                    false
+                })
+        });
+        match next {
+            Some(c) => d = c,
+            None => break,
+        }
+    }
+    d
 }
 
 /// Whether each bone is a foot (the end of a leg) or under one.
