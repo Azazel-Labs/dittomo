@@ -88,38 +88,47 @@ hung from helpers beside the upper arms, which turn with the arms rather than st
 
 ### Finding the right bones on real rigs
 
-Twelve real characters from four ecosystems, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot,
-Michelle, Soldier and Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan,
-RiggedFigure and BrainStem, two VRM avatars, and Babylon's HVGirl. Each rig's body joints are labeled by hand
-(`bench/rigs/labels.txt`); every one of the 132 ordered pairs is mapped, and a joint counts as found when the target's
-joint plays the source's. Godot's humanoid auto mapping (its `BoneMapper`, ported faithfully from the editor's source
-into `benches/rigs/godot.rs`, MIT) maps both rigs onto its humanoid profile, as a `BoneMap` does, so it gets a joint
-when both rigs' bones get the same profile bone. `cargo bench --features fs --bench rigs`:
+Fifteen real characters, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot, Michelle, Soldier and
+Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan, RiggedFigure and
+BrainStem, two VRM avatars, Babylon's HVGirl, Mesh2Motion's human, and from Godot's demo projects the platformer's robot
+and GDQuest's Mannequiny. Each rig's body joints are labeled by hand (`bench/rigs/labels.txt`); every one of the 210
+ordered pairs is mapped, and a joint counts as found when the target's joint plays the source's. Godot's humanoid auto
+mapping (its `BoneMapper`, ported faithfully from the editor's source into `benches/rigs/godot.rs`, MIT) maps both rigs
+onto its humanoid profile, as a `BoneMap` does, so it gets a joint when both rigs' bones get the same profile bone.
+`cargo bench --features fs --bench rigs`:
 
-| Matcher | Joints found (2558) |
+| Matcher | Joints found (4026) |
 | --- | ---: |
-| dittomo | 99.5% |
-| Godot's humanoid auto mapping (`BoneMapper`) | 58.9% |
-| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
+| dittomo | 98.8% |
+| Godot's humanoid auto mapping (`BoneMapper`) | 60.4% |
+| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 21.5% |
 
 | Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
-| hips | 100% | 65% | 38% | | thighs | 100% | 42% | 24% |
-| spine | 96% | 82% | 38% | | shins | 100% | 42% | 24% |
-| chest | 100% | 36% | 24% | | feet | 100% | 51% | 29% |
-| neck | 100% | 100% | 51% | | toes | 100% | 51% | 29% |
-| head | 94% | 83% | 32% | | clavicles | 100% | 100% | 44% |
-| upper arms | 100% | 55% | 23% | | forearms | 100% | 55% | 23% |
-| hands | 100% | 62% | 33% | | index fingers | 100% | 58% | 42% |
+| hips | 100% | 73% | 24% | | thighs | 100% | 43% | 16% |
+| spine | 89% | 86% | 24% | | shins | 100% | 43% | 15% |
+| chest | 100% | 36% | 16% | | feet | 100% | 49% | 19% |
+| neck | 99% | 100% | 41% | | toes | 100% | 58% | 21% |
+| head | 93% | 87% | 43% | | clavicles | 100% | 100% | 29% |
+| upper arms | 99% | 52% | 15% | | forearms | 99% | 52% | 15% |
+| hands | 100% | 68% | 24% | | index fingers | 100% | 65% | 27% |
 
 What it gets wrong:
 
-- **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and no collarbones: 90% to 100%
-  against the other rigs, its arms and legs all found. Its head is one bone with nothing beyond it, and is taken for
-  the neck, or for the end bone atop another rig's head. Its upper arms start where a collarbone ends, a third of its
-  height out from the middle, and had been taken for RobotExpressive's shoulders, a stub as far out from the chest; told
-  apart by where each goes on to, against the robot went from 60% to 90%.
-- With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
+- **BrainStem**, named `node0`…`node21`, with one arm stopping short of the hand and no collarbones: 90% to 100% against
+  the other rigs, its arms and legs all found. Its head is one bone with nothing beyond it, and is taken for the neck,
+  or for the end bone atop another rig's head. Its upper arms start where a collarbone ends, a third of its height out
+  from the middle, and had been taken for RobotExpressive's shoulders, a stub as far out from the chest; told apart by
+  where each goes on to, against the robot went from 60% to 90%.
+- **Godot's platformer robot** is named for its viewer's left and right, not its own: its `r-` limbs are on its left.
+  Names would swap every limb, so where both of a two-legged body's knees bend clearly the other way from where its
+  names put its front, dittomo takes its sides from the knees: against the other rigs it went from 15%–33% of joints
+  found to 67%–100%, and clips played onto it from 19°–49° of limb error to 0.4°–8°. Its arms stop at the elbow, with no
+  hand, so a limb of two bones is measured to where its hand would be, a forearm past the elbow. Against CesiumMan and
+  RiggedFigure it still finds 67% to 73%: its shoulders stand at two thirds of its height, under a big head, so their
+  elbows stand nearer its shoulders than their shoulders do, and an arm is taken one bone along.
+- With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it, or a spine of
+  one bone taken for the second of a rig's two).
 - Godot's mapper looks for words in names and walks down from what it finds, so a rig it can't start on loses everything
   below: BrainStem's unnamed bones get nothing; CesiumMan's hips are taken for its `torso_joint_3`, the chest, and its
   arms and legs aren't found; RiggedFigure has no bone named foot or hand, so only its trunk is; RobotExpressive's feet
@@ -297,12 +306,12 @@ every pull request against its base on the same runner and fails it if anything 
 
 With the `load` feature, `dittomo::load::Model` reads a skeleton and its clips from glTF, GLB (VRM avatars too), FBX or
 BVH bytes (`Model::from_bytes(bytes, "fbx")`), FBX read directly with no Blender round trip and BVH motion capture (the
-CMU database's, say) with no conversion. `fs` adds
-`Model::load(path)`, and `usd` adds USD. Each skin's joints, and the nodes above them, become the skeleton; each
-animation is sampled at its keys into a `Clip`. `load` builds for wasm. The twelve benchmark rigs and their 35 clips
-read in about 0.27 s together on one core of a laptop. The eleven glTF and VRM rigs take 90 ms between them (the
-biggest, seed-san's 132 bones, 16 ms; hvgirl's 1,295 frames over 147 channels, 10 ms); the rest is the 3.7 MB Mixamo
-FBX, whose dance keys each curve every 1/480 s at times of its own, 10,849 poses in all, each one kept.
+CMU database's, say) with no conversion. `fs` adds `Model::load(path)`, and `usd` adds USD. Each skin's joints, and the
+nodes above them, become the skeleton; each animation is sampled at its keys into a `Clip`. `load` builds for wasm. The
+first twelve benchmark rigs and their 35 clips read in about 0.27 s together on one core of a laptop. The eleven glTF
+and VRM rigs take 90 ms between them (the biggest, seed-san's 132 bones, 16 ms; hvgirl's 1,295 frames over 147 channels,
+10 ms); the rest is the 3.7 MB Mixamo FBX, whose dance keys each curve every 1/480 s at times of its own, 10,849 poses
+in all, each one kept.
 
 ## Writing clips
 
@@ -475,9 +484,10 @@ hips hang from is lowered with the body for planted feet, so it is left out.
 
 ## Tested on
 
-The twelve real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
+The fifteen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
 bone holding two fingers, a COLLADA export stopping at the base of the head with numbered limbs in an A-pose, a
-nameless rig with one hand missing, and a chest whose collarbones start beside it rather than above it.
+nameless rig with one hand missing, a chest whose collarbones start beside it rather than above it, and a robot named
+from in front, its arms stopping at the elbow.
 
 Made-up humanoids that differ the ways real rigs do: names from different tools or none, extra roots and twist bones,
 two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimeters

@@ -2,12 +2,15 @@
 # Downloads the rigs `cargo bench --features fs --bench rigs` measures mapping on, into bench/rigs/data (or the
 # directory given), each from a pinned commit and checked against its SHA-256.
 #
-# They're fetched, not committed: each keeps its own licence, as its source says.
+# They're fetched, not committed: each keeps its own license, as its source says.
 #   three.js examples (MIT repository; Xbot, Michelle, Soldier and Samba Dancing come from Mixamo; RobotExpressive
 #     from Tomás Laulhé, CC0; readyplayer.me.glb from Ready Player Me)
-#   Khronos glTF-Sample-Assets: CesiumMan, RiggedFigure, BrainStem (see each model's README for its licence)
-#   VRM Consortium's Seed-san sample and pixiv three-vrm's constraint sample (the licence is in each file's VRM meta)
+#   Khronos glTF-Sample-Assets: CesiumMan, RiggedFigure, BrainStem (see each model's README for its license)
+#   VRM Consortium's Seed-san sample and pixiv three-vrm's constraint sample (the license is in each file's VRM meta)
 #   Babylon.js Assets: HVGirl
+#   Mesh2Motion: its human rig (CC0)
+#   Godot demo projects: the platformer's robot (MIT), and GDQuest's Mannequiny (CC-BY 4.0, GDQuest and
+#     contributors, https://www.gdquest.com/)
 set -eu
 
 dir=${1:-"$(dirname "$0")/data"}
@@ -18,6 +21,8 @@ khronos=https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/e124e8
 vrmc=https://raw.githubusercontent.com/vrm-c/vrm-specification/94e82dd346fa6cf0337c4421728640e5252dd38e/samples
 pixiv=https://raw.githubusercontent.com/pixiv/three-vrm/3caf7a21ee68f0d5dfa363ab3d577450bbf60136/packages/three-vrm/examples/models
 babylon=https://raw.githubusercontent.com/BabylonJS/Assets/6946e9be89e0d471d5caba0d2338b4c1ada250d0/meshes
+m2m=https://raw.githubusercontent.com/Mesh2Motion/mesh2motion-app/2609e0345371763c4c390f751d79021285da04b1/static/assets
+godot=https://raw.githubusercontent.com/godotengine/godot-demo-projects/281a99f02178db944bcddef39aa694e3bfbe354a/3d
 
 sum() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -55,4 +60,7 @@ fetch brainstem.glb "$khronos/BrainStem/glTF-Binary/BrainStem.glb" ddda3a53b5c97
 fetch seed-san.vrm "$vrmc/Seed-san/vrm/Seed-san.vrm" 624d0d554bc205bbdc33e22a68a2c3c20edebb3e573011ead8878a65e5329b23
 fetch vrm-twist.vrm "$pixiv/VRM1_Constraint_Twist_Sample.vrm" 12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2
 fetch hvgirl.glb "$babylon/HVGirl.glb" ca7840ac8726d771ea75ad49df05e3d404a0654c5a8bf96edf2018802c37f5d7
-echo "12 rigs in $dir"
+fetch mesh2motion-human.glb "$m2m/human/model.glb" bce15f56f0ca4daf4e085337b2412116ab18d3165cb51ea672d1cb9f1194b37f
+fetch godot-robot.glb "$godot/platformer/player/player.glb" 2c7e11f0d7e84bac8a45d724eab05d664a0a4ba41360ff2641e73635e2b5acf6
+fetch mannequiny.glb "$godot/ragdoll_physics/characters/mannequiny.glb" 6b0273d9e8eef159aee9cbc0e75752bbe6abbea56fbcb1a8534e6173f80dda3c
+echo "15 rigs in $dir"

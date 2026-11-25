@@ -2400,3 +2400,70 @@ fn a_collarbone_in_two_stays_put_as_the_arm_rises() {
         assert!(off < 0.5, "the split collarbone swings {off:.1}° with the arm");
     }
 }
+
+#[test]
+fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
+    // Godot's platformer robot is named as its viewer sees it: its `r-` limbs are on its own left, where its knees, bent
+    // the way it faces, put them. Its arms stop at the elbow, with no hand.
+    let mut robot: Joints = vec![
+        joint("hip", None, [0.0, 0.332, 0.0]),
+        joint("waist", Some("hip"), [0.0, 0.392, 0.0]),
+        joint("chest", Some("waist"), [0.0, 0.521, 0.0]),
+        joint("neck", Some("chest"), [0.0, 0.718, -0.008]),
+        joint("head", Some("neck"), [0.0, 0.793, -0.025]),
+        joint("vent", Some("head"), [0.0, 0.987, 0.025]),
+    ];
+    for (side, x) in [("r", 1.0f32), ("l", -1.0)] {
+        let n = |s: &str| format!("{side}-{s}");
+        robot.push(joint(n("arm"), Some("chest"), [0.148 * x, 0.644, 0.012]));
+        robot.push(joint(n("forearm"), Some(&n("arm")), [0.252 * x, 0.551, -0.036]));
+        robot.push(joint(n("thigh"), Some("hip"), [0.055 * x, 0.357, 0.01]));
+        robot.push(joint(n("leg"), Some(&n("thigh")), [0.064 * x, 0.256, 0.014]));
+        robot.push(joint(n("foot"), Some(&n("leg")), [0.082 * x, 0.032, 0.0]));
+    }
+    let robot = placed(&robot);
+    let man = mixamo_like();
+    let pairs = [
+        ("LeftArm", "r-arm"),
+        ("LeftForeArm", "r-forearm"),
+        ("RightArm", "l-arm"),
+        ("RightForeArm", "l-forearm"),
+        ("LeftUpLeg", "r-thigh"),
+        ("LeftLeg", "r-leg"),
+        ("LeftFoot", "r-foot"),
+        ("RightUpLeg", "l-thigh"),
+        ("RightLeg", "l-leg"),
+        ("RightFoot", "l-foot"),
+    ];
+    assert_plays(&man, &robot, &Mapping::new(&man, &robot), &pairs);
+    let back: Vec<(&str, &str)> = pairs.iter().map(|&(a, b)| (b, a)).collect();
+    assert_plays(&robot, &man, &Mapping::new(&robot, &man), &back);
+    // A nameless rig, its arms from the chest with no collarbones, finds the arms the same.
+    let mut figure: Joints = vec![
+        joint("n0", None, [0.0, 0.571, 0.0]),
+        joint("n1", Some("n0"), [0.0, 0.692, 0.009]),
+        joint("n2", Some("n1"), [0.0, 0.903, -0.004]),
+        joint("n3", Some("n2"), [0.0, 0.956, 0.005]),
+        joint("n4", Some("n3"), [0.0, 1.0, 0.007]),
+    ];
+    for (side, x) in [("a", 1.0f32), ("b", -1.0)] {
+        let n = |k: u32| format!("n{side}{k}");
+        figure.push(joint(n(1), Some("n2"), [0.081 * x, 0.903, -0.004]));
+        figure.push(joint(n(2), Some(&n(1)), [0.262 * x, 0.811, -0.013]));
+        figure.push(joint(n(3), Some(&n(2)), [0.382 * x, 0.735, 0.056]));
+        figure.push(joint(n(4), Some("n0"), [0.061 * x, 0.516, 0.02]));
+        figure.push(joint(n(5), Some(&n(4)), [0.069 * x, 0.296, 0.057]));
+        figure.push(joint(n(6), Some(&n(5)), [0.07 * x, 0.072, -0.004]));
+        figure.push(joint(n(7), Some(&n(6)), [0.071 * x, 0.018, 0.023]));
+    }
+    let figure = placed(&figure);
+    let pairs = [
+        ("na1", "r-arm"),
+        ("na2", "r-forearm"),
+        ("nb1", "l-arm"),
+        ("nb2", "l-forearm"),
+        ("na4", "r-thigh"),
+        ("nb4", "l-thigh"),
+    ];
+    assert_plays(&figure, &robot, &Mapping::new(&figure, &robot), &pairs);
+}

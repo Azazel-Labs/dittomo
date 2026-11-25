@@ -224,7 +224,40 @@ impl Shape {
             }
         }
 
-        let frame = body_frame(&pos, &names, &children, &pairs, height, floor);
+        let mut frame = body_frame(&pos, &names, &children, &pairs, height, floor);
+        // Knees point the way a body faces. When both of a two-legged body's bend clearly the other way from where its
+        // names put its front, the names are its viewer's left and right, not its own (a model named as seen from in
+        // front): its sides are swapped, so the names match the limbs they're on.
+        if let [Some(arms), Some(legs)] = limbs {
+            let mut low: Vec<f32> = pos.iter().map(|p| p.y).collect();
+            for i in (0..n).rev() {
+                if let Some(p) = skeleton.bones()[i].parent {
+                    low[p] = low[p].min(low[i]);
+                }
+            }
+            let biggest = |i: usize| {
+                children[i]
+                    .iter()
+                    .copied()
+                    .max_by_key(|&c| (under[c], std::cmp::Reverse(c)))
+            };
+            let bend = |hip: usize| {
+                let knee = biggest(hip)?;
+                let ankle = biggest(knee)?;
+                Some((pos[knee] - (pos[hip] + pos[ankle]) / 2.0).dot(frame * Vec3::Z) / height)
+            };
+            let upright = arms.iter().all(|&a| low[a] > floor + 0.25 * height);
+            if upright && legs.iter().all(|&l| bend(l).is_some_and(|b| b < -0.005)) {
+                for name in &mut names {
+                    name.side = match name.side {
+                        Side::Left => Side::Right,
+                        Side::Right => Side::Left,
+                        Side::Middle => Side::Middle,
+                    };
+                }
+                frame = body_frame(&pos, &names, &children, &pairs, height, floor);
+            }
+        }
         let hub = {
             let roots = (0..n).filter(|&i| skeleton.bones()[i].parent.is_none());
             let mut at = roots.max_by_key(|&i| (under[i], std::cmp::Reverse(i))).unwrap_or(0);
@@ -379,10 +412,11 @@ fn along_limbs(
     }
     // Where the hand begins: down the biggest children, at the bone the most limbs of more than one bone hang from,
     // where the nearest starts (a hand's fingers, a robot's palms hung from its forearm, not cloth hung from a shoulder
-    // or a thumb from a palm), or else at the end.
+    // or a thumb from a palm), or else at the end. A limb of two bones bends between them: the second stands at the
+    // elbow, its forearm unmeasured, the hand a forearm on, about as far as the upper arm is long.
     let mut ends = [0.0f32; 2];
     for k in 0..2 {
-        let (mut b, mut fork) = (arms[k], None::<(usize, f32)>);
+        let (mut b, mut fork, mut bones) = (arms[k], None::<(usize, f32)>, 1);
         loop {
             if let Some((count, near)) = hand[b]
                 && fork.is_none_or(|(most, _)| count >= most)
@@ -390,11 +424,12 @@ fn along_limbs(
                 fork = Some((count, way[b] + near));
             }
             match main[b] {
-                Some(c) => b = c,
+                Some(c) => (b, bones) = (c, bones + 1),
                 None => break,
             }
         }
-        ends[k] = fork.map_or(way[b], |f| f.1);
+        let short = if bones == 2 { length[b] } else { 0.0 };
+        ends[k] = fork.map_or(way[b] + short, |f| f.1);
     }
     // One arm may stop short, as a rig's whose other hand holds something: the two are measured as the longer.
     let end = ends[0].max(ends[1]);

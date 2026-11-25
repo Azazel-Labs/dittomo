@@ -1,7 +1,8 @@
 # Hand labels: for each rig, the bone playing each joint of the body. Left and right are the character's own.
 # hips: the bone the thighs hang from. spine: the lowest bone above it. chest: the spine bone the arms hang from.
 # A joint the rig lacks, or has nowhere a tree match could find it (robot-expressive's feet hang from its root,
-# for IK), is left out; a pair is scored on the joints both rigs label.
+# for IK), is left out; a pair is scored on the joints both rigs label. godot-robot's r- limbs are on its own left
+# (its knees point the way it faces), so they are labeled l_.
 
 [brainstem.glb]
 hips = node3
@@ -41,6 +42,23 @@ r_upperarm = Skeleton_arm_joint_R
 r_forearm = Skeleton_arm_joint_R__2_
 r_hand = Skeleton_arm_joint_R__3_
 
+[godot-robot.glb]
+hips = hip
+spine = waist
+chest = chest
+neck = neck
+head = head
+l_upperarm = r-arm
+l_forearm = r-forearm
+r_upperarm = l-arm
+r_forearm = l-forearm
+l_thigh = r-thigh
+l_shin = r-leg
+l_foot = r-foot
+r_thigh = l-thigh
+r_shin = l-leg
+r_foot = l-foot
+
 [hvgirl.glb]
 hips = mixamorig:Hips
 spine = mixamorig:Spine
@@ -65,6 +83,56 @@ r_thigh = mixamorig:RightUpLeg
 r_shin = mixamorig:RightLeg
 r_foot = mixamorig:RightFoot
 r_toe = mixamorig:RightToeBase
+
+[mannequiny.glb]
+hips = pelvis
+spine = spine_01
+chest = spine_02
+neck = neck_01
+head = head
+l_clavicle = clavicle.l
+l_upperarm = upperarm.l
+l_forearm = lowerarm.l
+l_hand = hand.l
+l_index = index_01.l
+l_thigh = thigh.l
+l_shin = calf.l
+l_foot = foot.l
+l_toe = ball.l
+r_clavicle = clavicle.r
+r_upperarm = upperarm.r
+r_forearm = lowerarm.r
+r_hand = hand.r
+r_index = index_01.r
+r_thigh = thigh.r
+r_shin = calf.r
+r_foot = foot.r
+r_toe = ball.r
+
+[mesh2motion-human.glb]
+hips = pelvis
+spine = spine_01
+chest = spine_03
+neck = neck_01
+head = head
+l_clavicle = clavicle_l
+l_upperarm = upperarm_l
+l_forearm = lowerarm_l
+l_hand = hand_l
+l_index = index_01_l
+l_thigh = thigh_l
+l_shin = calf_l
+l_foot = foot_l
+l_toe = ball_l
+r_clavicle = clavicle_r
+r_upperarm = upperarm_r
+r_forearm = lowerarm_r
+r_hand = hand_r
+r_index = index_01_r
+r_thigh = thigh_r
+r_shin = calf_r
+r_foot = foot_r
+r_toe = ball_r
 
 [michelle.glb]
 hips = mixamorig:Hips
