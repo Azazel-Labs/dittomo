@@ -183,6 +183,11 @@ Phase 1 so far (November 2026):
 - **A bone with no length** (CMU's hand, its bend in a finger base starting at the wrist) passes its turn to the bone
   under it that all its played bones hang from: hand to index finger from the CMU take went from 18.6° to 1.0°, and
   limbs overall from 1.7° to 1.6° (90th percentile 5.0° to 4.8°).
+- **3ds Max Biped rigs** (three.js's archer and warrior): fingers are placed from their own hand, the arm turned out
+  straight, so a body leaning forward with its arms hanging down at rest has its thumb and fingers played from a
+  T-pose's (the warrior's were all left out); and a bone as near across to one leg's end as to the other's is held by
+  neither, so the archer's mesh node at the origin, between its toeless feet, no longer plays a toe. The 17 bench rigs
+  are unchanged.
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for

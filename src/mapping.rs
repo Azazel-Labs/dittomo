@@ -371,7 +371,14 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
             (Some(oa), Some(ob)) => (long(s.length[a], t.length[b]) + long(oa, ob)) / 2.0,
             _ => long(s.length[a], t.length[b]),
         };
-    let mut placed = 0.4 * bell(s.at[a].y - t.at[b].y, 0.1);
+    // Where it stands, over the height; past where the hands begin, from its hand, however the arm hangs at rest: a
+    // figure's arms held out, the other's down at its sides, have their hands far apart, and the fingers with them.
+    let (pa, pb) = match (s.palm[a], t.palm[b]) {
+        (Some(pa), Some(pb)) => (pa, pb),
+        _ => (s.at[a], t.at[b]),
+    };
+    let near = 0.08 + 0.35 * s.reach[a].min(t.reach[b]);
+    let mut placed = 0.4 * bell(pa.y - pb.y, 0.1) + 0.8 * bell(pa.distance(pb), near);
     // Rigs stop at different depths, at the wrist or the fingertips, the ankle or the toes' ends: a bone with nothing
     // beyond it says nothing of how much body would be.
     placed += 0.4
@@ -380,8 +387,6 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         } else {
             bell(s.beyond[a] - t.beyond[b], 0.1)
         };
-    let near = 0.08 + 0.35 * s.reach[a].min(t.reach[b]);
-    placed += 0.8 * bell(s.at[a].distance(t.at[b]), near);
     placed += 0.4 * bell(s.reach[a] - t.reach[b], 0.1);
     // A cartoon's arms may be twice a man's for its height: then a man's elbow stands where its shoulder does, and his
     // wrist where its elbow does. How far along the limb holds, from the chest to where the hand begins. Within the

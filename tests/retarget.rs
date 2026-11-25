@@ -947,6 +947,79 @@ fn a_palm_bone_holding_two_fingers_still_gets_both() {
 }
 
 #[test]
+fn a_biped_with_its_arms_down_still_has_its_fingers_played() {
+    // Laid out as 3ds Max's Biped can export: the legs hang from the spine, the collarbones from the neck, the body
+    // leans forward with the arms hanging down, and a hand has a thumb of two bones and one finger of three for the
+    // rest. The hands stand far from where a T-pose's do, and every finger with them: where each stands from its own
+    // hand says which it is.
+    let from = mixamo_like();
+    let rows: [(&str, &str, [f32; 3]); 33] = [
+        ("Bip001", "", [-0.13, 2.09, -0.42]),
+        ("Pelvis", "Bip001", [-0.13, 2.09, -0.42]),
+        ("Spine", "Pelvis", [-0.11, 2.64, -0.69]),
+        ("L Thigh", "Spine", [0.38, 2.1, -0.37]),
+        ("L Calf", "L Thigh", [0.71, 0.96, -0.06]),
+        ("L Foot", "L Calf", [0.92, 0.01, -0.12]),
+        ("L Toe0", "L Foot", [1.09, -0.24, 0.24]),
+        ("R Thigh", "Spine", [-0.65, 2.08, -0.47]),
+        ("R Calf", "R Thigh", [-1.0, 0.95, -0.22]),
+        ("R Foot", "R Calf", [-1.18, -0.02, -0.32]),
+        ("R Toe0", "R Foot", [-1.41, -0.27, 0.0]),
+        ("Spine1", "Spine", [-0.09, 3.11, -1.01]),
+        ("Neck", "Spine1", [-0.05, 3.85, -1.56]),
+        ("Head", "Neck", [-0.05, 4.19, -1.56]),
+        ("L Clavicle", "Neck", [0.3, 3.83, -1.4]),
+        ("L UpperArm", "L Clavicle", [0.84, 3.66, -1.42]),
+        ("L Forearm", "L UpperArm", [1.77, 2.68, -1.36]),
+        ("L Hand", "L Forearm", [2.45, 1.97, -1.12]),
+        ("L Finger0", "L Hand", [2.38, 1.87, -0.74]),
+        ("L Finger01", "L Finger0", [2.4, 1.7, -0.65]),
+        ("L Finger1", "L Hand", [2.77, 1.63, -1.0]),
+        ("L Finger11", "L Finger1", [2.85, 1.48, -0.96]),
+        ("L Finger12", "L Finger11", [2.85, 1.31, -0.93]),
+        ("R Clavicle", "Neck", [-0.41, 3.83, -1.47]),
+        ("R UpperArm", "R Clavicle", [-0.94, 3.64, -1.59]),
+        ("R Forearm", "R UpperArm", [-1.84, 2.64, -1.7]),
+        ("R Hand", "R Forearm", [-2.54, 1.91, -1.59]),
+        ("R Finger0", "R Hand", [-2.54, 1.81, -1.21]),
+        ("R Finger01", "R Finger0", [-2.57, 1.65, -1.12]),
+        ("R Finger1", "R Hand", [-2.87, 1.57, -1.54]),
+        ("R Finger11", "R Finger1", [-2.95, 1.42, -1.51]),
+        ("R Finger12", "R Finger11", [-2.95, 1.25, -1.48]),
+        ("Prop1", "Bip001", [1.59, 1.91, -0.09]),
+    ];
+    let full = |n: &str| {
+        if n == "Bip001" {
+            n.to_owned()
+        } else {
+            format!("Bip001 {n}")
+        }
+    };
+    let j: Joints = rows
+        .iter()
+        .map(|&(n, p, at)| (full(n), (!p.is_empty()).then(|| full(p)), at))
+        .collect();
+    let to = placed(&j);
+    let map = Mapping::new(&from, &to);
+    for side in ["L", "R"] {
+        let played = |b: &str| {
+            let b = to.index_of(&format!("Bip001 {side} {b}")).expect("bone");
+            map.source_of(b)
+                .map(|a| from.bones()[a].name.clone())
+                .unwrap_or_default()
+        };
+        assert!(played("Hand").ends_with("Hand"), "{side} Hand plays {}", played("Hand"));
+        for b in ["Finger0", "Finger01"] {
+            assert!(played(b).contains("Thumb"), "{side} {b} plays {}", played(b));
+        }
+        for b in ["Finger1", "Finger11", "Finger12"] {
+            let f = played(b);
+            assert!(f.contains("Index") || f.contains("Middle"), "{side} {b} plays {f}");
+        }
+    }
+}
+
+#[test]
 fn a_hand_bent_in_a_finger_base_at_the_wrist_bends_the_hand() {
     // As CMU's mocap: the hand turns only the wrist's twist, and a bone starting at the wrist, that the fingers hang
     // from, its bend.

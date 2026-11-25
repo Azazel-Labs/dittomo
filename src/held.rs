@@ -28,8 +28,9 @@ pub(crate) struct Held {
 /// The skeleton's held bones, if it has any: a bone low down, in the lowest 15% of the body with bones under it
 /// reaching the floor, hanging from the root or a bone holding half the skeleton or more, under a limb that hangs down
 /// and stops short, between a twentieth and two fifths of the height up (half, hanging straight down over the bone)
-/// with nothing under it or beside it reaching lower, straight above the bone (nearer it across than down). A twist bone beside a leg that goes on to the floor
-/// ends no limb, nor does a hand. Each limb takes the nearest such bone, and each bone the nearest limb.
+/// with nothing under it or beside it reaching lower, straight above the bone (nearer it across than down), and every
+/// other such limb at least twice as far across. A twist bone beside a leg that goes on to the floor ends no limb, nor
+/// does a hand. Each limb takes the nearest such bone, and each bone the nearest limb.
 pub(crate) fn held(skeleton: &Skeleton) -> Option<Held> {
     let bones = skeleton.bones();
     let n = bones.len();
@@ -62,7 +63,7 @@ pub(crate) fn held(skeleton: &Skeleton) -> Option<Held> {
             None => break false,
         }
     };
-    let mut found: Vec<(f32, usize, usize)> = Vec::new();
+    let mut found: Vec<(f32, usize, usize, f32)> = Vec::new();
     for d in 0..n {
         if stands(d) >= 0.15 || lowest[d] > 0.05 || size[d] > 8 {
             continue;
@@ -82,10 +83,25 @@ pub(crate) fn held(skeleton: &Skeleton) -> Option<Held> {
             let high = if hangs && across < 0.5 * drop { 0.5 } else { 0.4 };
             if leaf[l] && short && (0.05..high).contains(&stands(l)) && pos[q].y > pos[l].y && across < drop && branches
             {
-                found.push((pos[l].distance(pos[d]), d, l));
+                found.push((pos[l].distance(pos[d]), d, l, across));
             }
         }
     }
+    // A bone as near across to another limb as to its own stands under neither, as a mesh's node at the origin between
+    // the feet of a rig whose legs end at the ankle: an IK bone stands under its own limb.
+    let alone: Vec<bool> = found
+        .iter()
+        .map(|&(_, d, l, across)| {
+            !found
+                .iter()
+                .any(|&(_, e, m, other)| e == d && m != l && other < 2.0 * across)
+        })
+        .collect();
+    let mut found: Vec<(f32, usize, usize)> = found
+        .iter()
+        .zip(alone)
+        .filter_map(|(&(dist, d, l, _), alone)| alone.then_some((dist, d, l)))
+        .collect();
     found.sort_by(|x, y| x.0.total_cmp(&y.0));
     let (mut taken_d, mut taken_l) = (vec![false; n], vec![false; n]);
     let mut held = Vec::new();
@@ -297,6 +313,24 @@ mod tests {
         let mut bones = rig().bones().to_vec();
         bones[5].parent = Some(4);
         bones[5].rest.translation = Vec3::new(0.0, -0.45, 0.0);
+        assert!(held(&Skeleton::new(bones).unwrap()).is_none());
+    }
+
+    #[test]
+    fn a_node_between_the_feet_ends_neither_leg() {
+        // Legs ending at the ankle, and the mesh's node at the origin, a root of its own as some exports leave it: low
+        // enough under either ankle to be its foot, but as near the one as the other.
+        let mut bones = vec![
+            bone("body", None, [0.0, 0.0, 0.0]),
+            bone("hips", None, [0.0, 1.0, 0.0]),
+            bone("head", Some(1), [0.0, 0.7, 0.0]),
+        ];
+        for x in [0.1, -0.1] {
+            let thigh = bones.len();
+            bones.push(bone("thigh", Some(1), [x, -0.05, 0.0]));
+            bones.push(bone("calf", Some(thigh), [0.0, -0.4, 0.0]));
+            bones.push(bone("foot", Some(thigh + 1), [0.0, -0.4, 0.0]));
+        }
         assert!(held(&Skeleton::new(bones).unwrap()).is_none());
     }
 

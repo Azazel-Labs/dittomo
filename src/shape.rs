@@ -52,6 +52,9 @@ pub(crate) struct Shape {
     /// How long the arms are, from the chest to where the hand begins, then the legs, from the hips to their ends, over
     /// the height: the longer of each two.
     pub span: [f32; 2],
+    /// For each bone past where a hand begins, where it stands from there, turned as the arm would be held straight out
+    /// to its side.
+    pub palm: Vec<Option<Vec3>>,
     /// For each bone up from the chest to the head, how many bones up it is (0 for the first) and how many the neck and
     /// head have: those at the middle between the shoulders' roots, from no lower than them (not a bag on the back) to
     /// 1.4 times as high (not a vent on a robot's head, above where any head's root stands), not counting a bone
@@ -131,6 +134,7 @@ impl Shape {
                 topped: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
+                palm: Vec::new(),
                 names,
             };
         }
@@ -231,6 +235,7 @@ impl Shape {
                 topped: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
+                palm: Vec::new(),
                 names,
             };
         }
@@ -387,15 +392,28 @@ impl Shape {
         let far: Vec<bool> = (0..n)
             .map(|i| limb[i].is_some_and(|(r, _)| r == 0) && hand[i].is_some_and(|(_, near)| near > length[i]))
             .collect();
-        let (mut along, arms) = along_limbs(limbs[0], &parents, &length, &main, &hand);
+        let (mut along, arms, hands) = along_limbs(limbs[0], &parents, &length, &main, &hand);
         // A leg ends where it ends: a foot's toes are as much the leg as the foot is, where fingers branch off a hand.
-        let (down, legs) = along_limbs(limbs[1], &parents, &length, &main, &vec![None; n]);
+        let (down, legs, _) = along_limbs(limbs[1], &parents, &length, &main, &vec![None; n]);
         for (x, d) in along.iter_mut().zip(down) {
             if x.is_nan() {
                 *x = d;
             }
         }
         let span = [arms, legs];
+        // Past where each hand begins, where each bone stands from it, the arm turned out straight to its side: a
+        // finger stands where it does whether the arm hangs down or out, at rest.
+        let mut palm = vec![None; n];
+        for h in hands.into_iter().flatten() {
+            let Some(p) = parents[h] else { continue };
+            let side = if at[h].x > at[p].x { Vec3::X } else { Vec3::NEG_X };
+            let out = Quat::from_rotation_arc((at[h] - at[p]).normalize_or(side), side);
+            let mut stack = children[h].clone();
+            while let Some(c) = stack.pop() {
+                palm[c] = Some(out * (at[c] - at[h]));
+                stack.extend(&children[c]);
+            }
+        }
         let mut neck = vec![None; n];
         if let (Some(chest), Some(arms)) = (girdles[0], limbs[0]) {
             let (shoulders, mid) = (at[arms[0]].y.max(at[arms[1]].y), (at[arms[0]].x + at[arms[1]].x) / 2.0);
@@ -492,6 +510,7 @@ impl Shape {
             limb,
             along,
             span,
+            palm,
             neck,
             spine,
             doubled,
@@ -501,8 +520,8 @@ impl Shape {
     }
 }
 
-/// How far along its limb each bone is, and how long the limbs are (see [`Shape::along`] and [`Shape::span`]), for
-/// the two limbs starting at `arms`. `hand` is, for a bone limbs of more than one bone hang from, how far the nearest
+/// How far along its limb each bone is, how long the limbs are (see [`Shape::along`] and [`Shape::span`]) and the bone
+/// each hand begins at, if it branches, for the two limbs starting at `arms`. `hand` is, for a bone limbs of more than one bone hang from, how far the nearest
 /// of them starts from it: where the hand begins.
 fn along_limbs(
     arms: Option<[usize; 2]>,
@@ -510,10 +529,10 @@ fn along_limbs(
     length: &[f32],
     main: &[Option<usize>],
     hand: &[Option<(usize, f32)>],
-) -> (Vec<f32>, f32) {
+) -> (Vec<f32>, f32, [Option<usize>; 2]) {
     let n = parents.len();
     let Some(arms) = arms else {
-        return (vec![f32::NAN; n], 0.0);
+        return (vec![f32::NAN; n], 0.0, [None; 2]);
     };
     // The way to each bone from the chest, and the arm it's in; bones come after their parents.
     let mut way = vec![0.0f32; n];
@@ -533,7 +552,7 @@ fn along_limbs(
     // where the nearest starts (a hand's fingers, a robot's palms hung from its forearm, not cloth hung from a shoulder
     // or a thumb from a palm), or else at the end. A limb of two bones bends between them: the second stands at the
     // elbow, its forearm unmeasured, the hand a forearm on, about as far as the upper arm is long.
-    let mut ends = [0.0f32; 2];
+    let (mut ends, mut hands) = ([0.0f32; 2], [None; 2]);
     for k in 0..2 {
         let (mut b, mut fork, mut bones) = (arms[k], None::<(usize, f32)>, 1);
         loop {
@@ -541,6 +560,7 @@ fn along_limbs(
                 && fork.is_none_or(|(most, _)| count >= most)
             {
                 fork = Some((count, way[b] + near));
+                hands[k] = Some(b);
             }
             match main[b] {
                 Some(c) => (b, bones) = (c, bones + 1),
@@ -560,7 +580,7 @@ fn along_limbs(
             }
         }
     }
-    (along, end)
+    (along, end, hands)
 }
 
 /// The body's left, up and forward, as a rotation from them to the world's x, y and z. Up is the world's up (glTF's
