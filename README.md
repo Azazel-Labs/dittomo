@@ -169,7 +169,7 @@ moving steadily from the frame before to the one after than the source's is, by 
 | travel | 0.00118 | 0.0097 | 1.7° | 0.03% |
 | planted feet | 0.00266 | 0.0001 | 2.5° | 0.08% |
 | push-out | 0.00388 | 0.0097 | 1.7° | 0.03% |
-| all (`apply_with`) | 0.00001 | 0.0001 | 2.7° | 0.17% |
+| all (`apply_with`) | 0.00001 | 0.0001 | 2.7° | 0.16% |
 | all, live (`Live`) | 0.00004 | 0.0001 | 2.7° | 0.20% |
 | all, live, 6 poses late (`Live::delayed`) | 0.00004 | 0.0001 | 2.6° | 0.16% |
 
@@ -185,7 +185,7 @@ as it slips as played, rather than each part at its own average: a foot drifting
 next. Played live, with nothing ahead, slide is cut about a hundred times: a foot is held from the pose it lands, where
 the target's was the pose before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a
 little more to hold it. The body is lowered there too, at once as far as the legs need, then eased back up over a tenth
-of a second. Six poses late slide is cut as much, with limbs closer and fewer pops than the whole clip's. A foot is
+of a second. Six poses late slide is cut as much, with limbs closer and as few pops as the whole clip's. A foot is
 planted from the first pose it stands on, judged by how fast it comes or goes, whichever is slower, so clips keyed in
 steps, whose feet jump between held poses, keep their feet still too. Push-out finds nothing to do here, as none of
 these clips put a hand through the body.

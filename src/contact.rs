@@ -2537,7 +2537,7 @@ fn played(map: &Mapping, s_body: &Body, t_body: &Body) -> Vec<(Limb, usize)> {
 ///
 /// A hand darting to the head would jump onto it, so each is eased on over a quarter of a second at least, ahead of the
 /// source's, and off as slowly after it lets go; while easing, the hand moves a share of the way from where it would be
-/// to where it lands on the head, so it arrives along its own path, on time.
+/// to where it lands on the head, so it arrives along its own path, on time ([`carry`]).
 pub(crate) fn on_head(
     map: &Mapping,
     rigs: [(&Skeleton, &Shape); 2],
@@ -2560,14 +2560,9 @@ pub(crate) fn on_head(
         raw.extend_from_slice(&fix.on);
     }
     // Each hand eased onto the head ahead of the source's and off after it, over `ONTO` at least, never less than the
-    // source's is on its own head; while easing, aimed where it goes in the pose it is eased toward.
-    let mut w: Vec<f32> = raw.iter().map(|o| o.0).collect();
-    let mut toward: Vec<usize> = (0..n * k).collect();
-    let mut ease = |p: usize, q: usize, step: f32| {
-        if w[p] - step > w[q] {
-            (w[q], toward[q]) = (w[p] - step, toward[p]);
-        }
-    };
+    // source's is on its own head ([`carry`]).
+    let mut eased = raw;
+    let mut ease = |p: usize, q: usize, step: f32| eased[q] = carry(eased[p], eased[q], step);
     for f in 1..n {
         for i in 0..k {
             ease((f - 1) * k + i, f * k + i, dt(f) / ONTO);
@@ -2582,8 +2577,22 @@ pub(crate) fn on_head(
         place(source, pose, &fix.s_path, &mut scratch.sw);
         fix.on.clear();
         fix.on
-            .extend((f * k..(f + 1) * k).map(|q| (smooth(w[q]), raw[toward[q]].1)));
+            .extend(eased[f * k..(f + 1) * k].iter().map(|&(w, aim)| (smooth(w), aim)));
         fix.put(target, played, &mut scratch);
+    }
+}
+
+/// How far onto the head a hand goes, and where it is aimed, `on` as the source's is, carried on from `from` a pose
+/// eased by `step` before or after: never less on than `from` but for `step`. Eased on further than the source's own,
+/// it is aimed where the source's is for as far on as that is, and where `from` aims it for the rest, so it is aimed
+/// where it goes in the pose it is eased toward while the source's isn't on the head, and its aim moves on to its own
+/// smoothly as the source's comes on: aimed at the one or the other, it would jump from one to the other.
+fn carry(from: (f32, Vec3), on: (f32, Vec3), step: f32) -> (f32, Vec3) {
+    let w = from.0 - step;
+    if w > on.0 {
+        (w, (on.1 * on.0 + from.1 * (w - on.0)) / w)
+    } else {
+        on
     }
 }
 
@@ -2652,17 +2661,16 @@ impl OnHead {
 
     /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]), `dt` seconds
     /// after the pose before. Each hand is put on the head over `ONTO` at least, so it gets there late when the
-    /// source's darts there, and taken off as slowly, aimed where it was last put.
+    /// source's darts there, and taken off as slowly, aimed as it was last put ([`carry`]).
     pub(crate) fn placed(&mut self, target: &Skeleton, dt: f32, played: &mut [Transform], scratch: &mut Scratch) {
         let step = if dt > 0.0 { dt / ONTO } else { 0.0 };
         self.weigh(dt, &scratch.sw);
         self.aim(target, played, scratch);
         for ((was, aimed), (on, aim)) in self.eased.iter_mut().zip(&mut self.on) {
-            let w = on.clamp(*was - step, *was + step);
-            if *on >= w {
-                *aimed = *aim;
-            }
-            (*was, *on, *aim) = (w, smooth(w), *aimed);
+            let (w, toward) = carry((*was, *aimed), (*on, *aim), step);
+            let w = w.min(*was + step);
+            (*was, *aimed) = (w, toward);
+            (*on, *aim) = (smooth(w), toward);
         }
         self.put(target, played, scratch);
     }
