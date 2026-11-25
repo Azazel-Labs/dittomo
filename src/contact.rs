@@ -887,8 +887,9 @@ fn sink(leg: [Vec3; 3], goal: Vec3) -> f32 {
 /// How far a leg's hip, its hip, knee and foot at `leg`, wants raising, and may be raised, for the foot to reach
 /// `goal`. A foot played under its goal (the floor) wants the body raised for it to reach there bent as much as it is,
 /// rather than the knee bent further, as a leg straightening from further bent at rest than the source's goes; one
-/// played over it wants nothing. Either lets the body rise as far as it can still reach, standing nearly straight at
-/// most, as [`sink`] lets a leg straighten. A tenth of the leg at most.
+/// played over it wants nothing. Either lets the body rise as far as it can still reach, a little short of where
+/// [`sink`] lets a leg straighten, so a foot held at the edge of its reach as the body moves on doesn't slide. A tenth
+/// of the leg at most.
 fn rise(leg: [Vec3; 3], goal: Vec3) -> (f32, f32) {
     let [hip, knee, foot] = leg;
     let long = hip.distance(knee) + knee.distance(foot);
@@ -909,7 +910,7 @@ fn rise(leg: [Vec3; 3], goal: Vec3) -> (f32, f32) {
     };
     (
         if goal.y > foot.y { up(played) } else { 0.0 },
-        up(played.max(0.98 * long)),
+        up(played.max(0.97 * long)),
     )
 }
 
