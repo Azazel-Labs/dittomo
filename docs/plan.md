@@ -193,7 +193,8 @@ frame in 3.6 µs, setup included, against `SkeletonUtils.retargetClip`'s 221 µs
 on a busy machine, best of five runs each, dittomo played a frame in 7.0 µs against its 50 µs (7×), or 143 µs with the
 hips' path scaled (20×). Babylon corrects for rests that differ but only bakes whole clips.
 
-Missing: engine humanoid profiles (Unity, Godot, Unreal) in the rig benchmark.
+Godot's humanoid auto mapping, ported from its editor into the rig benchmark, finds 58.9% of joints against dittomo's
+99.5%. Missing: Unity's and Unreal's humanoid matchers.
 
 ## Open-source landscape
 
@@ -407,11 +408,12 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       Retargeter joins through editor Python where its license allows. Mixamo's terms likely forbid redistributing its
       files, so publish the scripts and have users download the data. Done for bone-finding: `bench/rigs/fetch.sh`
       downloads twelve rigs at pinned commits with checksums, `bench/rigs/labels.txt` labels them, and
-      `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching, then plays every rig's clips
-      on every other and scores limb directions against copying rotations and foot contact with each fix. SAN's
-      Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`): dittomo scores 1.42 intra-structural
-      and 0.66 cross-structural against SAN's published 2.76 and 2.25, untrained (README, Against the learned
-      retargeters). R2ET's test pairs exist only in its code, and Godot, Unity and Unreal are still to come.
+      `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching and Godot's humanoid auto
+      mapping (ported), then plays every rig's clips on every other and scores limb directions against copying rotations
+      and foot contact with each fix. SAN's Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`):
+      dittomo scores 1.42 intra-structural and 0.66 cross-structural against SAN's published 2.76 and 2.25, untrained
+      (README, Against the learned retargeters). R2ET's test pairs exist only in its code, and Unity and Unreal are
+      still to come.
 - [ ] **Measure where dittomo stands** on every row of the Goal table. Mapping accuracy is measured on real rigs;
       per-frame cost and mapping time on made-up rigs (see Where things stand); limb directions and foot contact on real
       clips; three.js's and Babylon's playback on the same rigs.

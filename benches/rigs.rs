@@ -28,6 +28,9 @@ use dittomo::load::Model;
 use dittomo::{Clip, Fixes, Live, Mapping, Quat, Skeleton, Surface, Transform, Vec3};
 use glam::Mat3;
 
+#[path = "rigs/godot.rs"]
+mod godot;
+
 const JOINTS: [&str; 23] = [
     "hips",
     "spine",
@@ -190,18 +193,21 @@ fn main() {
     }
 
     let show = has("--pairs");
-    let (mut found, mut named, mut asked) = (0usize, 0usize, 0usize);
-    let mut per: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new();
+    let (mut found, mut named, mut godot, mut asked) = (0usize, 0usize, 0usize, 0usize);
+    let mut per: BTreeMap<&str, (usize, usize, usize, usize)> = BTreeMap::new();
+    // Godot's profile name for each bone of each rig: a pair maps both rigs to the profile, as a Godot `BoneMap` does.
+    let profiled: Vec<Vec<Option<&str>>> = rigs.iter().map(|r| godot::auto_map(&r.model.skeleton)).collect();
     let mut worst: Vec<(f32, String)> = Vec::new();
-    for s in &rigs {
-        for t in &rigs {
+    for (si, s) in rigs.iter().enumerate() {
+        for (ti, t) in rigs.iter().enumerate() {
             if std::ptr::eq(s, t) {
                 continue;
             }
             let (ss, ts) = (&s.model.skeleton, &t.model.skeleton);
             let map = Mapping::new(ss, ts);
             let names = by_name(ss, ts);
-            let (mut f, mut nm, mut a) = (0, 0, 0);
+            let (gs, gt) = (&profiled[si], &profiled[ti]);
+            let (mut f, mut nm, mut gd, mut a) = (0, 0, 0, 0);
             let mut misses = Vec::new();
             for joint in JOINTS {
                 let (Some(&sb), Some(&tb)) = (s.labels.get(joint), t.labels.get(joint)) else {
@@ -209,7 +215,7 @@ fn main() {
                 };
                 a += 1;
                 let e = per.entry(joint).or_default();
-                e.2 += 1;
+                e.3 += 1;
                 if map.source_of(tb) == Some(sb) {
                     f += 1;
                     e.0 += 1;
@@ -225,9 +231,14 @@ fn main() {
                     nm += 1;
                     e.1 += 1;
                 }
+                if gt[tb].is_some() && gs.iter().position(|p| *p == gt[tb]) == Some(sb) {
+                    gd += 1;
+                    e.2 += 1;
+                }
             }
             found += f;
             named += nm;
+            godot += gd;
             asked += a;
             let share = f as f32 / a.max(1) as f32;
             worst.push((share, format!("{} → {}", s.name, t.name)));
@@ -248,10 +259,16 @@ fn main() {
     println!("| Matcher | joints found |\n| --- | ---: |");
     println!("| dittomo | {:.1}% |", pct(found, asked));
     println!("| exact name (three.js, Babylon default) | {:.1}% |", pct(named, asked));
-    println!("\n| Joint | dittomo | by name |\n| --- | ---: | ---: |");
+    println!("| Godot humanoid auto mapping | {:.1}% |", pct(godot, asked));
+    println!("\n| Joint | dittomo | by name | Godot |\n| --- | ---: | ---: | ---: |");
     for joint in JOINTS {
-        if let Some(&(f, n, a)) = per.get(joint) {
-            println!("| {joint} | {:.0}% | {:.0}% |", pct(f, a), pct(n, a));
+        if let Some(&(f, n, g, a)) = per.get(joint) {
+            println!(
+                "| {joint} | {:.0}% | {:.0}% | {:.0}% |",
+                pct(f, a),
+                pct(n, a),
+                pct(g, a)
+            );
         }
     }
     worst.sort_by(|a, b| a.0.total_cmp(&b.0));

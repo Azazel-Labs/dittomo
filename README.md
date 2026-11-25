@@ -92,22 +92,25 @@ Twelve real characters from four ecosystems, fetched at pinned commits by `sh be
 Michelle, Soldier and Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan,
 RiggedFigure and BrainStem, two VRM avatars, and Babylon's HVGirl. Each rig's body joints are labeled by hand
 (`bench/rigs/labels.txt`); every one of the 132 ordered pairs is mapped, and a joint counts as found when the target's
-joint plays the source's. `cargo bench --features fs --bench rigs`:
+joint plays the source's. Godot's humanoid auto mapping (its `BoneMapper`, ported faithfully from the editor's source
+into `benches/rigs/godot.rs`, MIT) maps both rigs onto its humanoid profile, as a `BoneMap` does, so it gets a joint
+when both rigs' bones get the same profile bone. `cargo bench --features fs --bench rigs`:
 
 | Matcher | Joints found (2558) |
 | --- | ---: |
 | dittomo | 99.5% |
+| Godot's humanoid auto mapping (`BoneMapper`) | 58.9% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 30.3% |
 
-| Joint | dittomo | By name | | Joint | dittomo | By name |
-| --- | ---: | ---: | --- | --- | ---: | ---: |
-| hips | 100% | 38% | | thighs | 100% | 24% |
-| spine | 96% | 38% | | shins | 100% | 24% |
-| chest | 100% | 24% | | feet | 100% | 29% |
-| neck | 100% | 51% | | toes | 100% | 29% |
-| head | 94% | 32% | | clavicles | 100% | 44% |
-| upper arms | 100% | 23% | | forearms | 100% | 23% |
-| hands | 100% | 33% | | index fingers | 100% | 42% |
+| Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
+| --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
+| hips | 100% | 65% | 38% | | thighs | 100% | 42% | 24% |
+| spine | 96% | 82% | 38% | | shins | 100% | 42% | 24% |
+| chest | 100% | 36% | 24% | | feet | 100% | 51% | 29% |
+| neck | 100% | 100% | 51% | | toes | 100% | 51% | 29% |
+| head | 94% | 83% | 32% | | clavicles | 100% | 100% | 44% |
+| upper arms | 100% | 55% | 23% | | forearms | 100% | 55% | 23% |
+| hands | 100% | 62% | 33% | | index fingers | 100% | 58% | 42% |
 
 What it gets wrong:
 
@@ -117,10 +120,14 @@ What it gets wrong:
   height out from the middle, and had been taken for RobotExpressive's shoulders, a stub as far out from the chest; told
   apart by where each goes on to, against the robot went from 60% to 90%.
 - With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it).
+- Godot's mapper looks for words in names and walks down from what it finds, so a rig it can't start on loses everything
+  below: BrainStem's unnamed bones get nothing; CesiumMan's hips are taken for its `torso_joint_3`, the chest, and its
+  arms and legs aren't found; RiggedFigure has no bone named foot or hand, so only its trunk is; RobotExpressive's feet
+  hang from the root, and its hand is taken for the palm bone of its middle finger.
 
 CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather
-than committed; each keeps its own license. Engines' own humanoid matchers (Unity's Avatar, Godot's `BoneMap`, Unreal's
-IK Retargeter) aren't in the table: they need the engine running.
+than committed; each keeps its own license. Unity's Avatar and Unreal's IK Retargeter aren't in the table: their
+matchers aren't open source, and need the engine running.
 
 ### Playing real clips
 
@@ -517,5 +524,6 @@ The full plan, including the learned runtime this feeds and the open-source land
 
 - **The rest of the comparison benchmark**: R2ET's own test (its pairs aren't published as data). Bone-finding, limb
   directions, foot contact, playback against three.js and Babylon, and SAN's Mixamo test are done (above).
-- **Engine humanoid profiles** in the rig benchmark, by exporting what Unity's Avatar and Godot's `BoneMap` choose.
+- **Unity's and Unreal's humanoid matchers** in the rig benchmark, by exporting what Unity's Avatar and Unreal's IK
+  Retargeter choose.
 - **FBX out**, with the meshes, once polysmelt writes FBX; clips go out as GLB, VRM and BVH for now.
