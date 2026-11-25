@@ -6,7 +6,7 @@
 //! whole. Each animation becomes a [`Clip`] posed at every time any of its channels has a key.
 //!
 //! Clips go back out with [`Model::write_clip`], as glTF animations of the document the model was read from, which
-//! polysmelt writes as a GLB:
+//! polysmelt writes as a GLB, or as binary FBX with `Document::to_fbx`:
 //!
 //! ```no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -203,7 +203,7 @@ impl Model {
     /// at the clip's times, those left out that playing between the rest gives within a thousandth of a degree, or a
     /// hundred-thousandth of the body's height, and left out altogether where they stay as at rest throughout. A keyed
     /// node placed by a matrix is placed by the translation, rotation and scale it stands at instead, as glTF animates
-    /// only those. [`Document::to_glb`] then gives the file.
+    /// only those. [`Document::to_glb`] or [`Document::to_fbx`] then gives the file.
     ///
     /// # Errors
     /// [`Error::Clip`] if the clip doesn't pose the skeleton, has no times, or its times don't rise.

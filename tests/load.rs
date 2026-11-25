@@ -101,6 +101,54 @@ fn writes_a_clip_that_reads_back_the_same() {
 }
 
 #[test]
+fn writes_a_clip_as_fbx_that_reads_back_the_same() {
+    let mut doc = load::document(&path()).unwrap();
+    let m = Model::from_document(&doc).unwrap();
+    let clip = &m.clips[0].1;
+    let lower = m
+        .skeleton
+        .bones()
+        .iter()
+        .position(|b| b.name.contains("Lower"))
+        .unwrap();
+    let mut bent = clip.clone();
+    for (f, p) in bent.poses.iter_mut().enumerate() {
+        p[lower].rotation = Quat::from_rotation_z(0.01 * f as f32) * p[lower].rotation;
+    }
+    m.write_clip(&mut doc, Some("bent"), &bent).unwrap();
+    let fbx = doc.to_fbx().unwrap();
+    let back = Model::from_bytes(&fbx, "fbx").unwrap();
+    // Each bone, found by its name and its parent's.
+    let named = |m: &Model, b: usize| {
+        let bones = m.skeleton.bones();
+        (bones[b].name.clone(), bones[b].parent.map(|p| bones[p].name.clone()))
+    };
+    let found: Vec<usize> = (0..m.skeleton.len())
+        .map(|b| {
+            (0..back.skeleton.len())
+                .find(|&c| named(&back, c) == named(&m, b))
+                .unwrap_or_else(|| panic!("{:?} read back", named(&m, b)))
+        })
+        .collect();
+    let played = back.clip("bent").expect("the clip written");
+    // Each written pose, at its time, in the world, as near as FBX's Euler curves keep it.
+    let rest = m.skeleton.world(&m.skeleton.rest());
+    let size = rest.iter().map(|p| p.position().length()).fold(1e-3, f32::max);
+    for (&t, want) in bent.times.iter().zip(&bent.poses) {
+        let k = played
+            .times
+            .iter()
+            .position(|&u| (u - t).abs() < 1e-4)
+            .expect("a key at each time");
+        let (w, g) = (m.skeleton.world(want), back.skeleton.world(&played.poses[k]));
+        for (x, y) in w.iter().zip(found.iter().map(|&c| &g[c])) {
+            assert!(x.position().distance(y.position()) < 1e-3 * size, "at {t}");
+            assert!(x.rotation.dot(y.rotation).abs() > 0.99999, "at {t}");
+        }
+    }
+}
+
+#[test]
 fn writes_bvh_that_reads_back_the_same() {
     let m = Model::load(&path()).unwrap();
     // The file's poses a thirtieth of a second apart, which the BVH keeps pose for pose.

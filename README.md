@@ -421,7 +421,8 @@ in all, each one kept.
 ## Writing clips
 
 `Model::write_clip` adds a clip to the document the model was read from as a glTF animation, and polysmelt writes the
-document as a GLB, so a retargeted clip goes out with the target's meshes, materials and VRM extensions as they were.
+document as a GLB, so a retargeted clip goes out with the target's meshes, materials and VRM extensions as they were, or
+as binary FBX (`doc.to_fbx()`), skin, materials and all, each clip a take of its own.
 `load::document(path)` reads the document (`load::document_from_bytes` one in memory) and `Model::from_document` the
 model from it:
 
@@ -448,11 +449,16 @@ with every fix, and writing the target with them in place of its own:
 
 ```sh
 dittomo walk.fbx avatar.vrm avatar_walk.glb [--clip NAME|N]... [--fixes all|none] [--keep] [--pairs]
+dittomo walk.fbx avatar.vrm avatar_walk.fbx [--clip NAME|N]... [--fixes all|none] [--keep] [--pairs]
 dittomo walk.fbx avatar.vrm avatar_walk.bvh [--clip NAME|N]... [--fixes all|none] [--fps N]
 ```
 
 `--keep` keeps the target's own clips too, and `--pairs` prints which source bone each target bone follows. The FBX
 samba onto seed-san's 132 bones takes 0.8 s, reading and writing included; Michelle's samba onto the soldier 0.08 s.
+
+An output ending in .fbx gets the same as binary FBX, for the engines and tools that take FBX rather than glTF. It
+reads back with every bone of every key within a thousandth of the body's height and a hundred-thousandth of a turn of
+where the clip puts it, and writing seed-san's 16 MB as FBX takes about half a second more than as GLB.
 
 An output ending in .bvh gets the target's skeleton and the clip as BVH motion capture instead, for MotionBuilder,
 Blender, Maya and the other tools that take mocap (`dittomo::bvh::write`, with no features needed). The hierarchy is the
@@ -629,10 +635,11 @@ shoulders) and on a rig whose fingers hang below its knees.
 [azazel-labs.github.io/dittomo](https://azazel-labs.github.io/dittomo/), built from main on every push. Drop
 in two GLB, glTF, VRM, FBX or BVH files, or use the built-in sample. It shows both skeletons playing side by side, the
 quality, how long the match and the clip took, every target bone's match and score, and toggles for each fix. Download
-saves the target with the clip just played, through `write_clip`, as a GLB (a VRM stays a .vrm), with nothing sent
+saves the target with the clip just played, through `write_clip`, as a GLB (a VRM stays a .vrm), and FBX the same as
+binary FBX, with nothing sent
 anywhere: in Node, the samba FBX plays on seed-san with every fix in under a second and downloads in 0.2 s, and
 Michelle's samba on the soldier in 40 ms and 19 ms. BVH saves the target's skeleton and the clip as motion capture,
-the built-in sample's too. The whole module is about 1.5 MB, file readers and writers included.
+the built-in sample's too. The whole module is about 2.4 MB, file readers and writers included.
 
 ```sh
 sh demo/build.sh
@@ -648,4 +655,3 @@ The full plan, including the learned runtime this feeds and the open-source land
   directions, foot contact, playback against three.js and Babylon, and SAN's Mixamo test are done (above).
 - **Unity's and Unreal's humanoid matchers** in the rig benchmark, by exporting what Unity's Avatar and Unreal's IK
   Retargeter choose.
-- **FBX out**, with the meshes, once polysmelt writes FBX; clips go out as GLB, VRM and BVH for now.

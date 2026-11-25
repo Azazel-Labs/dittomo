@@ -26,7 +26,8 @@
 //! one player at once, in about half the time each.
 //!
 //! With the `load` feature, [`load::Model`] reads skeletons and clips from glTF, GLB and FBX (and USD with `usd`).
-//! [`bvh::write`] writes a skeleton and a clip as BVH motion capture, with no feature needed.
+//! [`load::Model::write_clip`] writes clips back into the target's own file, out as GLB or FBX, and, with no feature
+//! needed, [`bvh::write`] a skeleton and a clip as BVH motion capture.
 #![forbid(unsafe_code)]
 
 mod assign;

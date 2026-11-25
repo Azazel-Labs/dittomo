@@ -1,13 +1,18 @@
-//! Retargets a model file's clips onto another model and writes that model, with them, as a GLB, or the clips as BVH.
+//! Retargets a model file's clips onto another model and writes that model, with them, as a GLB or an FBX, or the
+//! clips as BVH.
 //!
 //! ```text
-//! dittomo SOURCE TARGET OUT.glb|OUT.vrm|OUT.bvh [--clip N|NAME]... [--fixes all|none] [--keep] [--fps N] [--pairs]
+//! dittomo SOURCE TARGET OUT.glb|OUT.vrm|OUT.fbx|OUT.bvh
+//!         [--clip N|NAME]... [--fixes all|none] [--keep] [--fps N] [--pairs]
 //! ```
 //!
 //! Every clip of SOURCE is played on TARGET, or those named by `--clip` (by name, or by number from 0), each named as
 //! in SOURCE. TARGET's own clips are left out unless `--keep` is given. `--fixes none` plays the clips plainly, without
 //! feet kept planted, hands kept out of the body, and the rest; `--fixes all` also gives a clip walked in place the
 //! travel its feet imply; `--pairs` prints which bone of SOURCE each bone of TARGET follows.
+//!
+//! An OUT ending in `.fbx` gets TARGET, skin and all, as binary FBX, each clip a take of its own, for the engines and
+//! tools that take FBX rather than glTF.
 //!
 //! An OUT ending in `.bvh` gets TARGET's skeleton and a clip as BVH motion capture, `--fps` frames a second (by default
 //! the clip's own rate, up to 120); with more than one clip, each goes to a file of its own, named OUT-CLIP.bvh.
@@ -20,7 +25,7 @@ use dittomo::{Fixes, Mapping};
 use polysmelt::document::Keep;
 
 const USAGE: &str = concat!(
-    "usage: dittomo SOURCE TARGET OUT.glb|OUT.vrm|OUT.bvh",
+    "usage: dittomo SOURCE TARGET OUT.glb|OUT.vrm|OUT.fbx|OUT.bvh",
     " [--clip N|NAME]... [--fixes all|none] [--keep] [--fps N] [--pairs]"
 );
 
@@ -72,10 +77,12 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let is = |ext: &str| out.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
     let bvh = is("bvh");
     if is("gltf") {
-        return Err("glTF goes out as GLB: name the output .glb (or .vrm, or .bvh for the clips alone)".into());
+        return Err("glTF goes out as GLB: name the output .glb (or .vrm, .fbx, or .bvh for the clips alone)".into());
     }
     if fps.is_some() && !bvh {
-        return Err("--fps is for BVH output, whose frames are evenly spaced; GLB keeps the clip's own times".into());
+        return Err(
+            "--fps is for BVH output, whose frames are evenly spaced; GLB and FBX keep the clip's own times".into(),
+        );
     }
     let read = |p: &Path, e: load::Error| format!("{}: {e}", p.display());
     let s = Model::load(&source).map_err(|e| read(&source, e))?;
@@ -158,8 +165,12 @@ fn run(args: Vec<String>) -> Result<(), String> {
         let seconds = clip.times.last().copied().unwrap_or(0.0) - clip.times[0];
         eprintln!("played {name}: {} poses over {seconds:.2} s", clip.times.len());
     }
-    let glb = doc.to_glb().map_err(|e| format!("couldn't write the GLB: {e}"))?;
-    std::fs::write(&out, glb).map_err(|e| format!("{}: {e}", out.display()))?;
+    let bytes = if is("fbx") {
+        doc.to_fbx().map_err(|e| format!("couldn't write the FBX: {e}"))?
+    } else {
+        doc.to_glb().map_err(|e| format!("couldn't write the GLB: {e}"))?
+    };
+    std::fs::write(&out, bytes).map_err(|e| format!("{}: {e}", out.display()))?;
     eprintln!("wrote {}", out.display());
     Ok(())
 }

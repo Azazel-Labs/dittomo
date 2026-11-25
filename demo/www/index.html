@@ -56,7 +56,7 @@
 <header>
   <h1>dittomo</h1>
   <p>Drop in two rigged models (GLB, glTF, VRM, FBX or BVH). The first one's clips play on the second, matched by shape
-    alone, and download with it as a GLB.</p>
+    alone, and download with it as a GLB or an FBX.</p>
 </header>
 <div class="err" id="err"></div>
 <main>
@@ -72,7 +72,8 @@
       <button id="playing">Pause</button>
       <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Frame">
       <select id="clip" aria-label="Clip"></select>
-      <button id="save" disabled>Download</button>
+      <button id="save" disabled data-title="The target's file with the clip, as a GLB">Download</button>
+      <button id="fbx" disabled data-title="The target's file with the clip, as an FBX">FBX</button>
       <button id="bvh" disabled title="The target's skeleton and the clip as BVH motion capture">BVH</button>
     </div>
     <div class="bar">

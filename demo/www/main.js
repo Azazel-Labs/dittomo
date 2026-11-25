@@ -3,7 +3,7 @@
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"), save: $("save"), bvh: $("bvh"),
+  err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"), save: $("save"), fbx: $("fbx"), bvh: $("bvh"),
   travel: $("travel"), feet: $("feet"), push: $("push"), floor: $("floor"), touch: $("touch"), hands: $("hands"), head: $("head"), sample: $("sample"), stats: $("stats"), pairs: $("pairs"),
 };
 
@@ -72,24 +72,27 @@ function play() {
   frame = Math.min(frame, frames - 1);
   clock = times[frame] - times[0];
   ui.scrub.max = frames - 1;
-  ui.save.disabled = !targetFile;
-  ui.save.title = targetFile ? "" : "Load a target model from a file to download it with the clip";
+  for (const b of [ui.save, ui.fbx]) {
+    b.disabled = !targetFile;
+    b.title = targetFile ? b.dataset.title : "Load a target model from a file to download it with the clip";
+  }
   ui.bvh.disabled = false;
   stats();
 }
 
-// The target's file with the clip just played in place of its own, named after both; a VRM stays a .vrm. Or, as BVH,
-// the target's skeleton and the clip alone.
-function save(bvh) {
-  const n = wasm.export(bvh ? 1 : 0);
+// The target's file with the clip just played in place of its own, named after both, as a GLB (a VRM stays a .vrm) or
+// an FBX. Or, as BVH, the target's skeleton and the clip alone.
+function save(kind) {
+  const n = wasm.export({ glb: 0, bvh: 1, fbx: 2 }[kind]);
   if (!n) return fail(text());
   const bytes = new Uint8Array(wasm.memory.buffer, wasm.out(), n).slice();
   const [, base, ext] = (targetFile ?? "mannequin").match(/^(.*?)(?:\.([^.]*))?$/);
   const clip = report.clips[+ui.clip.value]?.name ?? "rest";
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([bytes], { type: bvh ? "text/plain" : "model/gltf-binary" }));
+  const type = { glb: "model/gltf-binary", bvh: "text/plain", fbx: "application/octet-stream" }[kind];
+  a.href = URL.createObjectURL(new Blob([bytes], { type }));
   a.download = `${base}-${clip}`.replace(/[^\w.-]+/g, "-") +
-    (bvh ? ".bvh" : ext?.toLowerCase() === "vrm" ? ".vrm" : ".glb");
+    (kind !== "glb" ? `.${kind}` : ext?.toLowerCase() === "vrm" ? ".vrm" : ".glb");
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
@@ -234,8 +237,9 @@ ui.playing.onclick = () => { playing = !playing; ui.playing.textContent = playin
 ui.scrub.oninput = () => { frame = +ui.scrub.value; clock = times ? times[frame] - times[0] : 0; };
 for (const el of [ui.clip, ui.travel, ui.feet, ui.push, ui.floor, ui.touch, ui.hands, ui.head]) el.onchange = play;
 ui.sample.onclick = sample;
-ui.save.onclick = () => save(false);
-ui.bvh.onclick = () => save(true);
+ui.save.onclick = () => save("glb");
+ui.fbx.onclick = () => save("fbx");
+ui.bvh.onclick = () => save("bvh");
 
 let drag = null;
 ui.view.onpointerdown = (e) => { drag = [e.clientX, e.clientY, yaw, pitch]; ui.view.setPointerCapture(e.pointerId); };

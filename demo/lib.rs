@@ -172,13 +172,14 @@ pub extern "C" fn play(clip: u32, fixes: u32) -> u32 {
     })
 }
 
-/// Writes the clip last played on the target, to read at [`out`]: with `bvh` 0, into the target's file in place of its
-/// own clips, as a GLB (meshes, materials and VRM extensions as they were); with `bvh` 1, as BVH motion capture of the
-/// target's skeleton, which needs no file. Its length in bytes, or 0 with the error as the text.
+/// Writes the clip last played on the target, to read at [`out`]: with `kind` 0, into the target's file in place of its
+/// own clips, as a GLB (meshes, materials and VRM extensions as they were); with 2, the same as binary FBX; with 1, as
+/// BVH motion capture of the target's skeleton, which needs no file. Its length in bytes, or 0 with the error as the
+/// text.
 #[unsafe(no_mangle)]
-pub extern "C" fn export(bvh: u32) -> u32 {
+pub extern "C" fn export(kind: u32) -> u32 {
     with(|s| {
-        if bvh != 0 {
+        if kind == 1 {
             let (Some((_, clip)), Some(target)) = (&s.played, &s.models[1]) else {
                 s.text = "play a clip first".to_owned();
                 return 0;
@@ -201,11 +202,11 @@ pub extern "C" fn export(bvh: u32) -> u32 {
         let written = load::document_from_bytes(bytes, ext).and_then(|mut doc| {
             doc.prune(Keep::ALL.with_animations(false));
             target.write_clip(&mut doc, Some(name), clip)?;
-            Ok(doc.to_glb()?)
+            Ok(if kind == 2 { doc.to_fbx()? } else { doc.to_glb()? })
         });
         match written {
-            Ok(glb) => {
-                s.out = glb;
+            Ok(file) => {
+                s.out = file;
                 s.out.len() as u32
             }
             Err(e) => {

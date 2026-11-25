@@ -77,4 +77,19 @@ const back = JSON.parse(text());
 check(back.clips.length === 1 && back.clips[0].frames <= frames, `one clip back (${JSON.stringify(back.clips)})`);
 console.log(`downloaded ${name} with its clip: ${size} bytes in ${took.toFixed(1)} ms, ${back.clips[0].frames} of ` +
   `${frames} poses keyed`);
+
+// The same as FBX, read back with its clip.
+check(load(0, extname(name).slice(1), body) && load(1, extname(name).slice(1), body) && w.map(), `map ${name} again`);
+check(w.play(0, 0) === frames, `play ${name} again`);
+t = performance.now();
+const fbxSize = w.export(2);
+check(fbxSize > 0, `download ${name} as FBX`);
+const fbx = new Uint8Array(w.memory.buffer, w.out(), fbxSize).slice();
+const fbxTook = performance.now() - t;
+check(new TextDecoder().decode(fbx.subarray(0, 18)) === "Kaydara FBX Binary", "an FBX");
+check(load(0, "fbx", fbx), "read the FBX back");
+check(w.map(), "map the FBX");
+const fbxBack = JSON.parse(text());
+check(fbxBack.clips.length === 1, `one clip back from the FBX (${JSON.stringify(fbxBack.clips)})`);
+console.log(`downloaded ${name} with its clip as FBX: ${fbxSize} bytes in ${fbxTook.toFixed(1)} ms`);
 console.log("ok");
