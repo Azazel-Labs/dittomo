@@ -166,7 +166,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         eprintln!("played {name}: {} poses over {seconds:.2} s", clip.times.len());
     }
     let bytes = if is("fbx") {
-        doc.to_fbx().map_err(|e| format!("couldn't write the FBX: {e}"))?
+        // A core each: the bytes are the same, only sooner.
+        doc.to_fbx_with(&polysmelt::FbxOptions::default().with_threads(0))
+            .map_err(|e| format!("couldn't write the FBX: {e}"))?
     } else {
         doc.to_glb().map_err(|e| format!("couldn't write the GLB: {e}"))?
     };

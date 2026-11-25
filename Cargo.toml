@@ -23,7 +23,7 @@ usd = ["load", "polysmelt/usd"]
 glam = "0.34"
 # To try a polysmelt fix before it's released, add `[patch.crates-io] polysmelt = { path = "../polysmelt" }`
 # with that checkout's version set to this one.
-polysmelt = { version = "0.18.1", default-features = false, features = ["gltf", "fbx", "bvh"], optional = true }
+polysmelt = { version = "0.18.2", default-features = false, features = ["gltf", "fbx", "bvh"], optional = true }
 # The glTF JSON of polysmelt's documents, for clips written back.
 serde_json = { version = "1", optional = true }
 
