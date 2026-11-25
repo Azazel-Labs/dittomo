@@ -2555,6 +2555,82 @@ fn a_head_with_nothing_beyond_it_plays_the_head_however_long_the_neck() {
             assert_plays(&rig, &other, &Mapping::new(&rig, &other), &back);
         }
     }
+    // seed-san's layout: a head a short way above a short neck, and a bag hung from the chest behind it, at the middle
+    // and lower than the shoulders, which is not the neck; nor does the body standing to one side of the root it hangs
+    // from with a prop, as hvgirl's does in the frame its rest gives, hide it.
+    let mut bagged: Joints = vec![
+        joint("n0", None, [0.0, 0.8, -0.03]),
+        joint("n1", Some("n0"), [0.0, 0.93, -0.01]),
+        joint("n2", Some("n1"), [0.0, 1.06, -0.01]),
+        joint("n3", Some("n2"), [0.0, 1.29, -0.02]),
+        joint("n4", Some("n3"), [0.0, 1.33, -0.01]),
+        joint("n5", Some("n2"), [0.0, 1.13, -0.09]),
+        joint("n6", Some("n5"), [0.0, 1.0, -0.12]),
+    ];
+    // Its hair: locks hung from the head over the face and around it, and a tail down the back.
+    for (k, [x, y, z]) in [
+        [-0.01, 1.47, 0.11],
+        [-0.05, 1.47, 0.1],
+        [0.04, 1.48, 0.11],
+        [0.09, 1.45, 0.07],
+        [-0.08, 1.45, 0.09],
+        [-0.1, 1.41, 0.03],
+        [0.1, 1.41, 0.03],
+        [0.1, 1.39, -0.02],
+        [0.08, 1.39, -0.08],
+        [-0.11, 1.4, -0.01],
+        [-0.07, 1.37, -0.07],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        bagged.push(joint(format!("h{k}"), Some("n4"), [x, y, z]));
+        bagged.push(joint(format!("h{k}b"), Some(&format!("h{k}")), [x, y - 0.03, z]));
+    }
+    let mut parent = "n4".to_string();
+    for (k, [x, y, z]) in [
+        [0.0, 1.33, -0.07],
+        [0.0, 1.27, -0.09],
+        [-0.03, 1.22, -0.11],
+        [-0.08, 1.17, -0.14],
+        [-0.14, 1.12, -0.17],
+        [-0.17, 1.09, -0.21],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        bagged.push(joint(format!("t{k}"), Some(&parent), [x, y, z]));
+        parent = format!("t{k}");
+    }
+    for (side, x) in [("a", 1.0f32), ("b", -1.0)] {
+        let n = |k: u32| format!("n{side}{k}");
+        bagged.push(joint(n(0), Some("n2"), [0.04 * x, 1.27, 0.02]));
+        bagged.push(joint(n(1), Some(&n(0)), [0.14 * x, 1.23, -0.01]));
+        bagged.push(joint(n(2), Some(&n(1)), [0.38 * x, 1.23, -0.01]));
+        bagged.push(joint(n(3), Some(&n(2)), [0.62 * x, 1.24, -0.02]));
+        bagged.push(joint(n(4), Some(&n(3)), [0.72 * x, 1.24, 0.01]));
+        bagged.push(joint(n(5), Some("n0"), [0.09 * x, 0.81, 0.01]));
+        bagged.push(joint(n(6), Some(&n(5)), [0.09 * x, 0.46, 0.01]));
+        bagged.push(joint(n(7), Some(&n(6)), [0.09 * x, 0.08, -0.01]));
+        bagged.push(joint(n(8), Some(&n(7)), [0.09 * x, 0.02, 0.14]));
+    }
+    let neckless = placed(&neckless);
+    for shift in [0.0, 0.05] {
+        let mut rig: Joints = vec![
+            joint("root", None, [0.0; 3]),
+            joint("prop", Some("root"), [0.0, 0.0, 0.3]),
+        ];
+        for (n, p, at) in &bagged {
+            rig.push(joint(
+                n.clone(),
+                Some(p.as_deref().unwrap_or("root")),
+                [at[0] + shift, at[1], at[2]],
+            ));
+        }
+        let rig = placed(&rig);
+        assert_plays(&neckless, &rig, &Mapping::new(&neckless, &rig), &[("n2", "n4")]);
+        assert_plays(&rig, &neckless, &Mapping::new(&rig, &neckless), &[("n4", "n2")]);
+    }
 }
 
 #[test]
