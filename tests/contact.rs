@@ -171,6 +171,74 @@ fn planted_feet_stay_still_on_longer_legs() {
     assert!(after < 1e-3, "{after}");
 }
 
+/// How far, on average over the frames where the source's feet are planted, each target knee is bent from how it is
+/// in `plain`, in degrees.
+fn knees_off(map: &Mapping, source: &Skeleton, target: &Skeleton, from: &Clip, plain: &Clip, played: &Clip) -> f32 {
+    let bend = |pose: &[Transform], leg: &Limb| {
+        let w = target.world(pose);
+        let [hip, knee, foot] = [leg.upper, leg.lower, leg.end].map(|b| w[b].position());
+        (knee - hip).angle_between(foot - knee).to_degrees()
+    };
+    let (mut off, mut count) = (0.0, 0);
+    for leg in contact::legs(target) {
+        let down = planted(source, from, map.source_of(leg.end).unwrap());
+        for f in (0..played.poses.len()).filter(|&f| down[f]) {
+            off += (bend(&played.poses[f], &leg) - bend(&plain.poses[f], &leg)).abs();
+            count += 1;
+        }
+    }
+    off / count as f32
+}
+
+/// The same rig with its knees `forward` further forward at rest, so it stands with them bent.
+fn bent_knees(sk: &Skeleton, forward: f32) -> Skeleton {
+    let world = sk.world(&sk.rest());
+    let knees: Vec<usize> = contact::legs(sk).iter().map(|l| l.lower).collect();
+    let at: Vec<Vec3> = (0..sk.len())
+        .map(|b| {
+            world[b].position()
+                + if knees.contains(&b) {
+                    Vec3::Z * forward
+                } else {
+                    Vec3::ZERO
+                }
+        })
+        .collect();
+    let mut bones = sk.bones().to_vec();
+    for b in 0..bones.len() {
+        if let Some(p) = bones[b].parent
+            && (knees.contains(&b) || knees.contains(&p))
+        {
+            bones[b].rest.translation = world[p].rotation.inverse() * (at[b] - at[p]);
+        }
+    }
+    Skeleton::new(bones).unwrap()
+}
+
+#[test]
+fn planted_feet_played_under_the_floor_raise_the_body_rather_than_bend_the_knee() {
+    // The target stands with its knees bent, the source with its legs straight: played at the source's angles from
+    // there, the target's legs reach further below its hips than its hips come down, scaled from the source's, so its
+    // planted feet are played under the floor. Held on it by bending the knees, they were bent 12° from as played.
+    let source = common::mixamo();
+    let target = bent_knees(&source, 12.0);
+    let walk = common::gait(&source, 90, false);
+    let map = Mapping::new(&source, &target);
+    let plain = map.apply(&source, &target, &walk).unwrap();
+    let fixed = map.apply_with(&source, &target, &walk, feet_only()).unwrap();
+    let live = live(&map, &source, &target, &walk, feet_only());
+    let (whole, live_off) = (
+        knees_off(&map, &source, &target, &walk, &plain, &fixed),
+        knees_off(&map, &source, &target, &walk, &plain, &live),
+    );
+    eprintln!("bent knees, planted knees bent from as played: {whole:.2}°, live {live_off:.2}°");
+    assert!(whole < 2.0 && live_off < 3.0, "{whole}° {live_off}°");
+    for (name, played) in [("whole", &fixed), ("live", &live)] {
+        let after = skate(&map, &source, &target, &walk, played);
+        assert!(after < 1e-3, "{name}: {after}");
+    }
+}
+
 #[test]
 fn planted_feet_stay_still_on_the_mannequin() {
     let source = common::mixamo();

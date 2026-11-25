@@ -685,7 +685,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
     let path = paths(target, feet.iter().map(|(leg, ..)| leg.end));
     for (f, pose) in out.poses.iter_mut().enumerate() {
         let dropped = drop[f] > 0.0;
-        if dropped {
+        if drop[f] != 0.0 {
             for &r in &roots {
                 pose[r].translation.y -= drop[f];
             }
@@ -741,9 +741,11 @@ fn locks(runs: &[(usize, usize)], at: &[Vec3]) -> Vec<Vec3> {
 /// leg reaches would snap the knee straight. Never less than that at any frame, eased over `ramp` frames either side, so
 /// the body sinks and rises smoothly; but never more than a tenth of the leg, nor so far that a bone but the feet (and a
 /// root standing on the floor at rest) comes under the target's floor, as a belly, a knee or a tail near it would.
+/// Where no leg needs it lower, raised as far as [`raise`] lets it instead, given as a drop below nothing.
 fn lower(target: &Skeleton, t: &Shape, played: &Clip, feet: &[Going], ramp: usize) -> Vec<f32> {
     let n = played.poses.len();
     let mut need = vec![0.0f32; n];
+    let mut lift = vec![(0.0f32, f32::INFINITY); n];
     for (leg, goals, _) in feet {
         if goals.iter().all(Option::is_none) {
             continue;
@@ -752,10 +754,17 @@ fn lower(target: &Skeleton, t: &Shape, played: &Clip, feet: &[Going], ramp: usiz
         for f in 0..n {
             let Some(goal) = goals[f] else { continue };
             need[f] = need[f].max(sink([hip[f], knee[f], foot[f]], goal));
+            let (want, room) = rise([hip[f], knee[f], foot[f]], goal);
+            lift[f] = (lift[f].0.max(want), lift[f].1.min(room));
         }
     }
+    let lift: Vec<f32> = lift
+        .iter()
+        .map(|&(want, room)| if room.is_finite() { want.min(room) } else { room })
+        .collect();
+    let lift = raise(&need, &lift, ramp);
     if need.iter().all(|&y| y <= 0.0) {
-        return need;
+        return lift.iter().map(|&y| -y).collect();
     }
     // How far each frame's body is over the floor, knees and all, but the feet and any bone standing on it at rest (a
     // root, say); only near frames that need lowering.
@@ -807,7 +816,43 @@ fn lower(target: &Skeleton, t: &Shape, played: &Clip, feet: &[Going], ramp: usiz
         average(&average(&far))
     };
     let (need, room) = (spread(&need, true), spread(&room, false));
-    need.iter().zip(&room).map(|(&y, &r)| y.min(r)).collect()
+    need.iter()
+        .zip(&room)
+        .zip(&lift)
+        .map(|((&y, &r), &l)| y.min(r) - l)
+        .collect()
+}
+
+/// How far to raise the target's body, frame by frame, given how far each frame's planted feet would each let it be
+/// raised (`lift`, unbounded with none planted), where it needn't be lowered (`need`): the least within twice `ramp`
+/// frames, then averaged twice over `ramp` either side, so it never comes out more than every planted foot lets it.
+/// Not at all where a long stretch has no foot planted.
+fn raise(need: &[f32], lift: &[f32], ramp: usize) -> Vec<f32> {
+    let n = lift.len();
+    let lift: Vec<f32> = lift
+        .iter()
+        .zip(need)
+        .map(|(&l, &y)| if y > 0.0 { 0.0 } else { l })
+        .collect();
+    let ramp = (ramp / 2).max(1);
+    let least: Vec<f32> = (0..n)
+        .map(|f| {
+            let l = lift[f.saturating_sub(2 * ramp)..(f + 2 * ramp + 1).min(n)]
+                .iter()
+                .copied()
+                .fold(f32::INFINITY, f32::min);
+            if l.is_finite() { l } else { 0.0 }
+        })
+        .collect();
+    let average = |v: &[f32]| -> Vec<f32> {
+        (0..n)
+            .map(|f| {
+                let w = &v[f.saturating_sub(ramp)..(f + ramp + 1).min(n)];
+                w.iter().sum::<f32>() / w.len() as f32
+            })
+            .collect()
+    };
+    average(&average(&least))
 }
 
 /// How long, in seconds, a foot takes to settle where it is held once it plants, and to let go once it lifts.
@@ -839,9 +884,39 @@ fn sink(leg: [Vec3; 3], goal: Vec3) -> f32 {
     (-v.y - (reach * reach - across).sqrt()).clamp(0.0, 0.1 * long)
 }
 
+/// How far a leg's hip, its hip, knee and foot at `leg`, wants raising, and may be raised, for the foot to reach
+/// `goal`. A foot played under its goal (the floor) wants the body raised for it to reach there bent as much as it is,
+/// rather than the knee bent further, as a leg straightening from further bent at rest than the source's goes; one
+/// played over it wants nothing. Either lets the body rise as far as it can still reach, standing nearly straight at
+/// most, as [`sink`] lets a leg straighten. A tenth of the leg at most.
+fn rise(leg: [Vec3; 3], goal: Vec3) -> (f32, f32) {
+    let [hip, knee, foot] = leg;
+    let long = hip.distance(knee) + knee.distance(foot);
+    if long <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let played = hip.distance(foot);
+    // Raised by `y`, the hip is `reach` from the goal: |v - y Y| = reach, the root with the hip above the goal.
+    let v = goal - hip;
+    let across = v.x * v.x + v.z * v.z;
+    let up = |reach: f32| {
+        let reach = reach.min(0.999 * long);
+        if across >= reach * reach {
+            0.0
+        } else {
+            (v.y + (reach * reach - across).sqrt()).clamp(0.0, 0.1 * long)
+        }
+    };
+    (
+        if goal.y > foot.y { up(played) } else { 0.0 },
+        up(played.max(0.98 * long)),
+    )
+}
+
 /// The body lowered over feet held further off than the legs reach, as [`lower`] lowers it over a whole clip, but as
 /// the poses come: as far as the legs need at once, then eased back up over [`SETTLE`] once they need less; never so
-/// far that a bone but the feet (or a root standing on the floor at rest) comes under the floor.
+/// far that a bone but the feet (or a root standing on the floor at rest) comes under the floor. Or raised for feet
+/// played under the floor ([`rise`]), eased toward that, and never past where every planted leg still reaches.
 #[derive(Clone)]
 pub(crate) struct Sink {
     roots: Vec<usize>,
@@ -877,7 +952,8 @@ impl Sink {
     }
 
     /// Lowers `played`, placed in `tw` as far as each leg's hip, knee and foot, `dt` seconds after the pose before, for
-    /// each leg to reach its goal, if it has one; then places it again in `tw` along `t_path`. Whether it was lowered.
+    /// each leg to reach its goal, if it has one, or raises it for the planted legs to keep the bend they're played
+    /// with ([`rise`]), eased toward that; then places it again in `tw` along `t_path`. Whether it was lowered.
     fn lower<'a>(
         &mut self,
         target: &Skeleton,
@@ -885,37 +961,44 @@ impl Sink {
         played: &mut [Transform],
         tw: &mut [At],
         t_path: &[usize],
-        goals: impl Iterator<Item = (&'a Limb, Option<Vec3>)>,
+        goals: impl Iterator<Item = (&'a Limb, Option<Vec3>)> + Clone,
     ) -> bool {
+        let at = |leg: &Limb| [leg.upper, leg.lower, leg.end].map(|b| tw[b].position());
         let need = goals
-            .filter_map(|(leg, goal)| Some(sink([leg.upper, leg.lower, leg.end].map(|b| tw[b].position()), goal?)))
+            .clone()
+            .filter_map(|(leg, goal)| Some(sink(at(leg), goal?)))
             .fold(0.0, f32::max);
-        let eased = if dt > 0.0 {
-            self.drop * (-dt / SETTLE).exp()
-        } else {
-            self.drop
-        };
-        let mut drop = need.max(eased);
-        if drop < 1e-6 {
+        let (want, room) = goals
+            .filter_map(|(leg, goal)| Some(rise(at(leg), goal?)))
+            .fold((0.0f32, f32::INFINITY), |(w, r), (want, room)| {
+                (w.max(want), r.min(room))
+            });
+        let lift = if need > 0.0 { 0.0 } else { want.min(room) };
+        let keep = if dt > 0.0 { (-dt / SETTLE).exp() } else { 1.0 };
+        let eased = self.drop * keep - lift * (1.0 - keep);
+        let mut drop = if need > 0.0 { need.max(eased) } else { eased.max(-lift) };
+        if drop.abs() < 1e-6 {
             self.drop = 0.0;
             return false;
         }
-        place(target, played, &self.path, tw);
-        let room = self
-            .body
-            .iter()
-            .map(|&b| tw[b].position().y - self.floor)
-            .fold(f32::INFINITY, f32::min);
-        drop = drop.min(room.max(0.0));
+        if drop > 0.0 {
+            place(target, played, &self.path, tw);
+            let room = self
+                .body
+                .iter()
+                .map(|&b| tw[b].position().y - self.floor)
+                .fold(f32::INFINITY, f32::min);
+            drop = drop.min(room.max(0.0));
+        }
         self.drop = drop;
-        if drop <= 0.0 {
+        if drop == 0.0 {
             return false;
         }
         for &r in &self.roots {
             played[r].translation.y -= drop;
         }
         place(target, played, t_path, tw);
-        true
+        drop > 0.0
     }
 }
 

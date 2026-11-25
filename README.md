@@ -212,11 +212,11 @@ source's is, by over 1% of the height.
 | --- | ---: | ---: | ---: | ---: |
 | none (`apply`) | 0.00476 | 0.0106 | 1.9° | 0.20% |
 | travel | 0.00123 | 0.0106 | 1.9° | 0.20% |
-| planted feet | 0.00347 | 0.0001 | 2.8° | 0.29% |
+| planted feet | 0.00347 | 0.0001 | 2.6° | 0.29% |
 | push-out | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| all (`apply_with`) | 0.00001 | 0.0001 | 2.9° | 0.35% |
-| all, live (`Live`) | 0.00007 | 0.0001 | 3.1° | 0.41% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 3.0° | 0.37% |
+| all (`apply_with`) | 0.00002 | 0.0001 | 2.8° | 0.36% |
+| all, live (`Live`) | 0.00008 | 0.0001 | 3.0° | 0.42% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00009 | 0.0001 | 2.8° | 0.39% |
 
 Together they cut foot slide hundreds of times and the height error a hundred. The body travels across the floor by how
 high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits
@@ -227,7 +227,14 @@ the hips stand. That took the slide with travel alone from 0.00143 to 0.00123 an
 degree they cost is the legs bending to keep feet down where the target's stride and leg proportions differ from the
 source's. Where a planted foot is further below the hip than the target's leg reaches, bent as it was played, the body
 is lowered, eased in and out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001.
-The body is lowered a tenth of the leg at most, and never so far that a bone but the feet goes under the floor. A foot
+The body is lowered a tenth of the leg at most, and never so far that a bone but the feet goes under the floor. Where a
+planted foot is played under the floor instead, the body is raised to hold it there bent as it was played, rather than
+the knee bent further, as far as every foot held still reaches standing nearly straight: a target standing with its
+knees bent at rest, its legs straightening as far as a source's standing straight, reaches further down than its hips
+come up. On a walk played on such a rig that took the planted knees from 12° off as played to 0.5° (1.2° live), and
+the limbs here from 2.9° to 2.8° (3.1° to 3.0° live, 3.0° to 2.8° six poses late), for a few more pops (0.35% to 0.36%,
+live 0.41% to 0.42%). Against SAN's clips below, whose truth leaves the feet where Mixamo plays them, planted feet went
+from 1.42 to 1.47. A foot
 let go, or about to plant, is moved as it is played, and as far again as the hold moves it at that end, eased out,
 rather than eased from the hold toward where it is played: that lagged behind a foot swinging off and jerked the leg,
 and cut the pops from 0.50% to 0.17%. A contact split where the source's foot slips holds the foot where the part before
@@ -256,9 +263,9 @@ each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0303 | 0.0655 | 5.2% |
-| all (`apply_touching`) | 0.0081 | 0.0178 | 0.3% |
-| all, live (`Live::touching`) | 0.0081 | 0.0178 | 0.3% |
+| all but touch (`apply_with`) | 0.0304 | 0.0648 | 5.1% |
+| all (`apply_touching`) | 0.0081 | 0.0179 | 0.3% |
+| all, live (`Live::touching`) | 0.0081 | 0.0179 | 0.3% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
 3.7 times closer and hands end up inside the body an eighteenth as often.
@@ -423,7 +430,9 @@ tails are left out, and fingers hanging low aren't taken for feet.
   and walks with them on the root's level, and a paw brought down as far from where it stands went through the floor.
   Two-bone IK (`contact::reach`) bends the knee and swings the hip to put it there, keeping the foot's turn, easing in
   and out over about a tenth of a second. Where the leg would have to straighten past how bent it was played, or past
-  nearly straight, to reach, the body is lowered over it instead, eased over the same time.
+  nearly straight, to reach, the body is lowered over it instead, eased over the same time; where the foot is played
+  under the floor, the body is raised for the leg to reach it bent as it was played, as far as every planted leg still
+  reaches.
 - **Push-out.** Spheres along the spine and one round the head stand for the body; elbows, hands and forearms inside
   them are turned out, the upper arm first, then the forearm. Short arms raised overhead go round the head, not
   through it.
