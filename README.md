@@ -196,13 +196,13 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.6° | 0.2° | 7.6° | 95% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.4° | 0.2° | 7.4° | 96% |
+| dittomo | 2.4° | 0.1° | 6.8° | 96% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.1° | 0.1° | 6.3° | 96% |
 | World turns from rest copied onto the right bones | 17.9° | 9.8° | 47.2° | 60% |
 | Local rotations copied onto the right bones | 80.0° | 86.1° | 148.4° | 13% |
 
-What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger or thumb) can't point the
-same way on both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied
+What's left is mostly proportions: a two-bone stretch (hand to index finger or thumb) can't point the same
+way on both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied
 are, by twist: a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the
 shoulder of one built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips
 below (0.72 against 0.66 across skeletons), so dittomo keeps the whole turn. The Warrior's clips are the worst here
@@ -228,6 +228,15 @@ went from 11.4° to 5.5° (12.0° to 6.6° on the right) and hand to thumb from 
 overall from 3.0° to 2.6°, the 90th percentile from 9.2° to 7.6°. The thumbs were labeled then; a 3ds Max Biped's
 thumb starts at its knuckle, where other rigs' second thumb bone does, so the Bipeds' are left unlabeled.
 
+The trunk leans as the source's does. The spine is matched rest to rest, each bone turning as its source turns, but a
+pelvis tilt the spine turns back against leans the chest by how far up the back the pelvis reaches: a 3ds Max Biped's
+reaches a long way, other rigs' are stubs. Each frame, the target's bones from its lowest mapped spine bone up to its
+chest tilt together about where that bone starts, as far as puts the chest on the line from the hips the source's
+chest leans along, turned from rest; the chest keeps its own turn, so the arms and head point as before. Hips to chest
+went from 6.2° to 1.8°, limbs overall from 2.6° to 2.4° and the 90th percentile from 7.6° to 6.8°, live as well as
+offline. Posing a frame costs about 0.5 µs more on Mannequin, whose six-bone spine is walked for it. Mixamo's own
+clips, which copy rotations, score a little further from it below (1.44 to 1.47 within one skeleton; 0.66 across).
+
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by under 0.05° on average (local rotations copied: 67.4°). It was 11.8° when the neck and head took their
 source's turns as they are, which tips the face of a rig whose head bone isn't built facing forward. They now keep the
@@ -246,13 +255,13 @@ source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00302 | 0.0200 | 3.1° | 0.19% |
-| travel | 0.00090 | 0.0200 | 3.1° | 0.19% |
-| planted feet | 0.00215 | 0.0001 | 3.9° | 0.25% |
-| push-out | 0.00302 | 0.0200 | 3.1° | 0.20% |
-| all (`apply_with`) | 0.00001 | 0.0000 | 4.0° | 0.30% |
-| all, live (`Live`) | 0.00011 | 0.0042 | 4.2° | 0.35% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 4.0° | 0.34% |
+| none (`apply`) | 0.00302 | 0.0200 | 2.6° | 0.19% |
+| travel | 0.00090 | 0.0200 | 2.6° | 0.19% |
+| planted feet | 0.00215 | 0.0001 | 3.4° | 0.25% |
+| push-out | 0.00302 | 0.0200 | 2.6° | 0.19% |
+| all (`apply_with`) | 0.00001 | 0.0000 | 3.6° | 0.29% |
+| all, live (`Live`) | 0.00011 | 0.0042 | 3.7° | 0.35% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 3.5° | 0.34% |
 
 Together they cut foot slide hundreds of times and the height error to nothing. Live, with nothing ahead, a foot's
 ground is the lowest it has been, or where it stands at rest if lower, till a foot lifts well clear of the floor; but
@@ -306,12 +315,12 @@ each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0374 | 0.0797 | 5.2% |
-| all (`apply_touching`) | 0.0117 | 0.0253 | 0.9% |
-| all, live (`Live::touching`) | 0.0118 | 0.0256 | 0.9% |
+| all but touch (`apply_with`) | 0.0369 | 0.0824 | 5.9% |
+| all (`apply_touching`) | 0.0118 | 0.0253 | 0.5% |
+| all, live (`Live::touching`) | 0.0118 | 0.0256 | 0.5% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-3.2 times closer and hands end up inside the body a sixth as often. The body is the bones the hips hang from and
+3.1 times closer and hands end up inside the body a twelfth as often. The body is the bones the hips hang from and
 those hanging from them: the Warrior's sword hangs from its root beside the hips, and its blade had been taken for
 skin, so a hand at its side was judged near its body and pushed off the target's to the sword's width. Leaving it out
 took the frames with a source hand near from 12,250 to 8,988 and the gap left from 0.0384 to 0.0118.
@@ -331,13 +340,13 @@ set; `cargo bench --bench san` scores it with SAN's own formula.
 | PMnet (BMVC 2019), from SAN's table | yes | 5.72 | – |
 | CycleGAN-style, from SAN's table | yes | 7.66 | 8.97 |
 | SAN, from SAN's table | yes | 2.76 | 2.25 |
-| **dittomo** (`apply`, no fixes) | no | **1.44** | **0.67** |
+| **dittomo** (`apply`, no fixes) | no | **1.47** | **0.66** |
 | Local rotations copied by bone name, root moved as the source's | no | 43.0 | 24.9 |
 | Local rotations copied by bone name, root scaled by hips height | no | 1.37 | 0.70 |
 
 dittomo finds the bones itself, needs no training, and beats SAN on both. Three caveats:
 
-- Copying local rotations by name and scaling the root does better within one skeleton (1.37 against 1.44), because
+- Copying local rotations by name and scaling the root does better within one skeleton (1.37 against 1.47), because
   Mixamo makes these clips by copying rotations onto each character and then adjusting its legs; per joint, the copy is
   exact above the hips. [R2ET](https://arxiv.org/abs/2303.08658) ([code](https://github.com/Kebii/R2ET), CVPR 2023) says
   the same of its own table, where copying beats every learned method on position error. This test rewards doing what

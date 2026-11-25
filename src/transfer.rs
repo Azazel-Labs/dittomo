@@ -46,6 +46,75 @@ enum Plan {
     },
 }
 
+/// The target's trunk, leaned each frame so its chest stands over its hips as the source's does. The spine is matched
+/// rest to rest, so each bone turns as its source does; but where one rig's pelvis reaches far up its back and
+/// another's is a stub, a pelvis tilt the spine turns back against leans the chests differently. The bones from the
+/// lowest mapped one above the hips up to the chest tilt together to take up the difference, about where that one
+/// starts, the chest keeping its own turn.
+#[derive(Clone, Debug)]
+struct Lean {
+    /// The target's bones from its hips up to its chest, each the parent of the next.
+    path: Vec<usize>,
+    /// Where each bone on the path stands from the one below it at rest.
+    steps: Vec<Vec3>,
+    /// Where on the path the bone that leans stands.
+    at: usize,
+    /// The source's bones from the one above the bone the hips play up to the one the chest plays.
+    s_path: Vec<usize>,
+    /// Which way the source's chest stands from its hips at rest, in the target's frame, and the target's.
+    s_rest: Vec3,
+    t_rest: Vec3,
+}
+
+impl Lean {
+    /// The tilt of the bones that lean, given the source's turns in the world and the target bones' turns from
+    /// rest; `None` to leave them.
+    fn tilt(
+        &self,
+        p: &Player,
+        source: &[Transform],
+        s_rot: impl Fn(usize) -> Quat,
+        turned: impl Fn(usize) -> Quat,
+    ) -> Option<Quat> {
+        let mut now = Vec3::ZERO;
+        for &a in &self.s_path {
+            if let Some(q) = p.s_parent[a] {
+                now += s_rot(q) * source[a].translation;
+            }
+        }
+        let want = Quat::from_rotation_arc(self.s_rest, now.try_normalize()?) * self.t_rest;
+        let (mut at, mut pos, mut up) = (Vec3::ZERO, Vec3::ZERO, Quat::IDENTITY);
+        for (k, (&c, &step)) in self.path.iter().zip(&self.steps).enumerate() {
+            pos += up * step;
+            if k == self.at {
+                at = pos;
+            }
+            up = match p.plans[c] {
+                Plan::Rest => up,
+                Plan::Mapped { .. } => turned(c),
+                Plan::Between {
+                    above,
+                    below,
+                    along,
+                    twist,
+                } => {
+                    let (a, z) = (turned(above), turned(below));
+                    twist.map_or_else(|| a.lerp(z, along), |axis| twisted(a, z, axis, along))
+                }
+            };
+        }
+        let arm = pos - at;
+        // Where the chest would stand, as far from the bone it tilts about as it is, on the line from the hips the
+        // source's chest leans along; or as near that line as it can come.
+        let ahead = want.dot(at);
+        let reach = (ahead * ahead - at.length_squared() + arm.length_squared())
+            .max(0.0)
+            .sqrt();
+        let (from, to) = (arm.try_normalize()?, (want * (ahead + reach) - at).try_normalize()?);
+        Some(Quat::from_rotation_arc(from, to))
+    }
+}
+
 /// Plays poses of one skeleton on another through a [`Mapping`], a frame at a time, without allocating.
 ///
 /// ```
@@ -97,6 +166,10 @@ pub struct Player {
     /// source's and target's poses with their held feet hung.
     held: [Option<Held>; 2],
     hung: [Vec<Transform>; 2],
+    lean: Option<Lean>,
+    /// The target bones that tilt with the trunk's lean, and this frame's tilt.
+    tilts: Vec<bool>,
+    tilt: Quat,
 }
 
 impl Player {
@@ -120,7 +193,7 @@ impl Player {
 
     /// [`Player::new`], with each rig's shape already worked out, and the sizes already checked.
     pub(crate) fn of_shapes(map: &Mapping, source: &Skeleton, target: &Skeleton, s: &Shape, t: &Shape) -> Self {
-        let (plans, moving) = plan(map, [(source, s), (target, t)]);
+        let (plans, moving, trunk) = plan(map, [(source, s), (target, t)]);
         let turn = map.turn();
         let back = turn.inverse();
         let (ns, nt) = (source.len(), target.len());
@@ -159,6 +232,47 @@ impl Player {
                 None
             })
             .collect();
+        let lean = trunk.and_then(|(path, at)| {
+            let (hips, chest) = (path[0], *path.last()?);
+            let (Some(s_hips), Some(s_chest)) = (map.source_of(hips), map.source_of(chest)) else {
+                return None;
+            };
+            let mut s_path = Vec::new();
+            let mut b = s_chest;
+            while b != s_hips {
+                s_path.push(b);
+                b = s_parent[b]?;
+            }
+            // The source's rest, built as each frame's pose is, from its bones' turns and offsets.
+            let mut rot = vec![Quat::IDENTITY; ns];
+            for (a, bone) in source.bones().iter().enumerate() {
+                rot[a] = bone.parent.map_or(turn, |p| rot[p]) * bone.rest.rotation;
+            }
+            let s_rest = s_path
+                .iter()
+                .filter_map(|&a| Some(rot[s_parent[a]?] * source.bones()[a].rest.translation))
+                .sum::<Vec3>()
+                .normalize_or_zero();
+            let t_rest = (t.rest[chest].position() - t.rest[hips].position()).normalize_or_zero();
+            let mut steps = vec![Vec3::ZERO; path.len()];
+            for k in 1..path.len() {
+                steps[k] = t.rest[path[k]].position() - t.rest[path[k - 1]].position();
+            }
+            (!s_path.is_empty() && s_rest != Vec3::ZERO && t_rest != Vec3::ZERO).then_some(Lean {
+                path,
+                steps,
+                at,
+                s_path,
+                s_rest,
+                t_rest,
+            })
+        });
+        let tilts = (0..nt)
+            .map(|b| {
+                lean.as_ref()
+                    .is_some_and(|l| l.path[l.at..l.path.len() - 1].contains(&b) && !matches!(plans[b], Plan::Rest))
+            })
+            .collect();
         let mut player = Self {
             turn,
             plans,
@@ -185,6 +299,9 @@ impl Player {
             t_mat: vec![Affine3A::IDENTITY; nt],
             held: [None, None],
             hung: [Vec::new(), Vec::new()],
+            tilts,
+            tilt: Quat::IDENTITY,
+            lean,
         };
         player.needs();
         player
@@ -330,6 +447,7 @@ impl Player {
                 self.turned[b] = self.s_rot[a] * pre;
             }
         }
+        self.lean(source);
         for b in 0..nt {
             let (up_r, up_m) = match self.t_parent[b] {
                 Some(q) => (self.t_rot[q], self.t_mat[q]),
@@ -340,7 +458,11 @@ impl Player {
             let (rotation, translation, world) = match self.plans[b] {
                 Plan::Rest => (rest.rotation, rest.translation, up_r * rest.rotation),
                 Plan::Mapped { source: a, travel, .. } => {
-                    let w = self.turned[b] * self.t_rest_rot[b];
+                    let w = if self.tilts[b] {
+                        self.tilt * self.turned[b]
+                    } else {
+                        self.turned[b]
+                    } * self.t_rest_rot[b];
                     let at = travel.map_or(rest.translation, |k| {
                         let now = Vec3::from(self.s_mat[a].translation);
                         match self.s_anchor[a] {
@@ -368,8 +490,8 @@ impl Player {
                     twist,
                 } => {
                     let (a, z) = (self.turned[above], self.turned[below]);
-                    let w =
-                        twist.map_or_else(|| a.lerp(z, along), |axis| twisted(a, z, axis, along)) * self.t_rest_rot[b];
+                    let w = twist.map_or_else(|| a.lerp(z, along), |axis| twisted(a, z, axis, along));
+                    let w = if self.tilts[b] { self.tilt * w } else { w } * self.t_rest_rot[b];
                     (whole(up_r.inverse() * w), rest.translation, w)
                 }
             };
@@ -383,6 +505,17 @@ impl Player {
                 self.t_mat[b] = up_m * affine(&local);
             }
             out[b] = local;
+        }
+    }
+
+    /// How far the target's trunk tilts this frame for its chest to stand from its hips the way the source's does
+    /// ([`Lean`]).
+    fn lean(&mut self, source: &[Transform]) {
+        if let Some(lean) = &self.lean {
+            let (s_rot, turned) = (&self.s_rot, &self.turned);
+            self.tilt = lean
+                .tilt(self, source, |a| s_rot[a], |b| turned[b])
+                .unwrap_or(Quat::IDENTITY);
         }
     }
 
@@ -455,7 +588,12 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// the body's middle in both that more than one limb hangs from, as a pelvis bone the spine doesn't reach: its children
 /// fan out every way, and one rig's hips with the legs starting above them and another's with them below fit best with
 /// a half turn, legs swapped and the hips twisted. A tail, on the middle but a limb of its own, goes the source's way.
-fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Vec<(usize, usize, f32)>) {
+type Trunk = Option<(Vec<usize>, usize)>;
+
+fn plan(
+    map: &Mapping,
+    [(source, s), (target, t)]: [(&Skeleton, &Shape); 2],
+) -> (Vec<Plan>, Vec<(usize, usize, f32)>, Trunk) {
     let n = t.children.len();
     let (sf, tf) = (contact::frame(source, s), contact::frame(target, t));
     let (s_spine, s_neck, s_collar) = (&sf.spine, &sf.above, &sf.collar);
@@ -707,7 +845,25 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
             };
         }
     }
-    (plans, moving)
+    // The trunk to lean: hips to the topmost mapped spine bone, and the lowest mapped bone between.
+    let trunk = (|| {
+        let hips = *t_spine.first()?;
+        let chest = *t_spine
+            .iter()
+            .rev()
+            .find(|&&b| matches!(plans[b], Plan::Mapped { .. }))?;
+        if !matches!(plans[hips], Plan::Mapped { .. }) {
+            return None;
+        }
+        let mut path = vec![chest];
+        while *path.last()? != hips {
+            path.push(target.bones()[*path.last()?].parent?);
+        }
+        path.reverse();
+        let at = (1..path.len() - 1).find(|&k| matches!(plans[path[k]], Plan::Mapped { .. }))?;
+        Some((path, at))
+    })();
+    (plans, moving, trunk)
 }
 
 /// The source bone whose turn places `a`'s mapped bones `below` it: `a` itself, or a bone under it that nothing plays,

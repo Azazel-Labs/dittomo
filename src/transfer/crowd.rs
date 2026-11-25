@@ -48,6 +48,10 @@ impl Turns {
         Quat::from_xyzw(self.x[i], self.y[i], self.z[i], self.w[i])
     }
 
+    fn set(&mut self, i: usize, q: Quat) {
+        (self.x[i], self.y[i], self.z[i], self.w[i]) = (q.x, q.y, q.z, q.w);
+    }
+
     fn mul(&self, b: &Self) -> Self {
         let mut o = Self::IDENTITY;
         for i in 0..LANES {
@@ -255,6 +259,16 @@ impl Crowd {
                 self.turned[b] = self.s_rot[a].mul(&Turns::splat(pre));
             }
         }
+        let mut tilt = Turns::IDENTITY;
+        if let Some(lean) = &p.lean {
+            for i in 0..LANES {
+                let (s_rot, turned) = (&self.s_rot, &self.turned);
+                let pose = &source[character(i) * ns..][..ns];
+                if let Some(q) = lean.tilt(p, pose, |a| s_rot[a].get(i), |c| turned[c].get(i)) {
+                    tilt.set(i, q);
+                }
+            }
+        }
         let lanes = LANES.min(n - first);
         for b in 0..nt {
             let up_r = match p.t_parent[b] {
@@ -270,7 +284,12 @@ impl Crowd {
                     None,
                 ),
                 Plan::Mapped { source: a, travel, .. } => {
-                    let w = self.turned[b].mul(&rest_rot);
+                    let w = if p.tilts[b] {
+                        tilt.mul(&self.turned[b])
+                    } else {
+                        self.turned[b]
+                    }
+                    .mul(&rest_rot);
                     (up_r.back().mul(&w).whole(), w, travel.map(|k| (a, k)))
                 }
                 Plan::Between {
@@ -279,7 +298,8 @@ impl Crowd {
                     along,
                     twist: None,
                 } => {
-                    let w = self.turned[above].lerp(&self.turned[below], along).mul(&rest_rot);
+                    let w = self.turned[above].lerp(&self.turned[below], along);
+                    let w = if p.tilts[b] { tilt.mul(&w) } else { w }.mul(&rest_rot);
                     (up_r.back().mul(&w).whole(), w, None)
                 }
                 Plan::Between {
@@ -289,7 +309,8 @@ impl Crowd {
                     twist: Some(axis),
                 } => {
                     let (a, z) = (&self.turned[above], &self.turned[below]);
-                    let w = Turns::each(|i| super::twisted(a.get(i), z.get(i), axis, along)).mul(&rest_rot);
+                    let w = Turns::each(|i| super::twisted(a.get(i), z.get(i), axis, along));
+                    let w = if p.tilts[b] { tilt.mul(&w) } else { w }.mul(&rest_rot);
                     (up_r.back().mul(&w).whole(), w, None)
                 }
             };
