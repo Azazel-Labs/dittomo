@@ -198,7 +198,7 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.0° | 0.1° | 4.9° | 97% |
+| dittomo | 1.8° | 0.1° | 4.9° | 97% |
 | dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.7° | 0.1° | 4.7° | 97% |
 | World turns from rest copied onto the right bones | 17.1° | 9.0° | 47.0° | 61% |
 | Local rotations copied onto the right bones | 79.8° | 85.9° | 148.5° | 14% |
@@ -216,6 +216,12 @@ it does, plays its turn instead. The CMU take turns each wrist's twist in the ha
 at the wrist, with the fingers under that; played from the hand alone, a target's hand kept the twist, lost the bend,
 and had its fingers slid off it to where the source's went. Hand to index finger, from the CMU take, went from 18.6° to
 1.0° (31.6° to 1.0° on the right), and limbs overall from 1.7° to 1.6°.
+
+A bone no target bone plays carries the bones below it when it moves, and when it turns on the body's middle (a
+quadruped's body bone rolling it onto its side lowers its hips), but not when it turns in an arm or a leg. The CMU
+take's thumb is one bone from the wrist, played by the source's second thumb bone; the source's first, played by none,
+turning had slid it off the wrist as though it hung from it. Hand to thumb went from 13.4° to 11.1° (14.4° to 11.2° on
+the right), and limbs overall from 2.0° to 1.8°.
 
 Where the source's bone below hangs straight from its bone above, it bends there, at the joint of the one below: a
 Biped's head turns on its chest, with no neck between. The target's bones between, a neck, hold still under the one
@@ -261,11 +267,11 @@ source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00302 | 0.0200 | 2.1° | 0.20% |
-| travel | 0.00090 | 0.0200 | 2.1° | 0.20% |
-| planted feet | 0.00215 | 0.0001 | 2.9° | 0.26% |
+| none (`apply`) | 0.00302 | 0.0200 | 2.0° | 0.20% |
+| travel | 0.00090 | 0.0200 | 2.0° | 0.20% |
+| planted feet | 0.00215 | 0.0001 | 2.8° | 0.26% |
 | push-out | 0.00302 | 0.0200 | 2.1° | 0.20% |
-| all (`apply_with`) | 0.00001 | 0.0000 | 3.1° | 0.30% |
+| all (`apply_with`) | 0.00001 | 0.0000 | 3.0° | 0.30% |
 | all, live (`Live`) | 0.00011 | 0.0042 | 3.2° | 0.36% |
 | all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 3.0° | 0.35% |
 
@@ -321,7 +327,7 @@ each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0375 | 0.0791 | 5.2% |
+| all but touch (`apply_with`) | 0.0375 | 0.0786 | 5.2% |
 | all (`apply_touching`) | 0.0117 | 0.0252 | 0.7% |
 | all, live (`Live::touching`) | 0.0117 | 0.0252 | 0.8% |
 

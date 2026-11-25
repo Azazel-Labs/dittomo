@@ -151,6 +151,8 @@ pub struct Player {
     s_rest_rotation: Vec<Quat>,
     /// Source bones some target bone plays.
     s_played: Vec<bool>,
+    /// Source bones in an arm or a leg.
+    s_limb: Vec<bool>,
     /// For each source bone, the nearest bone above it some target bone plays, and where the bone stands from it at
     /// rest, in its frame.
     s_anchor: Vec<Option<(usize, Vec3)>>,
@@ -164,7 +166,7 @@ pub struct Player {
     /// For each source bone: whether it moves in the clip being played, so travels.
     moves: Vec<bool>,
     /// The mapped target bones that travel only if their source moves: (target, source, how far).
-    moving: Vec<(usize, usize, f32)>,
+    moving: Moving,
     // Scratch, one entry per bone.
     /// Each source bone's turn in the world, turned into the target's frame.
     s_rot: Vec<Quat>,
@@ -203,7 +205,7 @@ impl Player {
 
     /// [`Player::new`], with each rig's shape already worked out, and the sizes already checked.
     pub(crate) fn of_shapes(map: &Mapping, source: &Skeleton, target: &Skeleton, s: &Shape, t: &Shape) -> Self {
-        let (plans, moving, trunk) = plan(map, [(source, s), (target, t)]);
+        let (plans, moving, trunk, s_limb) = plan(map, [(source, s), (target, t)]);
         let turn = map.turn();
         let back = turn.inverse();
         let (ns, nt) = (source.len(), target.len());
@@ -293,6 +295,7 @@ impl Player {
             s_rest_translation: source.bones().iter().map(|b| b.rest.translation).collect(),
             s_rest_rotation: source.bones().iter().map(|b| b.rest.rotation).collect(),
             s_played,
+            s_limb,
             s_anchor,
             s_height: s.height,
             t_parent: target.bones().iter().map(|b| b.parent).collect(),
@@ -320,7 +323,9 @@ impl Player {
     /// Marks the source bones that move, not just turn, somewhere in this clip, so the bones playing them travel too.
     /// A bone moves when it does under its parent, or when a bone above it that no target bone plays moves or turns,
     /// carrying it: a body bone between the root and the hips (a four-legged rig's) rolling the animal onto its side
-    /// lowers its hips, which the target's must follow. [`Mapping::apply`] does this for the clip it plays.
+    /// lowers its hips, which the target's must follow. Not a turn in an arm or a leg: a thumb's first bone, played by
+    /// none on a rig whose thumb is one bone from the wrist, swings the next round, but that one's turn plays the
+    /// thumb, which stays on the wrist. [`Mapping::apply`] does this for the clip it plays.
     ///
     /// # Errors
     /// If the clip doesn't pose the source.
@@ -345,7 +350,7 @@ impl Player {
                 && !carried
                 && !self.s_played[p]
             {
-                carried = shifts[p] || turns[p];
+                carried = shifts[p] || turns[p] && !self.s_limb[p];
                 up = self.s_parent[p];
             }
             self.moves[a] = carried;
@@ -581,8 +586,13 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
     })
 }
 
-/// Each target bone's plan (a mapped bone's `pre` holding just its fix undone), and the mapped bones that aren't topmost
-/// with how far each would travel if its source moved.
+/// The mapped target bones that travel only if their source moves: (target, source, how far).
+type Moving = Vec<(usize, usize, f32)>;
+
+type Trunk = Option<(Vec<usize>, usize)>;
+
+/// Each target bone's plan (a mapped bone's `pre` holding just its fix undone), the mapped bones that aren't topmost
+/// with how far each would travel if its source moved, and the source bones in an arm or a leg.
 ///
 /// The neck and head are matched rest to rest, not by direction: where a head bone points to the top of the skull, or a
 /// neck to the head, is anatomy (one rig's skull leans back, another's neck forward), but every rig looks ahead at
@@ -598,12 +608,7 @@ pub(crate) fn play_on(player: &mut Player, target: &Skeleton, clip: &Clip) -> Re
 /// the body's middle in both that more than one limb hangs from, as a pelvis bone the spine doesn't reach: its children
 /// fan out every way, and one rig's hips with the legs starting above them and another's with them below fit best with
 /// a half turn, legs swapped and the hips twisted. A tail, on the middle but a limb of its own, goes the source's way.
-type Trunk = Option<(Vec<usize>, usize)>;
-
-fn plan(
-    map: &Mapping,
-    [(source, s), (target, t)]: [(&Skeleton, &Shape); 2],
-) -> (Vec<Plan>, Vec<(usize, usize, f32)>, Trunk) {
+fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> (Vec<Plan>, Moving, Trunk, Vec<bool>) {
     let n = t.children.len();
     let (sf, tf) = (contact::frame(source, s), contact::frame(target, t));
     let (s_spine, s_neck, s_collar) = (&sf.spine, &sf.above, &sf.collar);
@@ -873,7 +878,15 @@ fn plan(
         let at = (1..path.len() - 1).find(|&k| matches!(plans[path[k]], Plan::Mapped { .. }))?;
         Some((path, at))
     })();
-    (plans, moving, trunk)
+    // The source's arms and legs, each from the bone it starts at down.
+    let mut s_limb = vec![false; source.len()];
+    let mut stack: Vec<usize> = sf.legs.iter().chain(&sf.arms).map(|l| l.upper).collect();
+    while let Some(a) = stack.pop() {
+        if !std::mem::replace(&mut s_limb[a], true) {
+            stack.extend(&s.children[a]);
+        }
+    }
+    (plans, moving, trunk, s_limb)
 }
 
 /// The source bone whose turn places `a`'s mapped bones `below` it: `a` itself, or a bone under it that nothing plays,

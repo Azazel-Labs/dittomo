@@ -1313,6 +1313,63 @@ fn a_hand_points_where_its_fingers_do_however_far_its_thumb_splays() {
 }
 
 #[test]
+fn a_thumb_one_bone_from_the_wrist_stays_on_the_wrist_when_the_source_thumbs_unplayed_first_bone_turns() {
+    // The target's thumb starts at the wrist, one bone to its tip, where the source's takes three from a little off
+    // it: when the source's first thumb bone turns, played by none, the target's thumb turns on the wrist, not off it.
+    let from = mixamo_like();
+    let to = {
+        let rest = from.world(&from.rest());
+        let at = |n: &str| rest[from.index_of(n).expect("bone")].position().to_array();
+        let mut j: Joints = Vec::new();
+        for (b, bone) in from.bones().iter().enumerate() {
+            let parent = bone.parent.map(|p| from.bones()[p].name.clone());
+            let side = if bone.name.starts_with("Left") { "Left" } else { "Right" };
+            if bone.name.ends_with("Thumb1") {
+                j.push(joint(
+                    format!("{side}Thumb"),
+                    parent.as_deref(),
+                    at(&format!("{side}Hand")),
+                ));
+            } else if bone.name.ends_with("Thumb3") {
+                j.push(joint(
+                    format!("{side}Thumb_end"),
+                    Some(&format!("{side}Thumb")),
+                    rest[b].position().to_array(),
+                ));
+            } else if !bone.name.ends_with("Thumb2") {
+                j.push((bone.name.clone(), parent, rest[b].position().to_array()));
+            }
+        }
+        placed(&j)
+    };
+    // As on a rig whose thumb's one bone the source's second plays, its first played by none.
+    let mut map = Mapping::new(&from, &to);
+    for side in ["Left", "Right"] {
+        let s = |n: &str| from.index_of(&format!("{side}HandThumb{n}"));
+        let t = |n: &str| to.index_of(&format!("{side}Thumb{n}")).expect("thumb");
+        map.set(t(""), s("2"));
+        map.set(t("_end"), s("3"));
+    }
+    let mut pose = from.rest();
+    for (side, turn) in [
+        ("Left", Quat::from_rotation_y(0.7)),
+        ("Right", Quat::from_rotation_z(-0.5)),
+    ] {
+        pose[from.index_of(&format!("{side}HandThumb1")).expect("thumb")].rotation = turn;
+    }
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![pose],
+    };
+    let out = map.apply(&from, &to, &clip).expect("plays");
+    for side in ["Left", "Right"] {
+        let b = to.index_of(&format!("{side}Thumb")).expect("thumb");
+        let off = out.poses[0][b].translation.length();
+        assert!(off < 1e-4, "{side}: {off} off the wrist");
+    }
+}
+
+#[test]
 fn a_chest_leans_from_the_hips_as_the_source_does_however_far_up_the_back_the_pelvis_reaches() {
     // The target's spine starts two and a half times as far up from its hips. The source tips its pelvis forward and
     // turns its spine back upright: its chest leans a little, and the target's must lean as far, not as far as its long

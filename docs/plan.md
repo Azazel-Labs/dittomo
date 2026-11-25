@@ -214,6 +214,9 @@ Phase 1 so far (November 2026):
   and the chest, not the world: a body turning about had read as a lean or a shrug, and the lean itself had kept a chest
   ahead of its hips at rest leaning to the world's forward, behind the hips once turned back. Hips to chest 5.3° to 1.4° (world turns 3.1°), limbs 2.2° to
   2.0°, p90 5.9° to 4.9°; SAN 1.47 and 0.67.
+- **Unplayed limb joints turn but don't carry**: a source bone no target bone plays carries those below it when it
+  turns only on the body's middle, not in an arm or a leg, so a one-bone thumb played by the source's second thumb bone
+  stays on the wrist when the first turns. Hand to thumb 13.4° to 11.1° (14.4° to 11.2° right), limbs 2.0° to 1.8°.
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for
@@ -317,7 +320,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.6% of joints found on 19 real rigs (exact names: 18.2%); limbs within 2.0° of the source's on their 62 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.6% of joints found on 19 real rigs (exact names: 18.2%); limbs within 1.8° of the source's on their 62 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their
