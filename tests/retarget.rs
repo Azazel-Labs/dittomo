@@ -1362,6 +1362,53 @@ fn a_chest_leans_from_the_hips_as_the_source_does_however_far_up_the_back_the_pe
 }
 
 #[test]
+fn a_body_turned_about_keeps_its_own_chest_ahead_of_its_hips_whichever_way_it_faced_at_rest() {
+    // The target's chest stands ahead of its hips at rest, the source's straight above. The source only turns about:
+    // the target's chest stays ahead of its hips, not behind, as it would kept leaning the way the world's forward is,
+    // and the same for a target facing the other way at rest.
+    let from = mixamo_like();
+    for facing in [1.0f32, -1.0] {
+        let to = {
+            let rest = from.world(&from.rest());
+            let j: Joints = from
+                .bones()
+                .iter()
+                .enumerate()
+                .map(|(b, bone)| {
+                    let parent = bone.parent.map(|p| from.bones()[p].name.clone());
+                    let [x, y, z] = rest[b].position().to_array();
+                    let ahead = if y >= 1.3 {
+                        0.08
+                    } else if y >= 1.2 {
+                        0.04
+                    } else {
+                        0.0
+                    };
+                    (bone.name.clone(), parent, [x * facing, y, (z + ahead) * facing])
+                })
+                .collect();
+            placed(&j)
+        };
+        let map = Mapping::new(&from, &to);
+        assert_plays(&from, &to, &map, &[("Spine", "Spine"), ("Spine2", "Spine2")]);
+        let mut pose = from.rest();
+        pose[from.index_of("Hips").expect("hips")].rotation = Quat::from_rotation_y(std::f32::consts::PI);
+        let clip = Clip {
+            times: vec![0.0],
+            poses: vec![pose],
+        };
+        let out = map.apply(&from, &to, &clip).expect("plays");
+        let chest = |w: &[dittomo::Placed]| {
+            let at = |n: &str| w[to.index_of(n).expect("bone")].position();
+            (at("Spine2") - at("Hips")).normalize()
+        };
+        let want = Quat::from_rotation_y(std::f32::consts::PI) * chest(&to.world(&to.rest()));
+        let off = chest(&to.world(&out.poses[0])).angle_between(want).to_degrees();
+        assert!(off < 0.5, "facing {facing}: hips to chest {off}° off");
+    }
+}
+
+#[test]
 fn a_rig_stopping_at_the_base_of_the_head_in_an_a_pose_with_numbered_limbs() {
     // Laid out as COLLADA exports often are: no bone at the top of the head, limbs numbered along the chain, the arms
     // hanging down.

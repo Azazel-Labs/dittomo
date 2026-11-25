@@ -355,9 +355,9 @@ fn body(rig: &Rig) -> Option<[Vec3; 3]> {
 /// floor turned as the foot has turned from rest: every rig stands flat at rest, and how steeply its ankle comes down
 /// to its toes is anatomy, so matching that slope would push one rig's toes into the floor; a foot should turn as the
 /// source's does. The trunk's (hips to chest, chest to head) is how it leans: straight up, tilted as the segment has
-/// tilted from rest. Every rig stands upright at rest, and how far its chest sits ahead of its hips or behind, or its
+/// tilted from rest from the way the hips face. Every rig stands upright at rest, and how far its chest sits ahead of its hips or behind, or its
 /// head ahead of its chest, is anatomy too. So is how a collarbone slopes up or back to the shoulder: its is straight
-/// out to its side, tilted as it has tilted from rest. Rigs differ at rest in their upper arms (down or out), not there.
+/// out to its side, tilted as it has tilted from rest from its parent. Rigs differ at rest in their upper arms (down or out), not there.
 fn angles(rig: &Rig, frame: &[Vec3; 3], pose: &[Transform]) -> Vec<Option<Vec3>> {
     let s = &rig.model.skeleton;
     let (world, rest) = (s.world(pose), s.world(&s.rest()));
@@ -374,11 +374,28 @@ fn angles(rig: &Rig, frame: &[Vec3; 3], pose: &[Transform]) -> Vec<Option<Vec3>>
                 "r_clavicle" => Some(-frame[0]),
                 _ => None,
             } {
+                // A collarbone's tilt is from its parent, the chest, and the trunk's from the way the hips face, so a
+                // body that only turns about doesn't shrug or lean.
+                let from = |p: usize| world[p].rotation * rest[p].rotation.inverse();
+                let carry = match (ja.ends_with("_clavicle"), s.bones()[a].parent, rig.labels.get("hips")) {
+                    (true, Some(p), _) => from(p),
+                    (false, _, Some(&h)) => {
+                        let q = from(h);
+                        let about = q.xyz().dot(frame[1]) * frame[1];
+                        let f = Quat::from_xyzw(about.x, about.y, about.z, q.w);
+                        if f.length_squared() > 1e-6 {
+                            f.normalize()
+                        } else {
+                            Quat::IDENTITY
+                        }
+                    }
+                    _ => Quat::IDENTITY,
+                };
                 let (was, now) = (
                     rest[b].position() - rest[a].position(),
-                    world[b].position() - world[a].position(),
+                    carry.inverse() * (world[b].position() - world[a].position()),
                 );
-                Quat::from_rotation_arc(was.normalize(), now.normalize()) * built
+                carry * Quat::from_rotation_arc(was.normalize(), now.normalize()) * built
             } else {
                 world[b].position() - world[a].position()
             };

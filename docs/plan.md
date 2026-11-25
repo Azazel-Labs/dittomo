@@ -210,6 +210,11 @@ Phase 1 so far (November 2026):
   together so the chest stands on the line from the hips the source's leans along, the chest keeping its turn; a long
   pelvis (a Biped's) tilted and turned back by the spine had leaned the chests apart. Hips to chest 6.2° to 1.8°, limbs
   2.6° to 2.4°, p90 7.6° to 6.8°; SAN 1.44 to 1.47 intra, 0.66 cross; about 0.5 µs a frame more on Mannequin.
+- **Lean from the way the hips face**, and the trunk's and collarbones' benchmark tilts measured from the hips' facing
+  and the chest, not the world: a body turning about had read as a lean or a shrug, and the lean itself had kept a chest
+  ahead of its hips at rest leaning to the world's forward, behind the hips once turned back. The shape's places are
+  taken into the world too, for a rig not facing +Z. Hips to chest 5.3° to 1.4° (world turns 3.1°), limbs 2.2° to
+  2.0°, p90 5.9° to 4.9°; SAN 1.47 and 0.67.
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
 - The worst pairs are RobotExpressive (a cartoon with legs a fifth of its height apart and feet hung from the root for
@@ -313,7 +318,7 @@ belong at cook time.
 | [R2ET][r2et-paper] (CVPR 2023) | 268 FPS (PyTorch) | Template for the shape-conditioned residual |
 | [MeshRet][meshret-paper] (NeurIPS 2024) | 30 FPS (GPU) | Cook-time teacher for hard contact cases |
 | [PALUM][palum], [Motion2Motion][m2m-paper] | Offline | Cross-family transfer at cook time |
-| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.6% of joints found on 19 real rigs (exact names: 18.2%); limbs within 2.4° of the source's on their 62 clips | Import mapping, base retarget, β features |
+| dittomo | 2.4 µs per frame posing, 4.4 µs with travel, planted feet and push-out, one CPU core (65 → 76 bones); 0.5 to 0.9 ms to map; 99.6% of joints found on 19 real rigs (exact names: 18.2%); limbs within 2.0° of the source's on their 62 clips | Import mapping, base retarget, β features |
 
 Two lessons carry into the architecture. Residual corrections on a cheap base retarget are easier to learn and budget
 than full pose prediction. And the expensive contact-aware solvers are good enough to be offline teachers, because their
@@ -442,7 +447,7 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching and Godot's humanoid auto
       mapping (ported), then plays every rig's clips on every other and scores limb directions against copying rotations
       and foot contact with each fix. SAN's Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`):
-      dittomo scores 1.47 intra-structural and 0.66 cross-structural against SAN's published 2.76 and 2.25, untrained
+      dittomo scores 1.47 intra-structural and 0.67 cross-structural against SAN's published 2.76 and 2.25, untrained
       (README, Against the learned retargeters). R2ET's test pairs exist only in its code, and Unity and Unreal are
       still to come.
 - [ ] **Measure where dittomo stands** on every row of the Goal table. Mapping accuracy is measured on real rigs;

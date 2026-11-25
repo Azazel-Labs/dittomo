@@ -189,21 +189,23 @@ and the CMU take) played on every other rig: 1,116 clip and rig pairs. Each labe
 with the source's direction frame by frame, each in its own body's frame. A foot is judged by where it points, the way
 it points across the floor at rest turned as it has turned from rest: every rig stands flat at rest, and how steeply an
 ankle comes down to the toes is anatomy. The trunk, hips to chest and chest to head, is judged by how it leans, tilted
-as it has tilted from rest, as every rig stands upright at rest; a collarbone the same way, straight out to its side
-tilted as it has tilted, as how one slopes up or back to the shoulder is anatomy too. The other rows are what a clip
+as it has tilted from rest from the way the hips face, as every rig stands upright at rest; a collarbone the same way,
+straight out to its side tilted as it has tilted from the chest, as how one slopes up or back to the shoulder is anatomy
+too. Tilts taken in the world's terms instead had a body that only turned about read as leaning or shrugging wherever
+two rigs' rest slopes differ. The other rows are what a clip
 gets without a retargeter, even given the right bones: an engine's animation mixer plays a clip on another rig by
 copying each bone's local rotation, and a hand-written script commonly copies each bone's turn from rest in the world.
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 2.4° | 0.1° | 6.8° | 96% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 2.1° | 0.1° | 6.3° | 96% |
-| World turns from rest copied onto the right bones | 17.9° | 9.8° | 47.2° | 60% |
-| Local rotations copied onto the right bones | 80.0° | 86.1° | 148.4° | 13% |
+| dittomo | 2.0° | 0.1° | 4.9° | 97% |
+| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.7° | 0.1° | 4.7° | 97% |
+| World turns from rest copied onto the right bones | 17.1° | 9.0° | 47.0° | 61% |
+| Local rotations copied onto the right bones | 79.8° | 85.9° | 148.5° | 14% |
 
 What's left is mostly proportions: a two-bone stretch (hand to index finger or thumb) can't point the same
-way on both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied
-are, by twist: a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the
+way on both rigs when the bones between are in other ratios. The collarbones are off by 5° to 6°, a little less than world turns
+copied (6° to 9°), by twist: a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the
 shoulder of one built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips
 below (0.72 against 0.66 across skeletons), so dittomo keeps the whole turn. The Warrior's clips are the worst here
 played onto the other rigs, the trunk and collarbones most. Setting by hand the Bipeds' index fingers dittomo misses
@@ -236,6 +238,10 @@ chest leans along, turned from rest; the chest keeps its own turn, so the arms a
 went from 6.2° to 1.8°, limbs overall from 2.6° to 2.4° and the 90th percentile from 7.6° to 6.8°, live as well as
 offline. Posing a frame costs about 0.5 µs more on Mannequin, whose six-bone spine is walked for it. Mixamo's own
 clips, which copy rotations, score a little further from it below (1.44 to 1.47 within one skeleton; 0.66 across).
+The lean is from the way the hips face, turned about the target's up: taken in the world's terms, a chest standing
+ahead of its hips at rest kept leaning toward the world's forward as the body turned about, behind its hips once it
+faced back. Measured from the way the hips face, hips to chest had been 5.3°, worse than world turns copied (3.1°), and
+is now 1.4°, chest to head 1.6°.
 
 Where the character looks is judged apart: the way the head faces, against the source's, each in its own body's frame.
 It's off by under 0.05° on average (local rotations copied: 67.4°). It was 11.8° when the neck and head took their
@@ -255,13 +261,13 @@ source's is, by over 1% of the height.
 
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
-| none (`apply`) | 0.00302 | 0.0200 | 2.6° | 0.19% |
-| travel | 0.00090 | 0.0200 | 2.6° | 0.19% |
-| planted feet | 0.00215 | 0.0001 | 3.4° | 0.25% |
-| push-out | 0.00302 | 0.0200 | 2.6° | 0.19% |
-| all (`apply_with`) | 0.00001 | 0.0000 | 3.6° | 0.29% |
-| all, live (`Live`) | 0.00011 | 0.0042 | 3.7° | 0.35% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 3.5° | 0.34% |
+| none (`apply`) | 0.00302 | 0.0200 | 2.1° | 0.20% |
+| travel | 0.00090 | 0.0200 | 2.1° | 0.20% |
+| planted feet | 0.00215 | 0.0001 | 2.9° | 0.26% |
+| push-out | 0.00302 | 0.0200 | 2.1° | 0.20% |
+| all (`apply_with`) | 0.00001 | 0.0000 | 3.1° | 0.30% |
+| all, live (`Live`) | 0.00011 | 0.0042 | 3.2° | 0.36% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 3.0° | 0.35% |
 
 Together they cut foot slide hundreds of times and the height error to nothing. Live, with nothing ahead, a foot's
 ground is the lowest it has been, or where it stands at rest if lower, till a foot lifts well clear of the floor; but
@@ -315,15 +321,16 @@ each body's height; the target's should match the source's.
 
 | Fixes | Hand gap off, source hand near: mean | 90th percentile | Target hand inside its body, source's not |
 | --- | ---: | ---: | ---: |
-| all but touch (`apply_with`) | 0.0369 | 0.0824 | 5.9% |
-| all (`apply_touching`) | 0.0118 | 0.0253 | 0.5% |
-| all, live (`Live::touching`) | 0.0118 | 0.0256 | 0.5% |
+| all but touch (`apply_with`) | 0.0375 | 0.0791 | 5.2% |
+| all (`apply_touching`) | 0.0117 | 0.0252 | 0.7% |
+| all, live (`Live::touching`) | 0.0117 | 0.0252 | 0.8% |
 
 So a hand resting on Michelle's hip rests on the coat of a stockier body instead of sinking into it: the gap is matched
-3.1 times closer and hands end up inside the body a twelfth as often. The body is the bones the hips hang from and
+3.2 times closer and hands end up inside the body a seventh as often. The body is the bones the hips hang from and
 those hanging from them: the Warrior's sword hangs from its root beside the hips, and its blade had been taken for
 skin, so a hand at its side was judged near its body and pushed off the target's to the sword's width. Leaving it out
-took the frames with a source hand near from 12,250 to 8,988 and the gap left from 0.0384 to 0.0118.
+took the frames with a source hand near from 12,250 to 8,988 and the gap left from 0.0384 to 0.0118 (8,974 and 0.0117
+now).
 
 ### Against the learned retargeters
 
@@ -340,7 +347,7 @@ set; `cargo bench --bench san` scores it with SAN's own formula.
 | PMnet (BMVC 2019), from SAN's table | yes | 5.72 | – |
 | CycleGAN-style, from SAN's table | yes | 7.66 | 8.97 |
 | SAN, from SAN's table | yes | 2.76 | 2.25 |
-| **dittomo** (`apply`, no fixes) | no | **1.47** | **0.66** |
+| **dittomo** (`apply`, no fixes) | no | **1.47** | **0.67** |
 | Local rotations copied by bone name, root moved as the source's | no | 43.0 | 24.9 |
 | Local rotations copied by bone name, root scaled by hips height | no | 1.37 | 0.70 |
 

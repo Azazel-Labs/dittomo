@@ -64,6 +64,8 @@ struct Lean {
     /// Which way the source's chest stands from its hips at rest, in the target's frame, and the target's.
     s_rest: Vec3,
     t_rest: Vec3,
+    /// The target's up, about which the hips turn the way the body faces.
+    up: Vec3,
 }
 
 impl Lean {
@@ -82,7 +84,18 @@ impl Lean {
                 now += s_rot(q) * source[a].translation;
             }
         }
-        let want = Quat::from_rotation_arc(self.s_rest, now.try_normalize()?) * self.t_rest;
+        // How the trunk leans is from the way the body faces: turned about, a chest standing ahead of its hips at
+        // rest stands ahead of them still, not behind, wherever the source's stands.
+        let hips = turned(self.path[0]);
+        let about = hips.xyz().dot(self.up) * self.up;
+        let facing = Quat::from_xyzw(about.x, about.y, about.z, hips.w);
+        let facing = if facing.length_squared() > 1e-6 {
+            facing.normalize()
+        } else {
+            Quat::IDENTITY
+        };
+        let now = facing.inverse() * now.try_normalize()?;
+        let want = facing * Quat::from_rotation_arc(self.s_rest, now) * self.t_rest;
         let (mut at, mut pos, mut up) = (Vec3::ZERO, Vec3::ZERO, Quat::IDENTITY);
         for (k, (&c, &step)) in self.path.iter().zip(&self.steps).enumerate() {
             pos += up * step;
@@ -253,10 +266,11 @@ impl Player {
                 .filter_map(|&a| Some(rot[s_parent[a]?] * source.bones()[a].rest.translation))
                 .sum::<Vec3>()
                 .normalize_or_zero();
-            let t_rest = (t.rest[chest].position() - t.rest[hips].position()).normalize_or_zero();
+            // The shape's places are in the body's frame; the turns played are in the world's.
+            let t_rest = (t.frame * (t.rest[chest].position() - t.rest[hips].position())).normalize_or_zero();
             let mut steps = vec![Vec3::ZERO; path.len()];
             for k in 1..path.len() {
-                steps[k] = t.rest[path[k]].position() - t.rest[path[k - 1]].position();
+                steps[k] = t.frame * (t.rest[path[k]].position() - t.rest[path[k - 1]].position());
             }
             (!s_path.is_empty() && s_rest != Vec3::ZERO && t_rest != Vec3::ZERO).then_some(Lean {
                 path,
@@ -265,6 +279,7 @@ impl Player {
                 s_path,
                 s_rest,
                 t_rest,
+                up: t.frame * Vec3::Y,
             })
         });
         let tilts = (0..nt)
