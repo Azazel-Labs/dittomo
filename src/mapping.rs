@@ -350,9 +350,14 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         v -= 0.3;
     }
     // A bone standing where its parent does turns about the same point: a second joint at its parent's (a BVH's
-    // zero-offset lower back at the hips, finger base at the hand), not the next one along.
+    // zero-offset lower back at the hips, finger base at the hand), not the next one along. The more so the further
+    // apart they stand in the hand: a finger base at the wrist is no finger's first bone at its knuckle, however
+    // alike their names, where a doubled pelvis at the root stands just where the other rig's hips do.
     if s.doubled[a] != t.doubled[b] {
         v -= 1.2;
+        if let (Some(pa), Some(pb)) = (s.palm[a], t.palm[b]) {
+            v -= 0.8 * (1.0 - bell(pa.distance(pb), 0.7));
+        }
     }
     // A leaf standing where its parent does is a bare point with no way to aim it (a bow's wing on the bow, an
     // attachment): it plays nothing that has a length to aim, and nothing with a length plays it.

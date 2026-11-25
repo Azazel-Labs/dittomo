@@ -100,7 +100,7 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 
 | Matcher | Joints found (7028) |
 | --- | ---: |
-| dittomo | 99.7% |
+| dittomo | 99.8% |
 | Godot's humanoid auto mapping (`BoneMapper`) | 65.6% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 18.2% |
 
@@ -112,7 +112,7 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 | neck | 100% | 88% | 27% | | toes | 100% | 65% | 19% |
 | head | 100% | 89% | 33% | | clavicles | 100% | 100% | 24% |
 | upper arms | 100% | 61% | 14% | | forearms | 100% | 61% | 14% |
-| hands | 100% | 76% | 21% | | index fingers | 95% | 64% | 22% |
+| hands | 100% | 76% | 21% | | index fingers | 97% | 64% | 22% |
 | | | | | | thumbs | 99% | 71% | 21% |
 
 What it got wrong, and what fixed it:
@@ -160,7 +160,10 @@ What it got wrong, and what fixed it:
   joints found to 100%. Its hands hold a thumb of one bone to its End Site beside one finger, both starting at the
   wrist: a bone beside a single finger with nothing past it but where it ends, turned off the finger's way, is a thumb
   (a twist bone beside a hand points along it), and of two digits both starting at the wrist, the thumb is the one
-  turned clearly further off the arm's line. Thumbs went from 97% found to 99%.
+  turned clearly further off the arm's line. Thumbs went from 97% found to 99%. Its finger base, standing at the
+  wrist, had played a Biped's first index bone at the knuckle on the strength of both being named finger: a bone
+  standing where its parent does, against one that doesn't, is the less alike the further apart the two stand in the
+  hand. Joints found went from 99.7% to 99.8%, index fingers from 95% to 97%.
 - **three.js's Archer and Warrior**, 3ds Max Bipeds, hang their arms at their sides and start their collarbones a hair
   either side of the neck and behind the spine. The archer holds a bow in its left hand, four bones more in that arm,
   two of them standing where the bow does, and each hand has a thumb and two fingers. Its arms had gone unpaired: two
@@ -387,24 +390,24 @@ On one core of an Intel Core Ultra 7 155H, Rust 1.100, `cargo bench --bench reta
 
 | Case | Time |
 | --- | ---: |
-| Map a 65-bone Mixamo-layout rig onto itself | 0.6 ms |
-| Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 1.1 ms |
-| Play a clip, mixamo → mannequin, setup included | 2.5 µs per frame |
-| Pose one frame with a reused `Player` | 1.3 µs per frame |
-| A walk with every fix on: travel, planted feet, push-out | 3.3 µs per frame |
-| The same walk done in place, travel worked out from the feet | 3.3 µs per frame |
-| Set up a `Player` for a pair of rigs | 40 µs |
+| Map a 65-bone Mixamo-layout rig onto itself | 0.74 ms |
+| Map it onto a 76-bone game-engine mannequin (five-bone spine, twist bones, A-pose, other bone axes) | 0.80 ms |
+| Play a clip, mixamo → mannequin, setup included | 2.1 µs per frame |
+| Pose one frame with a reused `Player` | 1.2 µs per frame |
+| Pose each of a `Crowd` of 64 | 0.81 µs per frame |
+| A walk with every fix on: travel, planted feet, push-out | 6.1 µs per frame |
+| The same walk done in place, travel worked out from the feet | 7.3 µs per frame |
+| `Live`, the walk with every fix but touch, a pose at a time | 4.2 µs per frame |
+| `Live`, the walk done in place | 5.3 µs per frame |
+| `Live`, the walk six poses late | 6.9 µs per frame |
+| `Live`, keeping hands at the skin's distance too (skins of 5,570 and 6,697 points) | 13.3 µs per frame |
+| Set up a `Player` for a pair of rigs | 59 µs |
+| Set up a `Live` player | 85 µs |
 
-Mapping's times are scaled from runs back to back with an earlier mapping that took 0.5 and 0.9 ms. Matching more rigs
-since had doubled them; working out what each name says once, a quicker bell curve for likeness and pairing children
-without allocating brought them back to within a quarter of it.
-On a busier run, where the walk with every fix took 4.5 µs a frame, `Live` played the same walk with every fix but touch
-in 3.1 µs a frame, the walk done in place in 3.0 µs (the whole clip: 4.9 µs), and the walk six poses late in 3.4 µs.
-Where a reused `Player` posed a frame in 1.8 µs, a `Crowd` of 64 characters posed each in 0.89 µs. Keeping hands at the
-skin's distance as well, with skins of 5,570 and 6,697 points, takes about 3.8 times as long as the live walk without
-it: 7.6 µs against 2.0 µs, the fastest of runs back to back with the earlier code, which took 10.1 µs. The skin's balls
-round each bone are placed once a pose, not once a hand, and a hand's reach toward the skin is measured in each bone's
-own frame, so only its points that could reach farthest are looked at.
+The fixes cost more than they once did because they do more: a foot plants by its sole and toes over the floor it
+finds, the trunk leans as the source's does and hands point by their fingers. Touch places the skin's balls round each
+bone once a pose, not once a hand, and measures a hand's reach toward the skin in each bone's own frame, so only its
+points that could reach farthest are looked at.
 
 three.js plays the same clip on the same rigs in `bench/three`, given dittomo's bone pairs as its names so only playing
 is timed. Measured back to back with dittomo on one machine (three.js r187 on Node 26):
