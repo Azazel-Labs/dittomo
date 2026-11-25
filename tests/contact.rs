@@ -409,8 +409,9 @@ fn feet_stay_still_through_a_walk_played_in_steps() {
     eprintln!(
         "slide per still frame over height: {before:.5}, whole clip {offline:.5}, live {online:.5}, late {late:.5}"
     );
+    // Played without fixes, the long legs step as far as the body travels and hardly slide: held, they don't at all.
     for fixed in [offline, online, late] {
-        assert!(fixed < 0.05 * before, "{before} -> {fixed}");
+        assert!(fixed < (0.05 * before).max(1e-5), "{before} -> {fixed}");
     }
 }
 
@@ -1162,7 +1163,8 @@ fn live_keeps_planted_feet_still_with_nothing_ahead() {
         eprintln!(
             "{name}, skate per planted frame over height: {before:.5}, whole clip {offline:.5}, live {online:.5}"
         );
-        assert!(online < 0.1 * before, "{before} -> {online}");
+        // The longer legs' body already travels nearly as far as they step, leaving less to cut.
+        assert!(online < 0.15 * before, "{before} -> {online}");
         assert!(online < 1e-4, "{online}");
     }
 }

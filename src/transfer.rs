@@ -8,7 +8,8 @@
 //! two mapped bones takes its share of their turns by how far along it is (only of the twist, if the bone below is a
 //! limb's joint), and one beside a mapped bone, starting where it starts
 //! and pointing along it, turns with it; any other keeps its rest pose under its parent. The topmost mapped bones and
-//! any whose source moves (not just turns) travel as their source does, scaled by how high each stands.
+//! any whose source moves (not just turns) travel as their source does, scaled by how high each stands; the topmost
+//! across the floor by how high the legs start, as far as they step.
 //!
 //! [`Player`] does the work that depends only on the two rigs and the mapping once, then poses frame after frame without
 //! allocating. Rotations are chained as quaternions; whole transforms are chained only down the paths to bones that
@@ -32,8 +33,8 @@ enum Plan {
         source: usize,
         /// The source bone's rest turn, the bodies' turn and the rest poses' difference, undone in one.
         pre: Quat,
-        /// How far the bone travels for each unit its source does, if it travels.
-        travel: Option<f32>,
+        /// How far the bone travels for each unit its source does, along each axis, if it travels.
+        travel: Option<Vec3>,
     },
     Between {
         above: usize,
@@ -241,7 +242,7 @@ impl Player {
         self.t_mat_need.fill(false);
         for &(b, a, k) in &self.moving {
             if let Plan::Mapped { travel, .. } = &mut self.plans[b] {
-                *travel = self.moves[a].then_some(k);
+                *travel = self.moves[a].then_some(Vec3::splat(k));
             }
         }
         for (b, p) in self.plans.iter().enumerate() {
@@ -353,7 +354,7 @@ impl Player {
                                 rest.translation + up_m.inverse().transform_vector3(moved)
                             }
                             None => {
-                                let moved = turn * (now - self.s_rest_pos[a]) * k;
+                                let moved = (turn * (now - self.s_rest_pos[a])) * k;
                                 up_m.inverse().transform_point3(self.t_rest_pos[b] + moved)
                             }
                         }
@@ -525,6 +526,15 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         }
     };
 
+    // A step goes as far as the legs swing, so the body travels across the floor by how high each rig's legs start, if
+    // both have legs, not its hips bone: a robot's hips bone sits below where its short legs start, and played on a
+    // long-legged figure carried it further than its feet stepped, so they slid. Up and down it goes by how high the
+    // bone stands.
+    let stride = |shape: &Shape, legs: &[contact::Limb]| {
+        let all: f32 = legs.iter().map(|l| stands(shape, l.upper)).sum();
+        (!legs.is_empty() && all > 0.0).then(|| all / legs.len() as f32)
+    };
+    let across = stride(s, &sf.legs).zip(stride(t, &tf.legs)).map(|(a, b)| b / a);
     let mut fixes: Vec<Option<Quat>> = vec![None; n];
     let mut plans = vec![Plan::Rest; n];
     let mut moving = Vec::new();
@@ -586,7 +596,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         plans[b] = Plan::Mapped {
             source: a,
             pre: fix.inverse(),
-            travel: top.then_some(k),
+            travel: top.then_some(Vec3::new(across.unwrap_or(k), k, across.unwrap_or(k))),
         };
     }
     for b in 0..n {

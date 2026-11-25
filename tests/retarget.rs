@@ -553,7 +553,7 @@ fn knows_which_way_a_body_faces() {
 }
 
 #[test]
-fn the_hips_travel_as_far_as_their_height_allows() {
+fn the_hips_travel_as_far_as_their_legs_step_and_rise_as_their_height_allows() {
     let from = humanoid(Style::default());
     let to = humanoid(Style {
         legs: 0.6,
@@ -569,10 +569,20 @@ fn the_hips_travel_as_far_as_their_height_allows() {
     // Heights over the lowest bone, the toes' ends at 0.02.
     let k = (rest_t.y - 0.02) / (rest_s.y - 0.02);
     assert!((k - 0.58 / 0.98).abs() < 1e-5, "{k}");
+    // Across the floor, as far as the legs step: by how high the legs start.
+    let start = |rig: &Rig| {
+        rig.skeleton.world(&rig.skeleton.rest())[rig.find(Part::Thigh(Side::L)).unwrap()]
+            .position()
+            .y
+            - 0.02
+    };
+    let across = start(&to) / start(&from);
+    assert!(across < 0.98 * k, "{across} {k}");
     for (ps, pt) in clip.poses.iter().zip(&out.poses) {
         let ms = from.skeleton.world(ps)[hs].position() - rest_s;
         let mt = to.skeleton.world(pt)[ht].position() - rest_t;
-        assert!((ms * k).distance(mt) < 1e-4, "{ms} {mt}");
+        let scaled = Vec3::new(ms.x * across, ms.y * k, ms.z * across);
+        assert!(scaled.distance(mt) < 1e-4, "{ms} {mt}");
     }
 }
 

@@ -185,7 +185,7 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 What's left is mostly proportions: a two-bone stretch (hips to chest, hand to index finger) can't point the same way on
 both rigs when the bones between are in other ratios. The collarbones are off by 6° as world turns copied are, by twist:
 a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the shoulder of one
-built at another slope. Keeping only the swing lowers that here, but it is further from SAN's clips below (0.72 against
+built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips below (0.72 against
 0.66 across skeletons), so dittomo keeps the whole turn. Setting the bones dittomo misses by hand moves the mean a tenth
 of a degree. CI fails if the mean passes 3°.
 
@@ -208,32 +208,40 @@ source's is, by over 1% of the height.
 | Fixes | Foot slide | Sole height off | Limb directions, mean | Pops |
 | --- | ---: | ---: | ---: | ---: |
 | none (`apply`) | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| travel | 0.00143 | 0.0106 | 1.9° | 0.20% |
-| planted feet | 0.00355 | 0.0001 | 2.9° | 0.33% |
+| travel | 0.00123 | 0.0106 | 1.9° | 0.20% |
+| planted feet | 0.00347 | 0.0001 | 2.8° | 0.29% |
 | push-out | 0.00476 | 0.0106 | 1.9° | 0.20% |
-| all (`apply_with`) | 0.00002 | 0.0001 | 3.1° | 0.45% |
-| all, live (`Live`) | 0.00016 | 0.0001 | 3.3° | 0.53% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00016 | 0.0001 | 3.1° | 0.46% |
+| all (`apply_with`) | 0.00001 | 0.0001 | 3.1° | 0.41% |
+| all, live (`Live`) | 0.00011 | 0.0001 | 3.2° | 0.46% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0001 | 3.1° | 0.42% |
 
-Together they cut foot slide over two hundred times and the height error a hundred. The degree they cost is the legs
-bending to keep feet down where the target's stride and leg proportions differ from the source's. Where a planted foot
-is further below the hip than the target's leg reaches, bent as it was played, the body is lowered, eased in and out,
-rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001. The body is lowered a tenth of
-the leg at most, and never so far that a bone but the feet goes under the floor. A foot let go, or about to plant, is
-moved as it is played, and as far again as the hold moves it at that end, eased out, rather than eased from the hold
-toward where it is played: that lagged behind a foot swinging off and jerked the leg, and cut the pops from 0.50% to
-0.17%. A contact split where the source's foot slips holds the foot where the part before did, moved on as far as it
-slips as played, rather than each part at its own average: a foot drifting as it is played jumped from one to the next.
-Played live, with nothing ahead, slide is cut thirty times: a foot is held from the pose it lands, where the target's
-was the pose before, so it doesn't slide as the legs settle unlike the source's, though the knee bends a little more to
-hold it. The body is lowered there too, at once as far as the legs need, then eased back up over a tenth of a second.
-Six poses late slide is cut as much, with limbs closer and nearly as few pops as the whole clip's. A foot coming down
-for the first time well above the floor the other found, but within a tenth of the height of it, has come down to its
-own ground once it stops coming down, not only once it has lifted from there: Mannequiny's run plants one foot 6% of its
-height higher than the other, and played live slid that foot's first step, a run of 15 frames, a twelfth of the height a
-frame. That halved the slide left live. A foot is planted from the first pose it stands on, judged by how fast it comes
-or goes, whichever is slower, so clips keyed in steps, whose feet jump between held poses, keep their feet still too.
-Push-out finds nothing to do here, as none of these clips put a hand through the body.
+Together they cut foot slide hundreds of times and the height error a hundred. The body travels across the floor by how
+high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits
+below where its short legs start, so on the rigged figure the body went a fifth further each step than the figure's legs
+stepped, and late in each stance the held foot was out of reach and dragged along. Up and down it still goes by how high
+the hips stand. That took the slide with travel alone from 0.00143 to 0.00123 and the pops with every fix from 0.45% to
+0.41%. It costs a little against SAN's Mixamo clips below, whose truth scales the hips' path by how high they stand. The
+degree they cost is the legs bending to keep feet down where the target's stride and leg proportions differ from the
+source's. Where a planted foot is further below the hip than the target's leg reaches, bent as it was played, the body
+is lowered, eased in and out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001.
+The body is lowered a tenth of the leg at most, and never so far that a bone but the feet goes under the floor. A foot
+let go, or about to plant, is moved as it is played, and as far again as the hold moves it at that end, eased out,
+rather than eased from the hold toward where it is played: that lagged behind a foot swinging off and jerked the leg,
+and cut the pops from 0.50% to 0.17%. A contact split where the source's foot slips holds the foot where the part before
+did, moved on as far as it slips as played, rather than each part at its own average: a foot drifting as it is played
+jumped from one to the next. Played live, with nothing ahead, slide is cut forty times: a foot is held from the pose it
+lands, where the target's was the pose before, so it doesn't slide as the legs settle unlike the source's, though the
+knee bends a little more to hold it. The body is lowered there too, at once as far as the legs need, then eased back up
+over a tenth of a second. Six poses late slide is cut as much, with limbs closer and nearly as few pops as the whole
+clip's. A foot coming down for the first time well above the floor the other found, but within a tenth of the height of
+it, has come down to its own ground once it stops coming down, not only once it has lifted from there: Mannequiny's run
+plants one foot 6% of its height higher than the other, and played live slid that foot's first step, a run of 15 frames,
+a twelfth of the height a frame. That halved the slide left live. Once the floor is known, a foot isn't taken to stand
+on where it was at the first pose if that is over a tenth of the height above the floor: the robot's walk starts with a
+foot swinging, and planted it in the air as it swung back past there, which took the slide left live from 0.00016 to
+0.00012. A foot is planted from the first pose it stands on, judged by how fast it comes or goes, whichever is slower,
+so clips keyed in steps, whose feet jump between held poses, keep their feet still too. Push-out finds nothing to do
+here, as none of these clips put a hand through the body.
 
 Hands on the body, over the 96 pairs where both rigs have a skinned mesh: 16,392 hand frames, 6,360 of them with the
 source's hand within 3% of its height of its own skin. The gap is how far the hand is out from the skin nearest it, over
@@ -263,19 +271,18 @@ set; `cargo bench --bench san` scores it with SAN's own formula.
 | PMnet (BMVC 2019), from SAN's table | yes | 5.72 | – |
 | CycleGAN-style, from SAN's table | yes | 7.66 | 8.97 |
 | SAN, from SAN's table | yes | 2.76 | 2.25 |
-| **dittomo** (`apply`, no fixes) | no | **1.42** | **0.66** |
+| **dittomo** (`apply`, no fixes) | no | **1.44** | **0.67** |
 | Local rotations copied by bone name, root moved as the source's | no | 43.0 | 24.9 |
 | Local rotations copied by bone name, root scaled by hips height | no | 1.37 | 0.70 |
 
 dittomo finds the bones itself, needs no training, and beats SAN on both. Three caveats:
 
-- Copying local rotations by name and scaling the root does better within one skeleton (1.37 against 1.42), because
-  Mixamo makes these clips by copying rotations onto each character and then adjusting its legs; per joint, the copy
-  is exact above the hips.
-  [R2ET](https://arxiv.org/abs/2303.08658) ([code](https://github.com/Kebii/R2ET), CVPR 2023) says the same of its own
-  table, where copying beats every learned method on position error. This test rewards doing what Mixamo does more than
-  looking right. The copy works only because all five skeletons share Mixamo's names, rest axes and T-pose; on the real
-  rigs above it is off by 74.0°.
+- Copying local rotations by name and scaling the root does better within one skeleton (1.37 against 1.44), because
+  Mixamo makes these clips by copying rotations onto each character and then adjusting its legs; per joint, the copy is
+  exact above the hips. [R2ET](https://arxiv.org/abs/2303.08658) ([code](https://github.com/Kebii/R2ET), CVPR 2023) says
+  the same of its own table, where copying beats every learned method on position error. This test rewards doing what
+  Mixamo does more than looking right. The copy works only because all five skeletons share Mixamo's names, rest axes
+  and T-pose; on the real rigs above it is off by 74.0°.
 - SAN's paper gives 8.86 for its copy baseline; unscaled, these runs get 43.0, mostly from Mousey being about half
   BigVegas's height. The scaled copy is the fair baseline.
 - The travel fix, which adds the travel an in-place clip's feet imply, does harm here (8.1 and 14.2): Mixamo's in-place
@@ -325,8 +332,8 @@ Foot skate per planted frame, over the character's height, on a 90-frame walk:
 
 | Target | Plain | Feet planted |
 | --- | ---: | ---: |
-| Same rig with 30% longer shins and feet | 0.00048 | 0.00002 |
-| Mannequin | 0.00053 | 0.00001 |
+| Same rig with 30% longer shins and feet | 0.00027 | 0.00001 |
+| Mannequin | 0.00050 | under 0.00001 |
 
 Timings and foot skate are measured on made-up rigs that copy the real ones' layouts (see Tested on). CI benchmarks
 every pull request against its base on the same runner and fails it if anything gets more than 25% slower.
@@ -491,7 +498,7 @@ shoulder, and half the wrist's bend would kink the forearm. A bone beside a mapp
 pointing along it, turns with it, as VRoid's sleeve and roll helpers beside the upper arm need: left at rest, the
 sleeves stayed out in a T-pose as the arms came down. Other unmapped bones keep their rest pose under their parent. The
 topmost mapped bones, and any whose source moves rather than only turns, travel as their source does, scaled by how high
-each stands.
+each stands; the topmost go across the floor by how high the legs start, as far as they step.
 
 Some rigs hang a foot or paw from the root rather than from its leg, for IK to place it at the leg's end. Played as it
 is, it stays where it stood while the body walks off. A low bone hanging from the root (or a bone holding half the

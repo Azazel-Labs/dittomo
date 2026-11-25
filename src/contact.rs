@@ -1062,10 +1062,14 @@ impl Ground {
                 *lifted &= *own - y < 0.01 * h;
                 *own = y;
             }
-            *lifted |= y - *own > 0.04 * h;
+            // Once the floor is known, a foot's own ground isn't where it was as the poses began if that is over a
+            // tenth of the height above the floor: a clip can start with a foot swinging, and it would plant in the
+            // air.
+            let near = !self.known || *own - self.floor < 0.1 * h;
+            *lifted |= near && y - *own > 0.04 * h;
             // A foot that stops coming down well above the floor, but within a tenth of the height of it, has come down
             // to its own ground: one foot of a run can plant higher than the other, and would slide its first step.
-            *lifted |= self.known && y >= self.last[l] && *own - self.floor > 0.04 * h && *own - self.floor < 0.1 * h;
+            *lifted |= self.known && near && y >= self.last[l] && *own - self.floor > 0.04 * h;
             self.last[l] = y;
             self.ground[l] = if *lifted {
                 *own

@@ -70,7 +70,8 @@ Phase 1 so far (November 2026):
   another down a chain; that halved the time to pose a frame (2.8 to 1.4 µs on the same busy runs).
 - `apply_with` adds travel for in-place clips, planted feet with two-bone IK, and sphere push-out, at about 3.3 µs per
   frame with all three on, travel worked out from the feet or not. Planted-foot skate on a
-  longer-legged target fell from 0.00048 to 0.00002 of its height per frame. Legs and arms are found without names.
+  longer-legged target fell from 0.00048 to 0.00002 of its height per frame; with the body traveling as far as the
+  legs step, by how high they start, it is 0.00027 played plain. Legs and arms are found without names.
 - `Live` makes the same fixes as poses come, with nothing ahead to look at, in about 3.1 µs a frame on a
   busy machine with every fix on, under the 5 µs target, or 3.4 µs played six poses late, which plants feet as the
   whole clip does. Each fix used to place the source again; placing it once a frame for all of them, travel moving it
@@ -411,7 +412,7 @@ determinism; threads per chunk of 16 to 64 characters; all buffers sized at load
       `cargo bench --features fs --bench rigs` scores dittomo against exact-name matching and Godot's humanoid auto
       mapping (ported), then plays every rig's clips on every other and scores limb directions against copying rotations
       and foot contact with each fix. SAN's Mixamo test is done too (`bench/san/fetch.sh`, `cargo bench --bench san`):
-      dittomo scores 1.42 intra-structural and 0.66 cross-structural against SAN's published 2.76 and 2.25, untrained
+      dittomo scores 1.44 intra-structural and 0.67 cross-structural against SAN's published 2.76 and 2.25, untrained
       (README, Against the learned retargeters). R2ET's test pairs exist only in its code, and Unity and Unreal are
       still to come.
 - [ ] **Measure where dittomo stands** on every row of the Goal table. Mapping accuracy is measured on real rigs;
