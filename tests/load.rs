@@ -156,12 +156,12 @@ fn writes_only_what_moves() {
         poses: vec![m.skeleton.rest(); 2],
     };
     let a = m.write_clip(&mut doc, None, &still).unwrap();
-    assert_eq!(doc.json["animations"][a]["channels"].as_array().unwrap().len(), 0);
+    assert_eq!(doc.json()["animations"][a]["channels"].as_array().unwrap().len(), 0);
     // One bone lifted: only its translation is keyed.
     let mut lifted = still.clone();
     lifted.poses[1][1].translation += Vec3::Y;
     let a = m.write_clip(&mut doc, None, &lifted).unwrap();
-    let channels = doc.json["animations"][a]["channels"].as_array().unwrap();
+    let channels = doc.json()["animations"][a]["channels"].as_array().unwrap();
     assert_eq!(channels.len(), 1);
     assert_eq!(channels[0]["target"]["node"], m.nodes[1]);
     assert_eq!(channels[0]["target"]["path"], "translation");
@@ -188,7 +188,7 @@ fn refuses_clips_it_cannot_write() {
         assert!(matches!(m.write_clip(&mut doc, None, &clip), Err(load::Error::Clip(_))));
     }
     assert!(
-        doc.json
+        doc.json()
             .get("animations")
             .and_then(|a| a.as_array())
             .is_none_or(|a| a.len() == 1)
@@ -263,7 +263,7 @@ fn a_rig_saved_mid_stride_rests_as_it_was_bound() {
         poses: vec![m.skeleton.rest(); 2],
     };
     let a = m.write_clip(&mut doc, None, &still).unwrap();
-    let channels = doc.json["animations"][a]["channels"].as_array().unwrap();
+    let channels = doc.json()["animations"][a]["channels"].as_array().unwrap();
     assert_eq!(channels.len(), 1);
     assert_eq!(channels[0]["target"]["node"], 1);
     assert_eq!(channels[0]["target"]["path"], "rotation");

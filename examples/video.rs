@@ -18,7 +18,6 @@ use std::process::{Command, Stdio};
 
 use dittomo::load::Model;
 use dittomo::{Clip, Fixes, Mapping, Transform, Vec3};
-use polysmelt::assets::Folder;
 use polysmelt::document::{Document, Keep, Pose};
 use polysmelt::mesh::Mesh;
 use polysmelt::rig::{Rig, Trs};
@@ -236,26 +235,25 @@ fn main() {
 /// A model: its document twice (with textures for the first frame, without for the rest), rig and skeleton.
 struct Character {
     name: String,
-    doc: Document<'static>,
-    textured: Document<'static>,
+    doc: Document,
+    textured: Document,
     rig: Rig,
     model: Model,
 }
 
 impl Character {
     fn load(path: &Path) -> Self {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let ext = if ext == "vrm" { "glb".to_string() } else { ext };
-        let assets = Folder::new(path.parent().unwrap_or(Path::new(".")));
-        let read = |keep| polysmelt::formats::load(path, &ext, &assets, keep).expect("reads the model");
-        let doc = read(Keep {
-            image_bytes: false,
-            ..Keep::ALL
-        });
+        let vrm = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("vrm"));
+        let read = |keep| {
+            let loader = polysmelt::Loader::new().keep(keep);
+            let loader = if vrm {
+                loader.format(polysmelt::Format::Gltf)
+            } else {
+                loader
+            };
+            loader.open(path).expect("reads the model")
+        };
+        let doc = read(Keep::ALL.with_image_bytes(false));
         let textured = read(Keep::ALL);
         let rig = doc.rig().expect("has a rig");
         let model = Model::from_document(&doc).expect("has bones");

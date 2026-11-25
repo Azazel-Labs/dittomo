@@ -68,6 +68,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
+name = "bytes"
+version = "1.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -431,17 +437,17 @@ dependencies = [
 
 [[package]]
 name = "polysmelt"
-version = "0.14.0"
+version = "0.17.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cd9efb08a67ae6875536c5337b5ec940e0eceabedf554a32f911e19e6b710f5"
+checksum = "2cdaa693c0bbbc95f1c95799d419a41e4e6277d10f120faee9bdb63e275d0375"
 dependencies = [
  "base64",
  "bytemuck",
+ "bytes",
  "flate2",
  "openusd",
  "openusd-schemas",
  "serde_json",
- "thiserror",
  "zip 9.7.3",
 ]
 

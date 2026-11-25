@@ -199,10 +199,7 @@ pub extern "C" fn export(bvh: u32) -> u32 {
             return 0;
         };
         let written = load::document_from_bytes(bytes, ext).and_then(|mut doc| {
-            doc.prune(Keep {
-                animations: false,
-                ..Keep::ALL
-            });
+            doc.prune(Keep::ALL.with_animations(false));
             target.write_clip(&mut doc, Some(name), clip)?;
             Ok(doc.to_glb()?)
         });

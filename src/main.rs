@@ -145,10 +145,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if !keep {
-        doc.prune(Keep {
-            animations: false,
-            ..Keep::ALL
-        });
+        doc.prune(Keep::ALL.with_animations(false));
     }
     for &c in &clips {
         let (name, clip) = &s.clips[c];

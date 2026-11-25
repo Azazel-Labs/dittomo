@@ -108,7 +108,7 @@ impl Model {
     ///
     /// # Errors
     /// If an accessor can't be read or there are no bones.
-    pub fn from_document(doc: &Document<'_>) -> Result<Self, Error> {
+    pub fn from_document(doc: &Document) -> Result<Self, Error> {
         let (mut model, bound) = Self::read(&doc.rig()?)?;
         // A mesh that can't be drawn leaves the skin empty; the skeleton and clips still stand. Where the bones rest as
         // the skins were bound rather than as the nodes stand, so does the skin.
@@ -207,7 +207,7 @@ impl Model {
     ///
     /// # Errors
     /// [`Error::Clip`] if the clip doesn't pose the skeleton, has no times, or its times don't rise.
-    pub fn write_clip(&self, doc: &mut Document<'_>, name: Option<&str>, clip: &Clip) -> Result<usize, Error> {
+    pub fn write_clip(&self, doc: &mut Document, name: Option<&str>, clip: &Clip) -> Result<usize, Error> {
         clip.check(self.skeleton.len()).map_err(Error::Clip)?;
         let n = clip.times.len();
         let rising = clip.times.iter().all(|t| t.is_finite()) && clip.times.windows(2).all(|w| w[0] < w[1]);
@@ -236,7 +236,7 @@ impl Model {
             .bones()
             .iter()
             .zip(&self.nodes)
-            .map(|(bone, &n)| node_rest(doc.json.get("nodes").and_then(|l| l.get(n))).unwrap_or(bone.rest))
+            .map(|(bone, &n)| node_rest(doc.json().get("nodes").and_then(|l| l.get(n))).unwrap_or(bone.rest))
             .collect();
         for (b, &rest) in rests.iter().enumerate() {
             let poses = || clip.poses.iter().map(move |p| p[b]);
@@ -288,7 +288,7 @@ impl Model {
             }
         }
         let buffer = doc.push_buffer(bytes);
-        let json = &mut doc.json;
+        let json = doc.json_mut();
         let mut add = |key: &str, items: Vec<Value>| {
             let list = json.entry(key).or_insert_with(|| json!([]));
             let list = list.as_array_mut().expect("glTF lists are arrays");
@@ -387,13 +387,9 @@ fn thin(times: &[f32], keys: &[Vec4], turns: bool, tolerance: f32) -> Vec<usize>
 /// # Errors
 /// If the file can't be read.
 #[cfg(feature = "fs")]
-pub fn document(path: &std::path::Path) -> Result<Document<'static>, Error> {
-    use polysmelt::assets::Folder;
-    use polysmelt::document::Keep;
+pub fn document(path: &std::path::Path) -> Result<Document, Error> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
-    let ext = format_of(ext);
-    let assets = Folder::new(path.parent().unwrap_or(std::path::Path::new(".")));
-    Ok(polysmelt::formats::load(path, &ext, &assets, Keep::ALL)?)
+    Ok(loader(ext).open(path)?)
 }
 
 /// [`document`] for a model in memory, `ext` naming its format (`glb`, `fbx`, ...). A glTF that refers to other files
@@ -401,13 +397,8 @@ pub fn document(path: &std::path::Path) -> Result<Document<'static>, Error> {
 ///
 /// # Errors
 /// If it can't be read.
-pub fn document_from_bytes(bytes: &[u8], ext: &str) -> Result<Document<'static>, Error> {
-    use polysmelt::assets::Memory;
-    use polysmelt::document::Keep;
-    let ext = format_of(ext);
-    let name = format!("model.{ext}");
-    let assets = Memory::new();
-    Ok(polysmelt::formats::load_bytes(bytes, &name, &ext, &assets, Keep::ALL)?.into_owned())
+pub fn document_from_bytes(bytes: &[u8], ext: &str) -> Result<Document, Error> {
+    Ok(loader(ext).read(bytes.to_vec(), &format!("model.{ext}"))?)
 }
 
 /// The skin of a mesh posed at rest, each vertex bound to the bone that weighs most on it, about one point every 1.25%
@@ -669,9 +660,14 @@ fn fill(at: [Vec3; 3], normals: [Vec3; 3], bone: usize, spacing: f32, out: &mut 
 }
 
 /// The format a file extension names, in lower case: VRM avatars are GLB.
-fn format_of(ext: &str) -> String {
-    let ext = ext.to_ascii_lowercase();
-    if ext == "vrm" { "glb".to_string() } else { ext }
+/// A loader keeping all of a model, reading a VRM avatar as the glTF it is.
+fn loader(ext: &str) -> polysmelt::Loader {
+    let loader = polysmelt::Loader::new();
+    if ext.eq_ignore_ascii_case("vrm") {
+        loader.format(polysmelt::Format::Gltf)
+    } else {
+        loader
+    }
 }
 
 /// The nodes that make the skeleton, each after its parent: every skin's joints and the nodes
