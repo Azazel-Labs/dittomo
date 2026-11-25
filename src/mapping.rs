@@ -387,6 +387,12 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     } else if let (Some(ra), Some(rb)) = (rise(s, a), rise(t, b)) {
         // Up the spine, how far from the hips to the chest, however high the hips stand.
         2.0 * bell(ra - rb, 0.2)
+    } else if let (Some((x, m)), Some((y, k))) = (s.neck[a], t.neck[b])
+        && m == k
+    {
+        // Up a neck of as many bones as the other's, as many bones up, however big the head or deep the rig. Of necks
+        // of different counts, one may count a bone marking the top of the head, unnamed, that the other doesn't.
+        if x == y { 2.0 } else { 0.0 }
     } else {
         placed
     };
@@ -418,6 +424,12 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
         } else if m == k {
             v += if x == y { 0.5 } else { -0.5 };
         }
+    }
+    // And a bone on the head, beyond it, isn't one.
+    if s.neck[a].is_some_and(|(x, m)| x + 1 == m) && t.topped[b]
+        || t.neck[b].is_some_and(|(y, k)| y + 1 == k) && s.topped[a]
+    {
+        v -= 0.5;
     }
     // Up from the hips, the spine is the first bone, however many lie between the hips and the chest; in a spine of as
     // many bones as the other's, each plays the one as many bones up.

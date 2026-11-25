@@ -2435,11 +2435,10 @@ fn a_collarbone_in_two_stays_put_as_the_arm_rises() {
     }
 }
 
-#[test]
-fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
-    // Godot's platformer robot is named as its viewer sees it: its `r-` limbs are on its own left, where its knees, bent
-    // the way it faces, put them. Its arms stop at the elbow, with no hand. Its head hangs from a tracker standing where
-    // it does, and a vent stands on top of it, higher above the shoulders than any head's root.
+/// Godot's platformer robot, named as its viewer sees it: its `r-` limbs are on its own left, where its knees, bent the
+/// way it faces, put them. Its arms stop at the elbow, with no hand. Its head hangs from a tracker standing where it
+/// does, and a vent stands on top of it, higher above the shoulders than any head's root.
+fn robot_like() -> Skeleton {
     let mut robot: Joints = vec![
         joint("hip", None, [0.0, 0.332, 0.0]),
         joint("waist", Some("hip"), [0.0, 0.392, 0.0]),
@@ -2457,7 +2456,12 @@ fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
         robot.push(joint(n("leg"), Some(&n("thigh")), [0.064 * x, 0.256, 0.014]));
         robot.push(joint(n("foot"), Some(&n("leg")), [0.082 * x, 0.032, 0.0]));
     }
-    let robot = placed(&robot);
+    placed(&robot)
+}
+
+#[test]
+fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
+    let robot = robot_like();
     let man = mixamo_like();
     let pairs = [
         ("Neck", "neck"),
@@ -2508,6 +2512,31 @@ fn a_robot_named_from_in_front_with_no_hands_maps_by_its_knees() {
 }
 
 #[test]
+fn a_robot_with_no_hands_turns_its_head_as_the_source_turns() {
+    // Its arms stopping short of a hand, the robot's chest is found by the chains reaching out on both sides of it, and
+    // its neck and head turn in the world as the source's do.
+    let (from, to) = (mixamo_like(), robot_like());
+    let map = Mapping::new(&from, &to);
+    let turns = [
+        Quat::from_rotation_y(0.6),
+        Quat::from_rotation_x(0.4),
+        Quat::from_rotation_z(0.3) * Quat::from_rotation_y(-0.5),
+    ];
+    for (src, dst) in [("Head", "head"), ("Neck", "neck")] {
+        let clip = turning(&from, src, &turns);
+        let out = map.apply(&from, &to, &clip).unwrap();
+        let (s, t) = (from.index_of(src).unwrap(), to.index_of(dst).unwrap());
+        let (s0, t0) = (from.world(&from.rest())[s].rotation, to.world(&to.rest())[t].rotation);
+        for (pose, played) in clip.poses.iter().zip(&out.poses) {
+            let ds = from.world(pose)[s].rotation * s0.inverse();
+            let dt = to.world(played)[t].rotation * t0.inverse();
+            let off = ds.angle_between(dt).to_degrees();
+            assert!(off < 0.5, "the robot's {dst} turns {off:.1}° off the source's turn");
+        }
+    }
+}
+
+#[test]
 fn a_head_with_nothing_beyond_it_plays_the_head_however_long_the_neck() {
     // Nameless rigs whose heads end at the head's root: one with a short neck under it, as a Rigify metarig's, the head
     // standing about where a man's neck does for the height the shoulders give; one with no neck, as BrainStem's.
@@ -2544,11 +2573,16 @@ fn a_head_with_nothing_beyond_it_plays_the_head_however_long_the_neck() {
         joint("n2", Some("n1"), [0.0, 1.546, -0.04]),
     ];
     limbs(&mut neckless, "n1", false, 1.36);
-    // Its spine, the first bone up from the hips, plays the first of the other's, however many each has.
-    for (other, spine) in [(mixamo_like(), "Spine"), (expressive_like(), "Abdomen")] {
+    // Its spine, the first bone up from the hips, plays the first of the other's, however many each has. Nor does a vent
+    // standing on a robot's head, beyond it, play the head; and up a neck of as many bones, each plays the one as far up.
+    for (other, [spine, neck, head]) in [
+        (mixamo_like(), ["Spine", "Neck", "Head"]),
+        (expressive_like(), ["Abdomen", "Neck", "Head"]),
+        (robot_like(), ["waist", "neck", "head"]),
+    ] {
         for (rig, pairs) in [
-            (placed(&necked), &[(spine, "n1"), ("Neck", "n4"), ("Head", "n5")][..]),
-            (placed(&neckless), &[("Head", "n2")][..]),
+            (placed(&necked), &[(spine, "n1"), (neck, "n4"), (head, "n5")][..]),
+            (placed(&neckless), &[(head, "n2")][..]),
         ] {
             assert_plays(&other, &rig, &Mapping::new(&other, &rig), pairs);
             let back: Vec<(&str, &str)> = pairs.iter().map(|&(a, b)| (b, a)).collect();

@@ -66,6 +66,9 @@ pub(crate) struct Shape {
     /// at its parent's where a branch starts (a BVH's zero-offset lower back at the hips or finger base at the hand),
     /// not the next one along. Not a bone its parent holds alone, as a head hung from a tracker.
     pub doubled: Vec<bool>,
+    /// Whether it stands beyond the head, on it: a vent atop a robot's head, the eyes or the jaw. Not a bone named as
+    /// marking where the chain ends, which a rig counting its unnamed twin as its head has there too.
+    pub topped: Vec<bool>,
     pub names: Vec<Name>,
 }
 
@@ -125,6 +128,7 @@ impl Shape {
                 neck: Vec::new(),
                 spine: Vec::new(),
                 doubled: Vec::new(),
+                topped: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -168,7 +172,13 @@ impl Shape {
             d
         };
         // How far each bone is from the bone farthest from it. In a tree that bone is always an end of the longest path,
-        // so it's the farther of the two ends: three walks per tree rather than one from every bone.
+        // so it's the farther of the two ends: three walks per tree rather than one from every bone. Not counting a
+        // bone with nothing beyond it standing further from every other than a third of the height: it is a control or
+        // marker hung off the rig, as a target for the head to look at well ahead of it, and says nothing of where the
+        // body's middle is. (A paw hung from the root for IK stands where its leg ends.)
+        let control: Vec<bool> = (0..n)
+            .map(|i| children[i].is_empty() && (0..n).all(|j| j == i || pos[i].distance(pos[j]) > height / 3.0))
+            .collect();
         let mut far = vec![f32::NAN; n];
         for start in 0..n {
             if !far[start].is_nan() {
@@ -176,7 +186,7 @@ impl Shape {
             }
             let farthest = |d: &[f32]| {
                 (0..n)
-                    .filter(|&i| d[i].is_finite())
+                    .filter(|&i| d[i].is_finite() && !control[i])
                     .max_by(|&i, &j| d[i].total_cmp(&d[j]).then(j.cmp(&i)))
                     .unwrap_or(start)
             };
@@ -218,6 +228,7 @@ impl Shape {
                 neck: Vec::new(),
                 spine: Vec::new(),
                 doubled: Vec::new(),
+                topped: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -434,6 +445,14 @@ impl Shape {
                 neck[c] = Some((k, chain.len()));
             }
         }
+        let mut topped = vec![false; n];
+        if let Some(head) = (0..n).find(|&i| neck[i].is_some_and(|(k, m)| k + 1 == m)) {
+            let mut stack = children[head].clone();
+            while let Some(c) = stack.pop() {
+                topped[c] = !names[c].end();
+                stack.extend(&children[c]);
+            }
+        }
         let doubled = (0..n)
             .map(|i| parents[i].is_some_and(|p| children[p].len() > 1) && length[i] < 1e-3 && !children[i].is_empty())
             .collect();
@@ -476,6 +495,7 @@ impl Shape {
             neck,
             spine,
             doubled,
+            topped,
             names,
         }
     }

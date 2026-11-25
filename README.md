@@ -99,7 +99,7 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 
 | Matcher | Joints found (5328) |
 | --- | ---: |
-| dittomo | 99.7% |
+| dittomo | 99.8% |
 | Godot's humanoid auto mapping (`BoneMapper`) | 63.2% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 22.2% |
 
@@ -108,8 +108,8 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 | hips | 100% | 76% | 24% | | thighs | 100% | 49% | 18% |
 | spine | 100% | 77% | 24% | | shins | 100% | 49% | 17% |
 | chest | 100% | 40% | 12% | | feet | 100% | 55% | 21% |
-| neck | 99% | 88% | 31% | | toes | 100% | 63% | 22% |
-| head | 99% | 88% | 40% | | clavicles | 100% | 100% | 31% |
+| neck | 100% | 88% | 31% | | toes | 100% | 63% | 22% |
+| head | 100% | 88% | 40% | | clavicles | 100% | 100% | 31% |
 | upper arms | 99% | 57% | 17% | | forearms | 99% | 57% | 17% |
 | hands | 100% | 73% | 26% | | index fingers | 100% | 59% | 28% |
 
@@ -133,9 +133,14 @@ What it gets wrong:
   hand, so a limb of two bones is measured to where its hand would be, a forearm past the elbow. Its head hangs from a
   tracker standing where it does, with a vent atop it reaching higher than any head's root: up from the chest, of a bone
   and a child standing where it does the child is taken, and nothing more than 1.4 times as high as the shoulders is,
-  which took heads from 96% to 98%. Against CesiumMan and RiggedFigure it still finds 73% to 87%: its shoulders stand at
-  two thirds of its height, under a big head, so their elbows stand nearer its shoulders than their shoulders do, and an
-  arm is taken one bone along.
+  which took heads from 96% to 98%. With no hand to find it by, its chest is the lowest bone above the hips with chains
+  reaching well out on both sides, so its neck and head play the source's rest to rest: against Rigify's and BrainStem's
+  heads, which end at the head's root, its head had looked 13°–30° away from where theirs did, and now looks the same
+  way. Up a neck of as many bones as the other's, each plays the one as many bones up, however big the head, and the
+  vent on its head, beyond it, is not a head, which took necks and heads to 100%. A control hung far from every other
+  bone, as a target well ahead of the head for it to look at, is left out of where the body's middle is. Against
+  CesiumMan and RiggedFigure it still finds 73% to 87%: its shoulders stand at two thirds of its height, under a big
+  head, so their elbows stand nearer its shoulders than their shoulders do, and an arm is taken one bone along.
 - With names to go by, the misses had mostly been one bone along a chain, a spine of one bone taken for the second of a
   rig's two. Up from the hips, the spine is the first bone, however many lie between the hips and the chest, not
   counting one no higher than the hips (RobotExpressive's `Hips` hang below `Body`, the bone its legs hang from), and a

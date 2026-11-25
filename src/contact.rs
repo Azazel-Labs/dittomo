@@ -306,8 +306,44 @@ pub(crate) fn frame(skeleton: &Skeleton, s: &Shape) -> Frame {
             }
         }
         let bears = |&b: &usize| s.children[b].iter().any(|&c| !trunk.on_spine[c] && legged[c]);
+        // Across from a spine bone, how far out and which way the farthest bone under each of its other children
+        // stands.
+        let reach = |sb: usize| -> Vec<Vec3> {
+            let mut within = vec![false; n];
+            s.children[sb]
+                .iter()
+                .filter(|&&c| !trunk.on_spine[c] && !legged[c])
+                .map(|&c| {
+                    within.fill(false);
+                    within[c] = true;
+                    for b in c + 1..n {
+                        within[b] = skeleton.bones()[b].parent.is_some_and(|p| within[p]);
+                    }
+                    (c..n)
+                        .filter(|&b| within[b])
+                        .map(|b| {
+                            let d = s.rest[b].position() - s.rest[sb].position();
+                            Vec3::new(d.x, 0.0, d.z)
+                        })
+                        .max_by(|a, b| a.length().total_cmp(&b.length()))
+                        .unwrap_or(Vec3::ZERO)
+                })
+                .collect()
+        };
+        // Chains well out across on both sides, as arms.
+        let armed = |sb: usize| {
+            let r = reach(sb);
+            let far = |d: &Vec3| d.length() >= 0.15 * s.height;
+            r.iter().any(|a| far(a) && r.iter().any(|b| far(b) && a.dot(*b) < 0.0))
+        };
         match (trunk.spine.iter().position(bears), trunk.spine.iter().rposition(bears)) {
             (Some(hips), Some(chest)) if chest > hips => trunk.spine[hips..=chest].to_vec(),
+            // A biped whose arms stop short of a hand has none found (Godot's platformer robot, its arms ending at
+            // the elbow): its chest is the lowest bone above the hips with chains reaching well out on both sides.
+            (Some(_), Some(hips)) => trunk.spine[hips + 1..]
+                .iter()
+                .position(|&b| armed(b))
+                .map_or_else(Vec::new, |i| trunk.spine[hips..=hips + 1 + i].to_vec()),
             _ => Vec::new(),
         }
     };

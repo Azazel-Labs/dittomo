@@ -194,7 +194,7 @@ on a busy machine, best of five runs each, dittomo played a frame in 7.0 µs aga
 hips' path scaled (20×). Babylon corrects for rests that differ but only bakes whole clips.
 
 Godot's humanoid auto mapping, ported from its editor into the rig benchmark, finds 63.2% of joints against dittomo's
-99.7% over seventeen rigs. Missing: Unity's and Unreal's humanoid matchers.
+99.8% over seventeen rigs. Missing: Unity's and Unreal's humanoid matchers.
 
 ## Open-source landscape
 
