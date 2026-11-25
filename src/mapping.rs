@@ -405,6 +405,16 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
             v += if x == y { 0.5 } else { -0.5 };
         }
     }
+    // Up from the hips, the spine is the first bone, however many lie between the hips and the chest; in a spine of as
+    // many bones as the other's, each plays the one as many bones up.
+    if let (Some((x, m)), Some((y, k))) = (s.spine[a], t.spine[b]) {
+        let (fa, fb) = (x == 0, y == 0);
+        if fa || fb {
+            v += if fa == fb { 0.5 } else { -0.5 };
+        } else if m == k {
+            v += if x == y { 0.5 } else { -0.5 };
+        }
+    }
     // Limbs branch where they branch, however high: a bone two limbs hang from plays one, not a bone along a chain.
     // A bone with nothing beyond it might be either, on a rig that stops there.
     // An arm's bone whose limbs start far off is a forearm with the hand on its end: a hand, not one, and like a

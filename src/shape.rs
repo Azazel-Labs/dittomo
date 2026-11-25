@@ -55,6 +55,10 @@ pub(crate) struct Shape {
     /// For each bone up from the chest to the head, how many bones up it is (0 for the first) and how many the neck
     /// and head have: not counting a bone marking where a chain ends, or one standing where its parent does.
     pub neck: Vec<Option<(usize, usize)>>,
+    /// For each bone between the hips and the chest, how many bones up from the hips it is (0 for the first) and how
+    /// many there are: not counting one standing where its parent does, or one no higher than the hips (a pelvis hung
+    /// below them).
+    pub spine: Vec<Option<(usize, usize)>>,
     pub names: Vec<Name>,
 }
 
@@ -112,6 +116,7 @@ impl Shape {
                 limbs: [None; 2],
                 limb: Vec::new(),
                 neck: Vec::new(),
+                spine: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -203,6 +208,7 @@ impl Shape {
                 limbs: [None; 2],
                 limb: Vec::new(),
                 neck: Vec::new(),
+                spine: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -382,6 +388,22 @@ impl Shape {
                 neck[c] = Some((k, chain.len()));
             }
         }
+        let mut spine = vec![None; n];
+        if let [Some(chest), Some(hips)] = girdles {
+            let mut chain = Vec::new();
+            let mut b = skeleton.bones()[chest].parent;
+            while let Some(i) = b.filter(|&i| i != hips) {
+                chain.push(i);
+                b = skeleton.bones()[i].parent;
+            }
+            if b == Some(hips) {
+                chain.retain(|&i| length[i] > 0.01 && at[i].y > at[hips].y + 0.01);
+                chain.reverse();
+                for (k, &c) in chain.iter().enumerate() {
+                    spine[c] = Some((k, chain.len()));
+                }
+            }
+        }
         Self {
             rest,
             children,
@@ -403,6 +425,7 @@ impl Shape {
             along,
             span,
             neck,
+            spine,
             names,
         }
     }

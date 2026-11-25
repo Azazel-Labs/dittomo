@@ -99,14 +99,14 @@ when both rigs' bones get the same profile bone. `cargo bench --features fs --be
 
 | Matcher | Joints found (4654) |
 | --- | ---: |
-| dittomo | 98.9% |
+| dittomo | 99.4% |
 | Godot's humanoid auto mapping (`BoneMapper`) | 62.8% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 19.7% |
 
 | Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
 | hips | 100% | 74% | 21% | | thighs | 100% | 46% | 16% |
-| spine | 88% | 87% | 21% | | shins | 100% | 46% | 14% |
+| spine | 98% | 87% | 21% | | shins | 100% | 46% | 14% |
 | chest | 100% | 38% | 14% | | feet | 100% | 52% | 18% |
 | neck | 99% | 100% | 35% | | toes | 100% | 60% | 19% |
 | head | 96% | 88% | 38% | | clavicles | 100% | 100% | 27% |
@@ -130,14 +130,18 @@ What it gets wrong:
   hand, so a limb of two bones is measured to where its hand would be, a forearm past the elbow. Against CesiumMan and
   RiggedFigure it still finds 67% to 80%: its shoulders stand at two thirds of its height, under a big head, so their
   elbows stand nearer its shoulders than their shoulders do, and an arm is taken one bone along.
-- With names to go by, the misses are mostly one bone along a chain (a chest taken for the bone below it, or a spine of
-  one bone taken for the second of a rig's two).
+- With names to go by, the misses had mostly been one bone along a chain, a spine of one bone taken for the second of a
+  rig's two. Up from the hips, the spine is the first bone, however many lie between the hips and the chest, not
+  counting one no higher than the hips (RobotExpressive's `Hips` hang below `Body`, the bone its legs hang from), and a
+  spine of as many bones as the other's is matched bone for bone. That took spines from 88% to 98%; what's left is
+  CesiumMan and RiggedFigure against the Rigify base mesh, where `torso_joint_2` is taken for `spine.002` by its number
+  and height.
 - Godot's mapper looks for words in names and walks down from what it finds, so a rig it can't start on loses everything
   below: BrainStem's unnamed bones get nothing; CesiumMan's hips are taken for its `torso_joint_3`, the chest, and its
   arms and legs aren't found; RiggedFigure has no bone named foot or hand, so only its trunk is; RobotExpressive's feet
   hang from the root, and its hand is taken for the palm bone of its middle finger.
 
-CI runs this on every push and fails below 95% of joints found or above 3° of limb error. The rigs are fetched rather
+CI runs this on every push and fails below 99% of joints found or above 3° of limb error. The rigs are fetched rather
 than committed; each keeps its own license. Unity's Avatar and Unreal's IK Retargeter aren't in the table: their
 matchers aren't open source, and need the engine running.
 
@@ -490,7 +494,8 @@ hips hang from is lowered with the body for planted feet, so it is left out.
 The sixteen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
 bone holding two fingers, a COLLADA export stopping at the base of the head with numbered limbs in an A-pose, a nameless
 rig with one hand missing, a chest whose collarbones start beside it rather than above it, and a robot named from in
-front, its arms stopping at the elbow, and heads with nothing beyond them, on a short neck or none.
+front, its arms stopping at the elbow, heads with nothing beyond them, on a short neck or none, and hips hung below the
+bone the legs hang from.
 
 Made-up humanoids that differ the ways real rigs do: names from different tools or none, extra roots and twist bones,
 two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimeters

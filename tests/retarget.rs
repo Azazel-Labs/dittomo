@@ -831,6 +831,40 @@ fn mixamo_like() -> Skeleton {
     placed(&j)
 }
 
+/// A robot laid out as three.js's RobotExpressive: a long neck under a big head, its head's root its highest joint;
+/// legs hung from a body bone, the spine from a pelvis hung below it, one bone up to the chest; a palm three fingers
+/// hang from; the feet hung from the root, for IK, the legs ending at the knee.
+fn expressive_like() -> Skeleton {
+    let mut j: Joints = vec![
+        joint("Bone", None, [0.0, -0.01, -0.2]),
+        joint("Body", Some("Bone"), [0.0, 1.44, 0.11]),
+        joint("Hips", Some("Body"), [0.0, 1.34, 0.0]),
+        joint("Abdomen", Some("Hips"), [0.0, 1.66, -0.08]),
+        joint("Torso", Some("Abdomen"), [0.0, 2.15, -0.08]),
+        joint("Neck", Some("Torso"), [0.0, 2.73, -0.02]),
+        joint("Head", Some("Neck"), [0.0, 3.04, -0.01]),
+    ];
+    for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
+        let n = |s: &str| format!("{s}.{side}");
+        j.push(joint(n("Shoulder"), Some("Torso"), [0.58 * x, 2.44, -0.02]));
+        j.push(joint(n("UpperArm"), Some(&n("Shoulder")), [0.67 * x, 2.44, -0.02]));
+        j.push(joint(n("LowerArm"), Some(&n("UpperArm")), [1.32 * x, 2.43, 0.02]));
+        j.push(joint(n("Palm"), Some(&n("LowerArm")), [2.69 * x, 2.45, -0.03]));
+        for (f, y) in [("Index", 2.63f32), ("Middle", 2.45), ("Ring", 2.26)] {
+            j.push(joint(n(&format!("{f}1")), Some(&n("Palm")), [3.0 * x, y, 0.18]));
+            j.push(joint(
+                n(&format!("{f}2")),
+                Some(&n(&format!("{f}1"))),
+                [3.15 * x, y, 0.3],
+            ));
+        }
+        j.push(joint(n("UpperLeg"), Some("Body"), [0.63 * x, 1.54, -0.07]));
+        j.push(joint(n("LowerLeg"), Some(&n("UpperLeg")), [0.63 * x, 0.94, 0.04]));
+        j.push(joint(n("Foot"), Some("Bone"), [0.63 * x, 0.02, -0.14]));
+    }
+    placed(&j)
+}
+
 fn assert_plays(from: &Skeleton, to: &Skeleton, map: &Mapping, pairs: &[(&str, &str)]) {
     for &(src, dst) in pairs {
         let b = to.index_of(dst).expect("target bone");
@@ -2505,35 +2539,10 @@ fn a_head_with_nothing_beyond_it_plays_the_head_however_long_the_neck() {
         joint("n2", Some("n1"), [0.0, 1.546, -0.04]),
     ];
     limbs(&mut neckless, "n1", false, 1.36);
-    // And a robot with a long neck under a big head, its head's root its highest joint, as three.js's RobotExpressive.
-    let mut robot: Joints = vec![
-        joint("Hips", None, [0.0, 1.34, 0.0]),
-        joint("Abdomen", Some("Hips"), [0.0, 1.66, -0.08]),
-        joint("Torso", Some("Abdomen"), [0.0, 2.15, -0.08]),
-        joint("Neck", Some("Torso"), [0.0, 2.73, -0.02]),
-        joint("Head", Some("Neck"), [0.0, 3.04, -0.01]),
-    ];
-    for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
-        let n = |s: &str| format!("{s}.{side}");
-        robot.push(joint(n("Shoulder"), Some("Torso"), [0.58 * x, 2.44, -0.02]));
-        robot.push(joint(n("UpperArm"), Some(&n("Shoulder")), [0.67 * x, 2.44, -0.02]));
-        robot.push(joint(n("LowerArm"), Some(&n("UpperArm")), [1.32 * x, 2.43, 0.02]));
-        robot.push(joint(n("Palm"), Some(&n("LowerArm")), [2.69 * x, 2.45, -0.03]));
-        for (f, y) in [("Index", 2.63f32), ("Middle", 2.45), ("Ring", 2.26)] {
-            robot.push(joint(n(&format!("{f}1")), Some(&n("Palm")), [3.0 * x, y, 0.18]));
-            robot.push(joint(
-                n(&format!("{f}2")),
-                Some(&n(&format!("{f}1"))),
-                [3.15 * x, y, 0.3],
-            ));
-        }
-        robot.push(joint(n("UpperLeg"), Some("Hips"), [0.63 * x, 1.54, -0.07]));
-        robot.push(joint(n("LowerLeg"), Some(&n("UpperLeg")), [0.63 * x, 0.94, 0.04]));
-        robot.push(joint(n("Foot"), Some(&n("LowerLeg")), [0.63 * x, 0.02, -0.14]));
-    }
-    for other in [mixamo_like(), placed(&robot)] {
+    // Its spine, the first bone up from the hips, plays the first of the other's, however many each has.
+    for (other, spine) in [(mixamo_like(), "Spine"), (expressive_like(), "Abdomen")] {
         for (rig, pairs) in [
-            (placed(&necked), &[("Neck", "n4"), ("Head", "n5")][..]),
+            (placed(&necked), &[(spine, "n1"), ("Neck", "n4"), ("Head", "n5")][..]),
             (placed(&neckless), &[("Head", "n2")][..]),
         ] {
             assert_plays(&other, &rig, &Mapping::new(&other, &rig), pairs);
@@ -2541,4 +2550,15 @@ fn a_head_with_nothing_beyond_it_plays_the_head_however_long_the_neck() {
             assert_plays(&rig, &other, &Mapping::new(&rig, &other), &back);
         }
     }
+}
+
+#[test]
+fn the_spine_is_the_first_bone_up_from_the_hips_however_many_there_are() {
+    // A robot with one bone between its hips and its chest, its pelvis hung below the bone its legs hang from, against
+    // a man with two.
+    let (robot, man) = (expressive_like(), mixamo_like());
+    let pairs = [("Spine", "Abdomen"), ("Spine2", "Torso"), ("Head", "Head")];
+    assert_plays(&man, &robot, &Mapping::new(&man, &robot), &pairs);
+    let back: Vec<(&str, &str)> = pairs.iter().map(|&(a, b)| (b, a)).collect();
+    assert_plays(&robot, &man, &Mapping::new(&robot, &man), &back);
 }

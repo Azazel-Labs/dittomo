@@ -125,7 +125,7 @@ jobs:
           key: rigs-${{ hashFiles('dittomo/bench/rigs/fetch.sh') }}
       - run: sh bench/rigs/fetch.sh
         working-directory: dittomo
-      - run: cargo bench --features fs --bench rigs -- --min 95 --max-degrees 3 | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: cargo bench --features fs --bench rigs -- --min 99 --max-degrees 3 | tee -a "$GITHUB_STEP_SUMMARY"
         shell: bash
         working-directory: dittomo
       # Four-legged animals of different builds, from a fox to an alpaca: joints found, posture at rest, feet in
