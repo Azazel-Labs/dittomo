@@ -100,7 +100,7 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 
 | Matcher | Joints found (7028) |
 | --- | ---: |
-| dittomo | 99.6% |
+| dittomo | 99.7% |
 | Godot's humanoid auto mapping (`BoneMapper`) | 65.6% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 18.2% |
 
@@ -113,7 +113,7 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 | head | 100% | 89% | 33% | | clavicles | 100% | 100% | 24% |
 | upper arms | 100% | 61% | 14% | | forearms | 100% | 61% | 14% |
 | hands | 100% | 76% | 21% | | index fingers | 95% | 64% | 22% |
-| | | | | | thumbs | 97% | 71% | 21% |
+| | | | | | thumbs | 99% | 71% | 21% |
 
 What it got wrong, and what fixed it:
 
@@ -157,7 +157,10 @@ What it got wrong, and what fixed it:
   are taken from where each limb's chain goes, its pairs measured where their chains leave the parent, and its neck
   looked for past a bone standing where the chest does; a bone standing where its parent does, beside others with bones
   beyond it, is a second joint at that point, not the next one along. Against the other rigs it went from 68%–95% of
-  joints found to 100%.
+  joints found to 100%. Its hands hold a thumb of one bone to its End Site beside one finger, both starting at the
+  wrist: a bone beside a single finger with nothing past it but where it ends, turned off the finger's way, is a thumb
+  (a twist bone beside a hand points along it), and of two digits both starting at the wrist, the thumb is the one
+  turned clearly further off the arm's line. Thumbs went from 97% found to 99%.
 - **three.js's Archer and Warrior**, 3ds Max Bipeds, hang their arms at their sides and start their collarbones a hair
   either side of the neck and behind the spine. The archer holds a bow in its left hand, four bones more in that arm,
   two of them standing where the bow does, and each hand has a thumb and two fingers. Its arms had gone unpaired: two

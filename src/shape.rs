@@ -378,7 +378,8 @@ impl Shape {
         }
         // The limbs hanging from each bone: those of more than one bone, or, in an arm, three or more of one bone
         // each standing off it, a hand of one-bone fingers as a low-detail rig has (not a held bow's points, two of
-        // them where the bow is).
+        // them where the bow is); or beside a single finger, a bone with nothing past it but where it ends, turned
+        // off the finger's way, a mocap hand's thumb (not a twist bone beside the hand).
         let digits: Vec<Vec<usize>> = (0..n)
             .map(|i| {
                 let kids = &children[i];
@@ -387,6 +388,37 @@ impl Shape {
                 let off = |c: usize| pos[c].distance(pos[i]) > 0.01 * height;
                 if long.len() < 2 && arm && kids.len() >= 3 && kids.iter().all(|&c| joints[c] == 1 && off(c)) {
                     kids.to_vec()
+                } else if let ([f], true) = (&long[..], arm) {
+                    // Where a chain first stands off the bone, and whether it goes on without branching.
+                    let away = |mut c: usize| loop {
+                        match &children[c] {
+                            &[d] if pos[c].distance(pos[i]) <= 1e-6 => c = d,
+                            _ => break pos[c] - pos[i],
+                        }
+                    };
+                    let chain = |mut c: usize| loop {
+                        match &children[c] {
+                            [] => break true,
+                            &[d] => c = d,
+                            _ => break false,
+                        }
+                    };
+                    let way = away(*f).normalize_or_zero();
+                    let ended = |c: usize| {
+                        joints[c] == 1
+                            && !children[c].is_empty()
+                            && !names[c].helper()
+                            && away(c).normalize_or_zero().dot(way) < 0.94
+                    };
+                    let thumbs: Vec<usize> = kids.iter().copied().filter(|&c| c != *f && ended(c)).collect();
+                    if chain(*f) && !thumbs.is_empty() {
+                        kids.iter()
+                            .copied()
+                            .filter(|c| *c == *f || thumbs.contains(c))
+                            .collect()
+                    } else {
+                        long
+                    }
                 } else {
                     long
                 }
@@ -430,7 +462,15 @@ impl Shape {
             let Some(p) = parents[h] else { continue };
             let side = if at[h].x > at[p].x { Vec3::X } else { Vec3::NEG_X };
             let out = Quat::from_rotation_arc((at[h] - at[p]).normalize_or(side), side);
-            let size = digits[h].iter().map(|&c| at[c].distance(at[h])).sum::<f32>() / digits[h].len().max(1) as f32;
+            // How far the digits start from it, each from its first joint off the wrist: a mocap hand's digits start
+            // at it, and part a bone on.
+            let from = |mut c: usize| loop {
+                match &children[c] {
+                    &[d] if at[c].distance(at[h]) <= 1e-6 => c = d,
+                    _ => break at[c].distance(at[h]),
+                }
+            };
+            let size = digits[h].iter().map(|&c| from(c)).sum::<f32>() / digits[h].len().max(1) as f32;
             if size <= 1e-6 {
                 continue;
             }
@@ -461,7 +501,8 @@ impl Shape {
                 })
                 .collect();
             // The thumb stands apart from the fingers, further from its nearest than any finger is from its own; of
-            // two digits, it starts clearly nearer the wrist. The index is the one nearest the thumb.
+            // two digits, it starts clearly nearer the wrist, or, both starting at it, turns clearly further off the
+            // line of the arm, as fingers carry it on. The index is the one nearest the thumb.
             let apart: Vec<f32> = (0..ds.len())
                 .map(|i| {
                     (0..ds.len())
@@ -476,8 +517,16 @@ impl Shape {
                 (apart[order[0]] > 1.25 * apart[order[1]]).then_some(order[0])
             } else {
                 order.sort_by(|&i, &j| at[ds[i]].distance(at[h]).total_cmp(&at[ds[j]].distance(at[h])));
-                (order.len() == 2 && at[ds[order[0]]].distance(at[h]) < 0.85 * at[ds[order[1]]].distance(at[h]))
-                    .then_some(order[0])
+                let arm = (at[h] - at[p]).normalize_or_zero();
+                let off = |i: usize| (parts[i] - at[h]).normalize_or_zero().dot(arm).clamp(-1.0, 1.0).acos();
+                match order[..] {
+                    [i, j] if at[ds[i]].distance(at[h]) < 0.85 * at[ds[j]].distance(at[h]) => Some(i),
+                    [i, j] if at[ds[j]].distance(at[h]) < 0.01 * size => {
+                        let (a, b) = (off(i), off(j));
+                        (a > b + 0.35).then_some(i).or((b > a + 0.35).then_some(j))
+                    }
+                    _ => None,
+                }
             };
             if let Some(thumb) = thumb {
                 let mut rest: Vec<usize> = (0..ds.len()).filter(|&i| i != thumb).collect();
@@ -1013,6 +1062,51 @@ mod tests {
         ]);
         let numbers: Vec<Option<u32>> = Shape::of(&s).names.iter().map(|n| n.number).collect();
         assert_eq!(numbers, [None, None, Some(1), Some(1), Some(2)]);
+    }
+
+    #[test]
+    fn a_mocap_hand_has_its_thumb_and_finger() {
+        // As a CMU BVH reads: the thumb and the finger's base both at the wrist, the thumb one bone to its End Site.
+        let mut joints = vec![
+            ("Hips", None, [0.0, 1.0, 0.0]),
+            ("Spine", Some("Hips"), [0.0, 1.2, 0.0]),
+            ("Spine1", Some("Spine"), [0.0, 1.4, 0.0]),
+            ("Neck", Some("Spine1"), [0.0, 1.55, 0.0]),
+            ("Head", Some("Neck"), [0.0, 1.65, 0.0]),
+            ("Head_end", Some("Head"), [0.0, 1.8, 0.0]),
+        ];
+        for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+            let n = |s: &str| -> &'static str { format!("{side}{s}").leak() };
+            let l = &side[..1];
+            joints.extend([
+                (n("Shoulder"), Some("Spine1"), [0.05 * x, 1.45, 0.0]),
+                (n("Arm"), Some(n("Shoulder")), [0.18 * x, 1.45, 0.0]),
+                (n("ForeArm"), Some(n("Arm")), [0.45 * x, 1.45, 0.0]),
+                (n("Hand"), Some(n("ForeArm")), [0.7 * x, 1.45, 0.0]),
+                (format!("{l}Thumb").leak(), Some(n("Hand")), [0.7 * x, 1.45, 0.0]),
+                (
+                    format!("{l}Thumb_end").leak(),
+                    Some(format!("{l}Thumb").leak()),
+                    [0.74 * x, 1.45, 0.04],
+                ),
+                (n("FingerBase"), Some(n("Hand")), [0.7 * x, 1.45, 0.0]),
+                (n("HandIndex1"), Some(n("FingerBase")), [0.75 * x, 1.45, 0.0]),
+                (n("HandIndex1_end"), Some(n("HandIndex1")), [0.79 * x, 1.45, 0.0]),
+                (n("UpLeg"), Some("Hips"), [0.1 * x, 0.95, 0.0]),
+                (n("Leg"), Some(n("UpLeg")), [0.1 * x, 0.5, 0.0]),
+                (n("Foot"), Some(n("Leg")), [0.1 * x, 0.08, 0.0]),
+                (n("ToeBase"), Some(n("Foot")), [0.1 * x, 0.0, 0.12]),
+            ]);
+        }
+        let s = placed(&joints);
+        let shape = Shape::of(&s);
+        let digit = |n: &str| shape.digit[s.index_of(n).expect("named")];
+        for l in ["L", "R"] {
+            assert_eq!(digit(&format!("{l}Thumb_end")), Some(-1.0));
+        }
+        for side in ["Left", "Right"] {
+            assert_eq!(digit(&format!("{side}HandIndex1")), Some(0.0));
+        }
     }
 
     #[test]
