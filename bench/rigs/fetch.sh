@@ -12,6 +12,8 @@
 #   BoQsc's Godot male base mesh, a Rigify metarig (CC0)
 #   Godot demo projects: the platformer's robot (MIT), and GDQuest's Mannequiny (CC-BY 4.0, GDQuest and
 #     contributors, https://www.gdquest.com/)
+#   CMU Graphics Lab Motion Capture Database (http://mocap.cs.cmu.edu/, free for research and commercial use), as
+#     B. Hahne's MotionBuilder-friendly BVH conversion, from una-dinosauria's copy
 set -eu
 
 dir=${1:-"$(dirname "$0")/data"}
@@ -25,6 +27,7 @@ babylon=https://raw.githubusercontent.com/BabylonJS/Assets/6946e9be89e0d471d5cab
 m2m=https://raw.githubusercontent.com/Mesh2Motion/mesh2motion-app/2609e0345371763c4c390f751d79021285da04b1/static/assets
 boqsc=https://raw.githubusercontent.com/BoQsc/Godot-Male-Base-Mesh/e7807327a8ebcc637831995a231dae701b6d4f56
 godot=https://raw.githubusercontent.com/godotengine/godot-demo-projects/281a99f02178db944bcddef39aa694e3bfbe354a/3d
+cmu=https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data
 
 sum() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -66,4 +69,5 @@ fetch mesh2motion-human.glb "$m2m/human/model.glb" bce15f56f0ca4daf4e085337b2412
 fetch godot-robot.glb "$godot/platformer/player/player.glb" 2c7e11f0d7e84bac8a45d724eab05d664a0a4ba41360ff2641e73635e2b5acf6
 fetch mannequiny.glb "$godot/ragdoll_physics/characters/mannequiny.glb" 6b0273d9e8eef159aee9cbc0e75752bbe6abbea56fbcb1a8534e6173f80dda3c
 fetch male-base-mesh.glb "$boqsc/Original/male_base_mesh.glb" 206cb651484baf9aaa29a030a38feecbe29575c3e1cbd820a58fa343c2ae14c4
-echo "16 rigs in $dir"
+fetch cmu-mocap.bvh "$cmu/002/02_03.bvh" 6f4d38b92b041221030de2e1058903e0f7a8fa08f9c6c9efabf7df9a128011ac
+echo "17 rigs in $dir"

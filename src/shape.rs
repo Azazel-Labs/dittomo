@@ -56,12 +56,16 @@ pub(crate) struct Shape {
     /// head have: those at the middle between the shoulders' roots, from no lower than them (not a bag on the back) to
     /// 1.4 times as high (not a vent on a robot's head, above where any head's root stands), not counting a bone
     /// marking where a chain ends. Of a bone and a child standing where it does, only the child is counted, as its turn
-    /// is the last word.
+    /// is the last word; and not one standing where the chest does.
     pub neck: Vec<Option<(usize, usize)>>,
     /// For each bone between the hips and the chest, how many bones up from the hips it is (0 for the first) and how
     /// many there are: not counting one standing where its parent does, or one no higher than the hips (a pelvis hung
     /// below them).
     pub spine: Vec<Option<(usize, usize)>>,
+    /// Whether it stands where its parent does, beside others hanging from it and with bones beyond it: a second joint
+    /// at its parent's where a branch starts (a BVH's zero-offset lower back at the hips or finger base at the hand),
+    /// not the next one along. Not a bone its parent holds alone, as a head hung from a tracker.
+    pub doubled: Vec<bool>,
     pub names: Vec<Name>,
 }
 
@@ -120,6 +124,7 @@ impl Shape {
                 limb: Vec::new(),
                 neck: Vec::new(),
                 spine: Vec::new(),
+                doubled: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -212,6 +217,7 @@ impl Shape {
                 limb: Vec::new(),
                 neck: Vec::new(),
                 spine: Vec::new(),
+                doubled: Vec::new(),
                 along: Vec::new(),
                 span: [0.0; 2],
                 names,
@@ -288,7 +294,15 @@ impl Shape {
             limb[i] = skeleton.bones()[i].parent.and_then(|p| limb[p]);
             for (r, pair) in limbs.iter().enumerate() {
                 if pair.is_some_and(|two| two.contains(&i)) {
-                    limb[i] = Some((r, at[i].x > 0.0));
+                    // On the side its chain goes, for a root standing where its parent does at the middle of the body
+                    // (a BVH's hip joint).
+                    let mut j = i;
+                    while let [only] = children[j].as_slice()
+                        && skeleton.bones()[j].parent.is_some_and(|p| at[j].distance(at[p]) < 1e-4)
+                    {
+                        j = *only;
+                    }
+                    limb[i] = Some((r, at[j].x > 0.0));
                 }
             }
         }
@@ -384,6 +398,17 @@ impl Shape {
                 children[i]
                     .iter()
                     .copied()
+                    // Through a bone standing where its parent does to its only child, as a BVH's neck joint at the
+                    // chest.
+                    .map(|mut c| {
+                        while let [d] = children[c].as_slice()
+                            && length[c] <= 0.01
+                            && !names[*d].end()
+                        {
+                            c = *d;
+                        }
+                        c
+                    })
                     .filter(on)
                     .filter(|&c| (at[c].x - mid).abs() < 0.03 && at[c].y > at[i].y)
                     // Through a bone to a child standing where it does, as a head hung from a tracker.
@@ -409,6 +434,9 @@ impl Shape {
                 neck[c] = Some((k, chain.len()));
             }
         }
+        let doubled = (0..n)
+            .map(|i| parents[i].is_some_and(|p| children[p].len() > 1) && length[i] < 1e-3 && !children[i].is_empty())
+            .collect();
         let mut spine = vec![None; n];
         if let [Some(chest), Some(hips)] = girdles {
             let mut chain = Vec::new();
@@ -447,6 +475,7 @@ impl Shape {
             span,
             neck,
             spine,
+            doubled,
             names,
         }
     }
@@ -637,6 +666,17 @@ fn mirrored(
             .max_by_key(|&c| (under[c], std::cmp::Reverse(c)));
         main.map(|c| (pos[c] - pos[i]).normalize_or_zero())
     };
+    // Where a bone's chain leaves its parent: of a bone standing where its parent does (a BVH's zero-offset joint, a
+    // hip or a shoulder at the middle of the body), where the only child it goes on to stands.
+    let off = |mut i: usize| {
+        let at = skeleton.bones()[i].parent.map_or(pos[i], |p| pos[p]);
+        while let [only] = children[i].as_slice()
+            && pos[i].distance(at) < 1e-4 * height
+        {
+            i = *only;
+        }
+        pos[i]
+    };
     let mut out = Vec::new();
     for (p, kids) in children.iter().enumerate() {
         for (k, &i) in kids.iter().enumerate() {
@@ -653,7 +693,7 @@ fn mirrored(
                 {
                     continue;
                 }
-                let (di, dj) = (flat(pos[i] - pos[p]), flat(pos[j] - pos[p]));
+                let (di, dj) = (flat(off(i) - pos[p]), flat(off(j) - pos[p]));
                 let apart = di - dj;
                 if apart.length() < 0.02 * height {
                     continue;
@@ -884,5 +924,47 @@ mod tests {
         let name = |i: Option<usize>| i.map(|i| s.bones()[i].name.as_str());
         assert_eq!(name(shape.girdles[0]), Some("torso_joint_3"));
         assert_eq!(name(shape.girdles[1]), Some("Skeleton_torso_joint_1"));
+    }
+
+    #[test]
+    fn limbs_starting_at_the_middle_of_the_body_have_their_sides_and_a_neck_its_bones() {
+        // As a BVH from motion capture branches: each limb, the neck and the lower back start at their parent's joint.
+        let mut j = vec![
+            ("Hips", None, [0.0, 1.0, 0.0]),
+            ("LowerBack", Some("Hips"), [0.0, 1.0, 0.0]),
+            ("Spine", Some("LowerBack"), [0.0, 1.15, 0.0]),
+            ("Chest", Some("Spine"), [0.0, 1.3, 0.0]),
+            ("Neck", Some("Chest"), [0.0, 1.3, 0.0]),
+            ("Neck1", Some("Neck"), [0.0, 1.42, 0.0]),
+            ("Head", Some("Neck1"), [0.0, 1.53, 0.0]),
+            ("HeadEnd", Some("Head"), [0.0, 1.7, 0.0]),
+        ];
+        let names = [
+            ["a0", "a1", "a2", "a3", "f0", "f1", "f2", "f3"],
+            ["b0", "b1", "b2", "b3", "g0", "g1", "g2", "g3"],
+        ];
+        for (n, x) in names.iter().zip([1.0f32, -1.0]) {
+            j.push((n[0], Some("Chest"), [0.0, 1.3, 0.0]));
+            j.push((n[1], Some(n[0]), [0.25 * x, 1.36, 0.0]));
+            j.push((n[2], Some(n[1]), [0.55 * x, 1.36, 0.0]));
+            j.push((n[3], Some(n[2]), [0.8 * x, 1.36, 0.0]));
+            j.push((n[4], Some("Hips"), [0.0, 1.0, 0.0]));
+            j.push((n[5], Some(n[4]), [0.1 * x, 0.9, 0.0]));
+            j.push((n[6], Some(n[5]), [0.15 * x, 0.48, 0.0]));
+            j.push((n[7], Some(n[6]), [0.2 * x, 0.05, 0.0]));
+        }
+        let s = placed(&j);
+        let shape = Shape::of(&s);
+        let at = |n: &str| s.index_of(n).unwrap();
+        assert_eq!(shape.girdles, [Some(at("Chest")), Some(at("Hips"))]);
+        for n in ["a0", "b0", "f0", "g0"] {
+            let side = shape.limb[at(n)].map(|(_, side)| side);
+            assert_eq!(side, Some(shape.at[at(&format!("{}3", &n[..1]))].x > 0.0), "{n}");
+        }
+        assert_ne!(shape.limb[at("a0")], shape.limb[at("b0")]);
+        let neck: Vec<_> = ["Neck", "Neck1", "Head"].map(|n| shape.neck[at(n)]).into();
+        assert_eq!(neck, [None, Some((0, 2)), Some((1, 2))]);
+        assert_eq!(shape.spine[at("Spine")], Some((0, 1)));
+        assert!(shape.doubled[at("LowerBack")] && shape.doubled[at("Neck")] && !shape.doubled[at("Spine")]);
     }
 }

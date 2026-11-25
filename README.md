@@ -88,30 +88,30 @@ hung from helpers beside the upper arms, which turn with the arms rather than st
 
 ### Finding the right bones on real rigs
 
-Sixteen real characters, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot, Michelle, Soldier and
+Seventeen real characters, fetched at pinned commits by `sh bench/rigs/fetch.sh`: Mixamo's Xbot, Michelle, Soldier and
 Samba Dancing (one as FBX), Ready Player Me, three.js's RobotExpressive, Khronos's CesiumMan, RiggedFigure and
 BrainStem, two VRM avatars, Babylon's HVGirl, Mesh2Motion's human, from Godot's demo projects the platformer's robot and
-GDQuest's Mannequiny, and BoQsc's base mesh on a Rigify metarig. Each rig's body joints are labeled by hand
-(`bench/rigs/labels.txt`); every one of the 240 ordered pairs is mapped, and a joint counts as found when the target's
-joint plays the source's. Godot's humanoid auto mapping (its `BoneMapper`, ported faithfully from the editor's source
-into `benches/rigs/godot.rs`, MIT) maps both rigs onto its humanoid profile, as a `BoneMap` does, so it gets a joint
-when both rigs' bones get the same profile bone. `cargo bench --features fs --bench rigs`:
+GDQuest's Mannequiny, BoQsc's base mesh on a Rigify metarig, and a CMU motion capture take as BVH. Each rig's body
+joints are labeled by hand (`bench/rigs/labels.txt`); every one of the 272 ordered pairs is mapped, and a joint counts
+as found when the target's joint plays the source's. Godot's humanoid auto mapping (its `BoneMapper`, ported faithfully
+from the editor's source into `benches/rigs/godot.rs`, MIT) maps both rigs onto its humanoid profile, as a `BoneMap`
+does, so it gets a joint when both rigs' bones get the same profile bone. `cargo bench --features fs --bench rigs`:
 
-| Matcher | Joints found (4654) |
+| Matcher | Joints found (5328) |
 | --- | ---: |
-| dittomo | 99.5% |
-| Godot's humanoid auto mapping (`BoneMapper`) | 62.8% |
-| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 19.7% |
+| dittomo | 99.7% |
+| Godot's humanoid auto mapping (`BoneMapper`) | 63.2% |
+| Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 22.2% |
 
 | Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
-| hips | 100% | 74% | 21% | | thighs | 100% | 46% | 16% |
-| spine | 98% | 87% | 21% | | shins | 100% | 46% | 14% |
-| chest | 100% | 38% | 14% | | feet | 100% | 52% | 18% |
-| neck | 99% | 100% | 35% | | toes | 100% | 60% | 19% |
-| head | 98% | 88% | 38% | | clavicles | 100% | 100% | 27% |
-| upper arms | 99% | 55% | 14% | | forearms | 99% | 55% | 14% |
-| hands | 100% | 71% | 23% | | index fingers | 100% | 68% | 24% |
+| hips | 100% | 76% | 24% | | thighs | 100% | 49% | 18% |
+| spine | 100% | 77% | 24% | | shins | 100% | 49% | 17% |
+| chest | 100% | 40% | 12% | | feet | 100% | 55% | 21% |
+| neck | 99% | 88% | 31% | | toes | 100% | 63% | 22% |
+| head | 99% | 88% | 40% | | clavicles | 100% | 100% | 31% |
+| upper arms | 99% | 57% | 17% | | forearms | 99% | 57% | 17% |
+| hands | 100% | 73% | 26% | | index fingers | 100% | 59% | 28% |
 
 What it gets wrong:
 
@@ -139,9 +139,15 @@ What it gets wrong:
 - With names to go by, the misses had mostly been one bone along a chain, a spine of one bone taken for the second of a
   rig's two. Up from the hips, the spine is the first bone, however many lie between the hips and the chest, not
   counting one no higher than the hips (RobotExpressive's `Hips` hang below `Body`, the bone its legs hang from), and a
-  spine of as many bones as the other's is matched bone for bone. That took spines from 88% to 98%; what's left is
-  CesiumMan and RiggedFigure against the Rigify base mesh, where `torso_joint_2` is taken for `spine.002` by its number
-  and height.
+  spine of as many bones as the other's is matched bone for bone. That took spines from 88% to 98%. CesiumMan's and
+  RiggedFigure's `torso_joint_2` had been taken for the Rigify base mesh's `spine.002` by its number and height; placed
+  by how many bones up from the hips to the chest it stands rather than how high, every spine is found.
+- **The CMU take**, as BVH, starts every branch with a joint where its parent's is: a lower back at the hips, a neck at
+  the chest, hip joints at the hips and collarbones at the chest, none of them mirrored by where they stand. Its sides
+  are taken from where each limb's chain goes, its pairs measured where their chains leave the parent, and its neck
+  looked for past a bone standing where the chest does; a bone standing where its parent does, beside others with bones
+  beyond it, is a second joint at that point, not the next one along. Against the other rigs it went from 68%–95% of
+  joints found to 100%.
 - Godot's mapper looks for words in names and walks down from what it finds, so a rig it can't start on loses everything
   below: BrainStem's unnamed bones get nothing; CesiumMan's hips are taken for its `torso_joint_3`, the chest, and its
   arms and legs aren't found; RiggedFigure has no bone named foot or hand, so only its trunk is; RobotExpressive's feet
@@ -497,11 +503,12 @@ hips hang from is lowered with the body for planted feet, so it is left out.
 
 ## Tested on
 
-The sixteen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
+The seventeen real rigs above. Their layouts are copied into the tests as made-up rigs where a fix came from one: a palm
 bone holding two fingers, a COLLADA export stopping at the base of the head with numbered limbs in an A-pose, a nameless
 rig with one hand missing, a chest whose collarbones start beside it rather than above it, and a robot named from in
 front, its arms stopping at the elbow, heads with nothing beyond them, on a short neck or none, hips hung below the bone
-the legs hang from, a bag hung from the chest on the back, and a body whose middle stands off its root's.
+the legs hang from, a bag hung from the chest on the back, a body whose middle stands off its root's, and a BVH whose
+branches each start with a joint standing where its parent's does.
 
 Made-up humanoids that differ the ways real rigs do: names from different tools or none, extra roots and twist bones,
 two to five spine bones, T-pose against A-pose, three conventions for bone axes, facing different ways, centimeters

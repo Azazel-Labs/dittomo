@@ -284,6 +284,12 @@ impl Mapping {
     }
 }
 
+/// How far up from the hips to the chest a bone of the spine stands, in bones.
+fn rise(sh: &Shape, x: usize) -> Option<f32> {
+    let (k, m) = sh.spine[x]?;
+    Some((k + 1) as f32 / (m + 1) as f32)
+}
+
 /// How alike source bone `a` and target bone `b` are, given how alike their names are: above zero when more alike than
 /// not.
 fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32 {
@@ -302,6 +308,11 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
     // A bone marking where a chain ends lies past the last joint, where a rig without one has its last joint.
     if na.end() != nb.end() {
         v -= 0.3;
+    }
+    // A bone standing where its parent does turns about the same point: a second joint at its parent's (a BVH's
+    // zero-offset lower back at the hips, finger base at the hand), not the next one along.
+    if s.doubled[a] != t.doubled[b] {
+        v -= 1.2;
     }
     // On opposite sides of the body.
     let (la, lb) = (s.at[a].x, t.at[b].x);
@@ -373,6 +384,9 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>) -> f32
             _ => bell(xa - xb, 0.2),
         };
         alike * placed + (1.0 - alike) * 2.0 * far
+    } else if let (Some(ra), Some(rb)) = (rise(s, a), rise(t, b)) {
+        // Up the spine, how far from the hips to the chest, however high the hips stand.
+        2.0 * bell(ra - rb, 0.2)
     } else {
         placed
     };

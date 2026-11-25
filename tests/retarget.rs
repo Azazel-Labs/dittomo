@@ -2643,3 +2643,111 @@ fn the_spine_is_the_first_bone_up_from_the_hips_however_many_there_are() {
     let back: Vec<(&str, &str)> = pairs.iter().map(|&(a, b)| (b, a)).collect();
     assert_plays(&robot, &man, &Mapping::new(&robot, &man), &back);
 }
+
+/// Laid out as the CMU motion capture's BVH conversions are: each branch starts at its parent's joint, with a bone of
+/// no length (the hips' joints and the lower back at the hips, the neck and the collarbones at the chest, the finger
+/// base and the thumb at the hand); high hips, one bone up to the chest, legs splayed at rest.
+fn cmu_like() -> Skeleton {
+    let s = 1.8;
+    let p = |x: f32, y: f32, z: f32| [s * x, s * y, s * z];
+    let mut j: Joints = vec![
+        joint("Hips", None, p(0.0, 0.648, 0.0)),
+        joint("LowerBack", Some("Hips"), p(0.0, 0.648, 0.0)),
+        joint("Spine", Some("LowerBack"), p(0.0, 0.73, -0.006)),
+        joint("Spine1", Some("Spine"), p(0.0, 0.812, -0.008)),
+        joint("Neck", Some("Spine1"), p(0.0, 0.812, -0.008)),
+        joint("Neck1", Some("Neck"), p(0.0, 0.874, -0.002)),
+        joint("Head", Some("Neck1"), p(0.0, 0.936, -0.006)),
+        joint("Head_end", Some("Head"), p(0.0, 1.0, -0.008)),
+    ];
+    for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+        let n = |b: &str| format!("{side}{b}");
+        let (hip, thumb) = (format!("{}HipJoint", &side[..1]), format!("{}Thumb", &side[..1]));
+        j.push(joint(n("Shoulder"), Some("Spine1"), p(0.0, 0.812, -0.008)));
+        j.push(joint(n("Arm"), Some(&n("Shoulder")), p(0.141 * x, 0.847, -0.016)));
+        j.push(joint(n("ForeArm"), Some(&n("Arm")), p(0.334 * x, 0.847, -0.018)));
+        j.push(joint(n("Hand"), Some(&n("ForeArm")), p(0.467 * x, 0.847, -0.02)));
+        j.push(joint(n("FingerBase"), Some(&n("Hand")), p(0.467 * x, 0.847, -0.02)));
+        j.push(joint(
+            n("HandIndex1"),
+            Some(&n("FingerBase")),
+            p(0.494 * x, 0.847, -0.02),
+        ));
+        j.push(joint(
+            n("HandIndex1_end"),
+            Some(&n("HandIndex1")),
+            p(0.515 * x, 0.847, -0.02),
+        ));
+        j.push(joint(thumb.clone(), Some(&n("Hand")), p(0.467 * x, 0.847, -0.02)));
+        j.push(joint(format!("{thumb}_end"), Some(&thumb), p(0.489 * x, 0.847, 0.002)));
+        j.push(joint(hip.clone(), Some("Hips"), p(0.0, 0.648, 0.0)));
+        j.push(joint(n("UpLeg"), Some(&hip), p(0.066 * x, 0.577, 0.024)));
+        j.push(joint(n("Leg"), Some(&n("UpLeg")), p(0.169 * x, 0.294, 0.023)));
+        j.push(joint(n("Foot"), Some(&n("Leg")), p(0.268 * x, 0.022, 0.022)));
+        j.push(joint(n("ToeBase"), Some(&n("Foot")), p(0.276 * x, 0.001, 0.106)));
+        j.push(joint(n("ToeBase_end"), Some(&n("ToeBase")), p(0.276 * x, 0.0, 0.15)));
+    }
+    placed(&j)
+}
+
+#[test]
+fn a_bvh_whose_branches_start_at_their_parents_joints_maps_by_the_bones_beyond() {
+    let (cmu, mixamo) = (cmu_like(), mixamo_like());
+    let map = Mapping::new(&mixamo, &cmu);
+    assert_plays(
+        &mixamo,
+        &cmu,
+        &map,
+        &[
+            ("Spine", "Spine"),
+            ("Spine2", "Spine1"),
+            ("Neck", "Neck1"),
+            ("Head", "Head"),
+            ("LeftShoulder", "LeftShoulder"),
+            ("RightArm", "RightArm"),
+            ("LeftHandIndex1", "LeftHandIndex1"),
+            ("RightHandIndex1", "RightHandIndex1"),
+            ("LeftUpLeg", "LeftUpLeg"),
+            ("RightFoot", "RightFoot"),
+        ],
+    );
+    let map = Mapping::new(&cmu, &mixamo);
+    assert_plays(
+        &cmu,
+        &mixamo,
+        &map,
+        &[
+            ("Spine", "Spine"),
+            ("Spine1", "Spine2"),
+            ("Neck1", "Neck"),
+            ("LeftArm", "LeftArm"),
+            ("RightShoulder", "RightShoulder"),
+            ("LeftHandIndex1", "LeftHandIndex1"),
+            ("RightUpLeg", "RightUpLeg"),
+        ],
+    );
+    // By its shape alone, its bones numbered.
+    let bones = cmu.bones().iter().enumerate();
+    let nameless = Skeleton::new(
+        bones
+            .map(|(k, b)| Bone {
+                name: format!("j{k}"),
+                ..b.clone()
+            })
+            .collect(),
+    )
+    .unwrap();
+    let j = |n: &str| format!("j{}", cmu.index_of(n).unwrap());
+    let pairs = [
+        ("Spine", "Spine"),
+        ("Spine2", "Spine1"),
+        ("Neck", "Neck1"),
+        ("Head", "Head"),
+        ("LeftShoulder", "LeftShoulder"),
+        ("RightArm", "RightArm"),
+        ("RightFoot", "RightFoot"),
+    ];
+    let pairs: Vec<(&str, String)> = pairs.iter().map(|&(a, b)| (a, j(b))).collect();
+    let pairs: Vec<(&str, &str)> = pairs.iter().map(|(a, b)| (*a, b.as_str())).collect();
+    assert_plays(&mixamo, &nameless, &Mapping::new(&mixamo, &nameless), &pairs);
+}
