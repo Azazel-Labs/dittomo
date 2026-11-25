@@ -272,8 +272,8 @@ source's is, by over 1% of the height.
 | planted feet | 0.00215 | 0.0001 | 2.8° | 0.26% |
 | push-out | 0.00302 | 0.0200 | 2.1° | 0.20% |
 | all (`apply_with`) | 0.00001 | 0.0000 | 3.0° | 0.30% |
-| all, live (`Live`) | 0.00011 | 0.0042 | 3.2° | 0.36% |
-| all, live, 6 poses late (`Live::delayed`) | 0.00012 | 0.0039 | 3.0° | 0.35% |
+| all, live (`Live`) | 0.00006 | 0.0001 | 3.5° | 0.33% |
+| all, live, 6 poses late (`Live::delayed`) | 0.00007 | 0.0001 | 3.3° | 0.33% |
 
 Together they cut foot slide hundreds of times and the height error to nothing. Live, with nothing ahead, a foot's
 ground is the lowest it has been, or where it stands at rest if lower, till a foot lifts well clear of the floor; but
@@ -282,6 +282,9 @@ its ground and none was planted: live the height was off by a hundredth. Now onc
 0.15 seconds, that is the floor. That took the height left live from 0.0102 to 0.0042 and the slide from 0.00017 to
 0.00011, for a few more pops (0.33% to 0.35%) as the legs bend to hold feet now planted; what's left is mostly those
 clips' first 0.15 seconds, as the bench plays each clip's first 300 frames and the Warrior's are keyed nearly 500 a second.
+So the poses now begin with the lowest foot taken as standing, if it stands above where it does at rest by under a tenth
+of the height, as these do: the height left live went from 0.0042 to 0.0001, the slide from 0.00011 to 0.00006 and the
+pops from 0.36% to 0.33%, for limbs 0.3° further off as the legs bend to hold those feet from the first pose.
 The body travels across the floor by how
 high each rig's legs start, as far as they step, not by how high its hips bone stands: the Godot robot's hips bone sits
 below where its short legs start, so on the rigged figure the body went a fifth further each step than the figure's legs

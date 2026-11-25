@@ -201,7 +201,8 @@ Phase 1 so far (November 2026):
   2.8° to 2.6°. Touch takes the body as the bones the hips hang from and those under them, so the Warrior's sword,
   hung from its root, isn't skin: hand gap left 0.0384 to 0.0118. Live, once the lowest foot holds still for 0.15 s
   that is the floor, as the Warrior's clips stand 9% above its rest pose and planted nothing: sole height left live
-  0.0102 to 0.0042, slide 0.00017 to 0.00011.
+  0.0102 to 0.0042, slide 0.00017 to 0.00011; and the poses begin with the lowest foot standing, if under a tenth of
+  the height above rest: 0.0042 to 0.0001, slide 0.00011 to 0.00006.
 - **Hands pointed by their fingers**: a hand takes the summed way its fingers leave the wrist, and its thumb only turns it
   about that, rather than being fit to every digit alike and pulled toward a thumb whose splay differs from rig to rig.
   Hand to index finger 11.4° to 5.5° (12.0° to 6.6° right), hand to thumb 11.7° to 13.4°, limbs 3.0° to 2.6° counting

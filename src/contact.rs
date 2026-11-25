@@ -1180,6 +1180,16 @@ impl Ground {
             let y = at(l).y;
             (bottom, top) = (bottom.min(y), top.max(y));
         }
+        // The poses begin with the lowest foot standing, unless it is over a tenth of the height above where it stands
+        // at rest: a clip can stand its feet higher than the rest pose does, and they would not plant until the floor
+        // is known.
+        if self.floor == f32::INFINITY {
+            for (ground, &rest) in self.ground.iter_mut().zip(&self.rest) {
+                if bottom > rest && bottom - rest < 0.1 * h {
+                    *ground = bottom;
+                }
+            }
+        }
         if bottom < self.floor {
             self.known &= self.floor - bottom < 0.01 * h;
             self.floor = bottom;
