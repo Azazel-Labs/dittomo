@@ -1316,58 +1316,73 @@ fn a_hand_points_where_its_fingers_do_however_far_its_thumb_splays() {
 fn a_chest_leans_from_the_hips_as_the_source_does_however_far_up_the_back_the_pelvis_reaches() {
     // The target's spine starts two and a half times as far up from its hips. The source tips its pelvis forward and
     // turns its spine back upright: its chest leans a little, and the target's must lean as far, not as far as its long
-    // pelvis would carry it, while keeping its own turn.
+    // pelvis would carry it, while keeping its own turn; whichever way the target faces at rest, its chest a little
+    // ahead of its hips.
     let from = mixamo_like();
-    let to = {
-        let rest = from.world(&from.rest());
-        let mut j: Joints = from
-            .bones()
-            .iter()
-            .enumerate()
-            .map(|(b, bone)| {
-                let parent = bone.parent.map(|p| from.bones()[p].name.clone());
-                (bone.name.clone(), parent, rest[b].position().to_array())
-            })
-            .collect();
-        for x in &mut j {
-            match x.0.as_str() {
-                "Spine" => x.2[1] = 1.25,
-                "Spine1" => x.2[1] = 1.3,
-                _ => {}
+    for facing in [0.0f32, 180.0, 90.0] {
+        let back = Quat::from_rotation_y(facing.to_radians());
+        let to = {
+            let rest = from.world(&from.rest());
+            let mut j: Joints = from
+                .bones()
+                .iter()
+                .enumerate()
+                .map(|(b, bone)| {
+                    let parent = bone.parent.map(|p| from.bones()[p].name.clone());
+                    (bone.name.clone(), parent, rest[b].position().to_array())
+                })
+                .collect();
+            for x in &mut j {
+                match x.0.as_str() {
+                    "Spine" => x.2[1] = 1.25,
+                    "Spine1" => x.2 = [0.0, 1.3, 0.03],
+                    "Spine2" => x.2[2] = 0.06,
+                    _ => {}
+                }
+                x.2 = (back * Vec3::from_array(x.2)).to_array();
             }
-        }
-        placed(&j)
-    };
-    let map = Mapping::new(&from, &to);
-    assert_plays(&from, &to, &map, &[("Spine", "Spine"), ("Spine2", "Spine2")]);
-    let mut pose = from.rest();
-    pose[from.index_of("Hips").expect("hips")].rotation = Quat::from_rotation_x(0.5);
-    pose[from.index_of("Spine").expect("spine")].rotation = Quat::from_rotation_x(-0.5);
-    let clip = Clip {
-        times: vec![0.0],
-        poses: vec![pose],
-    };
-    let out = map.apply(&from, &to, &clip).expect("plays");
-    let (sw, tw) = (from.world(&clip.poses[0]), to.world(&out.poses[0]));
-    let at = |s: &Skeleton, w: &[dittomo::Placed], n: &str| w[s.index_of(n).expect("bone")];
-    let lean =
-        |s: &Skeleton, w: &[dittomo::Placed]| (at(s, w, "Spine2").position() - at(s, w, "Hips").position()).normalize();
-    let off = lean(&from, &sw).angle_between(lean(&to, &tw)).to_degrees();
-    assert!(off < 0.5, "hips to chest {off}° off");
-    let turned = at(&from, &sw, "Spine2")
-        .rotation
-        .angle_between(at(&to, &tw, "Spine2").rotation)
-        .to_degrees();
-    assert!(turned < 0.5, "chest turned {turned}° off");
+            placed(&j)
+        };
+        let map = Mapping::new(&from, &to);
+        assert_plays(&from, &to, &map, &[("Spine", "Spine"), ("Spine2", "Spine2")]);
+        let mut pose = from.rest();
+        pose[from.index_of("Hips").expect("hips")].rotation = Quat::from_rotation_x(0.5);
+        pose[from.index_of("Spine").expect("spine")].rotation = Quat::from_rotation_x(-0.5);
+        let clip = Clip {
+            times: vec![0.0],
+            poses: vec![pose],
+        };
+        let out = map.apply(&from, &to, &clip).expect("plays");
+        let (sw, tw) = (from.world(&clip.poses[0]), to.world(&out.poses[0]));
+        let (sr, tr) = (from.world(&from.rest()), to.world(&to.rest()));
+        let at = |s: &Skeleton, w: &[dittomo::Placed], n: &str| w[s.index_of(n).expect("bone")];
+        let lean = |s: &Skeleton, w: &[dittomo::Placed]| {
+            (at(s, w, "Spine2").position() - at(s, w, "Hips").position()).normalize()
+        };
+        // The source's lean from rest, on the target's chest as it stands at rest.
+        let tilt = Quat::from_rotation_arc(lean(&from, &sr), lean(&from, &sw));
+        let want = back * tilt * back.inverse() * lean(&to, &tr);
+        let off = want.angle_between(lean(&to, &tw)).to_degrees();
+        assert!(off < 0.5, "facing {facing}°: hips to chest {off}° off");
+        // Each chest's turn from rest, the source's in the target's terms.
+        let from_rest = |s: &Skeleton, w: &[dittomo::Placed], r: &[dittomo::Placed]| {
+            at(s, w, "Spine2").rotation * at(s, r, "Spine2").rotation.inverse()
+        };
+        let turned = (back * from_rest(&from, &sw, &sr) * back.inverse())
+            .angle_between(from_rest(&to, &tw, &tr))
+            .to_degrees();
+        assert!(turned < 0.5, "facing {facing}°: chest turned {turned}° off");
+    }
 }
 
 #[test]
 fn a_body_turned_about_keeps_its_own_chest_ahead_of_its_hips_whichever_way_it_faced_at_rest() {
     // The target's chest stands ahead of its hips at rest, the source's straight above. The source only turns about:
     // the target's chest stays ahead of its hips, not behind, as it would kept leaning the way the world's forward is,
-    // and the same for a target facing the other way at rest.
+    // and the same for a target facing another way at rest.
     let from = mixamo_like();
-    for facing in [1.0f32, -1.0] {
+    for facing in [0.0f32, 180.0, 90.0] {
+        let back = Quat::from_rotation_y(facing.to_radians());
         let to = {
             let rest = from.world(&from.rest());
             let j: Joints = from
@@ -1376,35 +1391,45 @@ fn a_body_turned_about_keeps_its_own_chest_ahead_of_its_hips_whichever_way_it_fa
                 .enumerate()
                 .map(|(b, bone)| {
                     let parent = bone.parent.map(|p| from.bones()[p].name.clone());
-                    let [x, y, z] = rest[b].position().to_array();
-                    let ahead = if y >= 1.3 {
+                    let at = rest[b].position();
+                    let ahead = if at.y >= 1.3 {
                         0.08
-                    } else if y >= 1.2 {
+                    } else if at.y >= 1.2 {
                         0.04
                     } else {
                         0.0
                     };
-                    (bone.name.clone(), parent, [x * facing, y, (z + ahead) * facing])
+                    (bone.name.clone(), parent, (back * (at + Vec3::Z * ahead)).to_array())
                 })
                 .collect();
             placed(&j)
         };
         let map = Mapping::new(&from, &to);
         assert_plays(&from, &to, &map, &[("Spine", "Spine"), ("Spine2", "Spine2")]);
-        let mut pose = from.rest();
-        pose[from.index_of("Hips").expect("hips")].rotation = Quat::from_rotation_y(std::f32::consts::PI);
+        // Turned about, then bowed forward from the hips, the spine kept straight: the trunk turns as the hips do.
+        let turns = [Quat::from_rotation_y(std::f32::consts::PI), Quat::from_rotation_x(0.4)];
+        let poses = turns
+            .iter()
+            .map(|&q| {
+                let mut pose = from.rest();
+                pose[from.index_of("Hips").expect("hips")].rotation = q;
+                pose
+            })
+            .collect();
         let clip = Clip {
-            times: vec![0.0],
-            poses: vec![pose],
+            times: vec![0.0, 1.0],
+            poses,
         };
         let out = map.apply(&from, &to, &clip).expect("plays");
         let chest = |w: &[dittomo::Placed]| {
             let at = |n: &str| w[to.index_of(n).expect("bone")].position();
             (at("Spine2") - at("Hips")).normalize()
         };
-        let want = Quat::from_rotation_y(std::f32::consts::PI) * chest(&to.world(&to.rest()));
-        let off = chest(&to.world(&out.poses[0])).angle_between(want).to_degrees();
-        assert!(off < 0.5, "facing {facing}: hips to chest {off}° off");
+        for (q, pose) in turns.iter().zip(&out.poses) {
+            let want = back * *q * back.inverse() * chest(&to.world(&to.rest()));
+            let off = chest(&to.world(pose)).angle_between(want).to_degrees();
+            assert!(off < 0.5, "facing {facing}°, hips turned {q}: hips to chest {off}° off");
+        }
     }
 }
 

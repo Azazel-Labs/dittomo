@@ -212,8 +212,7 @@ Phase 1 so far (November 2026):
   2.6° to 2.4°, p90 7.6° to 6.8°; SAN 1.44 to 1.47 intra, 0.66 cross; about 0.5 µs a frame more on Mannequin.
 - **Lean from the way the hips face**, and the trunk's and collarbones' benchmark tilts measured from the hips' facing
   and the chest, not the world: a body turning about had read as a lean or a shrug, and the lean itself had kept a chest
-  ahead of its hips at rest leaning to the world's forward, behind the hips once turned back. The shape's places are
-  taken into the world too, for a rig not facing +Z. Hips to chest 5.3° to 1.4° (world turns 3.1°), limbs 2.2° to
+  ahead of its hips at rest leaning to the world's forward, behind the hips once turned back. Hips to chest 5.3° to 1.4° (world turns 3.1°), limbs 2.2° to
   2.0°, p90 5.9° to 4.9°; SAN 1.47 and 0.67.
 - `examples/video.rs` renders a retarget as video (source, dittomo, rotations copied by name). The crate, first called
   mummer, is now **dittomo**, *ditto* and *motion*, with a brand in `assets/brand/`.
