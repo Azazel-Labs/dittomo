@@ -311,6 +311,27 @@ fn main() {
         });
     }
 
+    // The swinging alone, over poses already played: kept out of the body and the floor, then let through both.
+    let played = to_hairy.apply_with(&mixamo, &hairy, &gait, Fixes::ALL).expect("plays");
+    for (name, body) in [("sway alone", true), ("sway alone, nothing to keep out of", false)] {
+        let mut sway = dittomo::Sway::new(&to_hairy, &hairy).expect("fits");
+        sway.collide(body, body);
+        let mut out = hairy.rest();
+        let micros = time(budget, || {
+            sway.reset();
+            for p in &played.poses {
+                out.copy_from_slice(p);
+                sway.pose(1.0 / 30.0, black_box(&mut out));
+            }
+            black_box(&out);
+        }) / played.poses.len() as f64;
+        cases.push(Case {
+            name: Box::leak(format!("mannequin with hair 136: walk, {name}").into_boxed_str()),
+            micros,
+            per: "frame of two steps, 60 bones",
+        });
+    }
+
     // And with skins, so hands keep the skin's distance too.
     let skins = [skin(&mixamo), skin(&mannequin)];
     let mut live = Live::touching(&mapping, &mixamo, &mannequin, [&skins[0], &skins[1]], Fixes::ALL).expect("fits");
