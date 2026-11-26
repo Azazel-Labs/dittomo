@@ -116,3 +116,14 @@ source's after placing; the head; hands meeting; `Live`; hands on the floor.
 Nothing on the atlas is worse with it; a wider gate (6% to 14%) places better still (68%, 0.0072) but costs 3.5° and
 0.42% pops. Open: telling intent from chance better than by distance (stillness against the part; an arm hanging
 straight down), so the gate can widen; `Live`; hands meeting; the floor.
+
+### Telling intent from chance (tried, 2026-11-26)
+
+- **Arm hanging straight down** (shoulder over wrist): widening the gate for arms that aren't cost as many pops as
+  widening it for all (0.42% at 6% to 14%), so hanging arms weren't where the pops came from.
+- **Stillness against the part** (hand's speed in the part's frame under 0.3 to 1 heights a second): limbs 3.1° from
+  3.2°, but pops up to 0.41% from 0.33%. Speed flickers from pose to pose, and so did the weight.
+
+So how much a hand is placed has to be eased over time, as the head fix eases a hand on over a quarter of a second
+(ahead of the source's over a whole clip), not switched by what one pose shows. That is the next thing to build:
+charts give where; an eased weight gives how much.
