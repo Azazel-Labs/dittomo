@@ -36,8 +36,9 @@ pass from root to tip.
 - Then: length restored, a cone limit, pushed out of the body's spheres (limb capsules are new work) and the floor.
 - Gravity less what the rest pose already carries, so the rest pose is a fixed point: no sag, no warm-up.
 - Reset and teleport carry the particles; substeps of at most 1/60 s, four at most.
-- Set up by itself: stiffness from the length left to the tip (a pendulum's, stiffer for chains standing against
-  gravity), damping 0.45 to 0.7, radius from bone length or the skin. Fingers, faces, IK controls and props left out.
+- Set up by itself: stiffness from each bone's own length (three times as fast as a pendulum that long), damping
+  0.6 and most of the slowing left to the air, radius from bone length or the skin. Fingers, faces, IK controls and
+  props left out.
   VRoid's `J_Sec_` bones and VRM spring lists are ground truth for finding chains.
 - Last, after every contact fix. Over a whole clip: stepped through its times, twice round a loop.
 - About 20 to 30 ns a bone a substep by estimate: 1.5 µs for a VRoid avatar's 60 spring bones.
@@ -53,9 +54,24 @@ plan above:
   back. With both, 144 against 60 poses a second differ by 0.5 to 0.7% of a chain's length on a moderate dance,
   from 4 to 7%. Whipped twice as hard they differ by 7 to 10%: a chain of several bones is touchy itself.
 - A lone bone with no children is never a chain (eyes, jaws, markers), so single-bone ears stay stiff.
-- The defaults are floppy: a vigorous dance drives long chains to the cone, and real walks and runs swing a VRoid
-  rig's chains so hard they never settle into a round. To tune at the defaults stage, before the fix is on by
-  default.
+- The defaults are set against springs set up by hand. Both VRM bench rigs carry `VRMC_springBone` settings; a
+  test steps the format's own update at 60 poses a second beside `Sway` under the same body (an idle, a walk and a
+  run from another rig) on the bones both swing, 17 and 57 of them. Bent from rest, in radians, on average and for
+  95 in a hundred, on the two rigs:
+
+  | | by hand | sway before | sway now |
+  |---|---|---|---|
+  | idle | 0.003 0.009, 0.041 0.152 | 0.356 1.254, 0.587 1.309 | 0.005 0.009, 0.011 0.061 |
+  | walk | 0.135 0.274, 0.360 0.835 | 0.541 1.253, 0.728 1.309 | 0.203 0.367, 0.299 0.485 |
+  | run | 0.344 0.791, 0.616 1.422 | 0.849 1.309, 0.946 1.309 | 0.349 0.773, 0.482 0.967 |
+
+  The two ways' bones are 0.02 to 0.76 radians apart on average now, from 0.24 to 1.66. What it took: stiffness by
+  a bone's own length, not the length left to the tip (9 g a bone's length for each radian off, from 1 to 9 g a
+  chain's length: a tilted head bent a long chain's first bones several times as far as it tilted, which was most
+  of the idle's bend); and air drag of 25 a second, from 0.5, as nearly all of a hand-set spring's slowing is drag
+  in the world, so its chains trail a body that travels. The cone stays at 75 degrees: narrower fits worse, as
+  hand-set springs have none. Stiffer near the root, and a length between the bone's and the chain's, fit no
+  better. Through `apply_with`, 0 to 1.2% of chain bones' poses are at the cone in a run, from 23 to 31%.
 - A pose with no time passed holds the chains (each bone points at where its tail was); only the first puts them
   at rest. They start moving as the body does by the second pose, so a clip that starts mid-stride doesn't whip
   them back.
@@ -63,8 +79,14 @@ plan above:
   (fitted to the skin where `Live` and `apply_touching` know it). No rig-made colliders, no skin-fitted limbs, and
   nothing for a body with no arms found (animals): only the floor. A particle slides round its bone's head to get
   out, so lengths hold; no pair comes nearer than at rest, so rest stays a fixed point. Getting out wins over the
-  cone: a rope let down lies flat, and a short bone whose head a thigh swings through is turned straight out of
-  it (5 to 7% of chain bones' poses past their cones in a run on the VRoid rigs).
+  cone: a rope let down lies flat.
+- A tail is asked no further out from a rod than its bone's head is then, but for how much further out it is at
+  rest. A two-bone skirt starting on a thigh, the thigh swung 1.2 and 1.9 radians through where it starts, is bent
+  1.20 and 1.33 radians, from 1.74 and 2.15: laid along the thigh, not turned out of it. On the bench rigs that
+  was the lesser part: of the 5 to 8% of poses past the cone in a run (3.09 radians at worst), nearly all were
+  long hair against the back and arms, swung there by the floppy springs. With the old springs this rule takes
+  7.61% to 7.34%; the new springs alone take it to 0.27% at most (1.34 at worst in a run, 1.75 in a samba, hair
+  an arm lifts), and the rule changes nothing more there.
 - A knock comes when a step ends inside, so frame rates tell more where chains touch the body: 3.8% of a chain's
   length between 30, 60 and 144 poses a second where a ponytail knocks on the back, against 0.7% swinging free.
 - Twice round a loop isn't enough: what is left of the start takes nearly 2 s to halve. A loop is gone round till a round

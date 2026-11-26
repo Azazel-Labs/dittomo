@@ -534,7 +534,7 @@ fn a_spring_set_stiffer_swings_less() {
         most
     };
     let (loose, stiff) = (run([1.0, 3.0]), run([4.0, 12.0]));
-    println!("stiffness: bent {loose} radians as set, {stiff} four times as stiff");
+    println!("stiffness: bent {loose} radians set slack, {stiff} four times as stiff");
     assert!(stiff < 0.5 * loose, "{stiff} against {loose}");
 }
 
@@ -721,9 +721,17 @@ fn off_thighs(sk: &Skeleton, chain: &Chain, pose: &[Transform]) -> f32 {
 
 #[test]
 fn a_tail_swung_sideways_stays_out_of_the_thighs() {
-    // The body shaken from side to side, 30 cm each way, three times a second: the tail lags across the thighs.
+    // The body shaken from side to side, 30 cm each way, three times a second: a tail set slack lags across the
+    // thighs.
     let run = |collide: bool| {
         let (sk, mut sway) = swayed();
+        let slack = Spring {
+            stiffness: [0.5, 0.5],
+            damping: [0.45, 0.45],
+            drag: 0.5,
+            ..sway.spring(0)
+        };
+        sway.set_spring(0, slack);
         sway.collide(collide, collide);
         let tail = sway.chains()[0].clone();
         let mut least = f32::INFINITY;
@@ -969,7 +977,7 @@ fn a_clip_that_loops_ends_swinging_as_it_starts() {
         // With the last pose the first again the ends are the same; a pose apart, they differ by what a pose swings.
         let within = if frames == 55 { 0.01 } else { 1.2 * step };
         assert!(open < within, "the loop's ends are {open} radians apart");
-        assert!(cold_open > 0.2, "started from rest it closes anyway: {cold_open}");
+        assert!(cold_open > 0.1, "started from rest it closes anyway: {cold_open}");
         // Through the mapping it is the same.
         assert_eq!(
             map.apply_with(&source, &target, &strode(frames), SWAYED).unwrap(),
@@ -1077,8 +1085,9 @@ fn a_jump_takes_the_chains_along() {
     assert!(bend(&sk, &fresh, &first) < 1e-4);
 }
 
-/// Prints how real clips sway VRoid rigs through [`Mapping::apply_with`]: how far the chain bones bend, how many
-/// reach their cones or are bent past them by the body, and how each clip's ends meet. Run with
+/// Prints how real clips sway VRM rigs through [`Mapping::apply_with`]: how far the chain bones bend (on average,
+/// what 95 in a hundred are under, and at most), how many reach their cones or are bent past them by the body, and
+/// how each clip's ends meet. Run with
 /// `cargo test --features fs --test sway -- --ignored --nocapture`.
 #[cfg(feature = "fs")]
 #[test]
@@ -1100,29 +1109,29 @@ fn prints_how_real_clips_sway() {
             let limit = sway.spring(0).limit;
             for (name, clip) in &source.clips {
                 let played = map.apply_with(&source.skeleton, sk, clip, SWAYED).unwrap();
-                let (mut sum, mut most, mut edge, mut past, mut count) = (0.0f64, 0.0f32, 0usize, 0usize, 0usize);
+                let (mut bends, mut edge, mut past) = (Vec::new(), 0usize, 0usize);
                 for pose in &played.poses {
                     for chain in sway.chains() {
                         for &b in &chain.bones {
                             assert!(pose[b].rotation.is_finite());
                             let bent = apart(pose[b].rotation, sk.bones()[b].rest.rotation);
-                            sum += f64::from(bent);
-                            most = most.max(bent);
+                            bends.push(bent);
                             edge += usize::from(bent > 0.98 * limit);
                             past += usize::from(bent > limit + 1e-3);
-                            count += 1;
                         }
                     }
                 }
                 let n = played.poses.len();
                 let ends = turned(&turns(&sway, &played.poses[0]), &turns(&sway, &played.poses[n - 1]));
+                let count = bends.len().max(1) as f32;
+                let (mean, most_often) = spread(&mut bends);
+                let most = bends.last().copied().unwrap_or(0.0);
                 println!(
-                    "{from} {:?} on {file}: {n} poses, bent {:.3} on average and {most:.3} at most, {:.2}% at the \
-                     cone, {:.2}% past it, ends {ends:.3} apart",
+                    "{from} {:?} on {file}: {n} poses, bent {mean:.3} on average, {most_often:.3} for 95 in a \
+                     hundred and {most:.3} at most, {:.2}% at the cone, {:.2}% past it, ends {ends:.3} apart",
                     name.as_deref().unwrap_or("clip"),
-                    sum / count.max(1) as f64,
-                    100.0 * edge as f32 / count.max(1) as f32,
-                    100.0 * past as f32 / count.max(1) as f32,
+                    100.0 * edge as f32 / count,
+                    100.0 * past as f32 / count,
                 );
             }
         }
@@ -1153,4 +1162,325 @@ fn a_jump_takes_a_lock_hanging_from_a_lock_along() {
     sway.jump(&mut there);
     let off = turned(&before, &turns(&sway, &there));
     assert!(off < 1e-4, "the chains turned {off} radians in the jump");
+}
+
+/// The spring bones a VRM 1.0 file sets up by hand (`VRMC_springBone`), and the format's own way of swinging them,
+/// as its specification gives it: what hand-set chains look like, to hold [`Sway`]'s guesses against.
+#[cfg(feature = "fs")]
+mod authored {
+    use dittomo::{Quat, Skeleton, Transform, Vec3};
+    use serde_json::Value;
+
+    /// A bone swung, from its joint to the next: the settings are the first joint's.
+    pub struct Joint {
+        pub bone: usize,
+        /// Where the bone ends, in its own frame: where the next joint's node rests.
+        out: Vec3,
+        stiffness: f32,
+        drag: f32,
+        gravity: Vec3,
+        radius: f32,
+        /// Where its tail is and was a step ago, in the world or under the spring's center.
+        at: [Vec3; 2],
+    }
+
+    /// A ball, or a rod with round ends, in a bone's frame.
+    struct Collider {
+        bone: usize,
+        ends: [Vec3; 2],
+        radius: f32,
+    }
+
+    pub struct Spring {
+        pub name: String,
+        pub joints: Vec<Joint>,
+        colliders: Vec<usize>,
+        center: Option<usize>,
+    }
+
+    pub struct Springs {
+        pub springs: Vec<Spring>,
+        colliders: Vec<Collider>,
+    }
+
+    fn number(v: &Value, key: &str, or: f32) -> f32 {
+        v.get(key).and_then(Value::as_f64).map_or(or, |x| x as f32)
+    }
+
+    fn vec3(v: &Value, key: &str, or: Vec3) -> Vec3 {
+        let Some(list) = v.get(key).and_then(Value::as_array) else {
+            return or;
+        };
+        Vec3::from_slice(&list.iter().map(|x| x.as_f64().unwrap() as f32).collect::<Vec<_>>())
+    }
+
+    fn indices(v: &Value, key: &str) -> Vec<usize> {
+        let list = v.get(key).and_then(Value::as_array);
+        list.map_or(Vec::new(), |l| l.iter().map(|x| x.as_u64().unwrap() as usize).collect())
+    }
+
+    impl Springs {
+        /// The springs of a `.vrm` file, on the skeleton loaded from it, `nodes` the file's node each bone was read
+        /// from. None if the file sets none up.
+        pub fn read(path: &std::path::Path, sk: &Skeleton, nodes: &[usize]) -> Option<Self> {
+            let bytes = std::fs::read(path).ok()?;
+            let long = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
+            let json: Value = serde_json::from_slice(&bytes[20..20 + long]).ok()?;
+            let ext = json.get("extensions")?.get("VRMC_springBone")?;
+            let found = |node: &Value| nodes.iter().position(|&n| n as u64 == node.as_u64().unwrap());
+            let bone = |node: &Value| found(node).unwrap_or_else(|| panic!("no bone for the node {node}"));
+            // Where a joint's node rests under its parent: the bone's own rest if it was read as one.
+            let out = |node: &Value| match found(node) {
+                Some(b) => sk.bones()[b].rest.translation,
+                None => vec3(
+                    &json["nodes"][node.as_u64().unwrap() as usize],
+                    "translation",
+                    Vec3::ZERO,
+                ),
+            };
+            let list = |v: &Value, key: &str| v.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+            let colliders = list(ext, "colliders")
+                .iter()
+                .map(|c| {
+                    let (ball, rod) = (c["shape"].get("sphere"), c["shape"].get("capsule"));
+                    let shape = ball.or(rod).expect("a ball or a rod");
+                    let from = vec3(shape, "offset", Vec3::ZERO);
+                    Collider {
+                        bone: bone(&c["node"]),
+                        ends: [from, vec3(shape, "tail", from)],
+                        radius: number(shape, "radius", 0.0),
+                    }
+                })
+                .collect();
+            let groups: Vec<Vec<usize>> = list(ext, "colliderGroups")
+                .iter()
+                .map(|g| indices(g, "colliders"))
+                .collect();
+            let springs = list(ext, "springs")
+                .iter()
+                .map(|s| {
+                    let joints = list(s, "joints");
+                    Spring {
+                        name: s.get("name").and_then(Value::as_str).unwrap_or("").into(),
+                        // A joint whose next stands right on it has no way to point: left out.
+                        joints: joints
+                            .windows(2)
+                            .filter(|pair| out(&pair[1]["node"]).length() > 1e-4)
+                            .map(|pair| Joint {
+                                bone: bone(&pair[0]["node"]),
+                                out: out(&pair[1]["node"]),
+                                stiffness: number(&pair[0], "stiffness", 1.0),
+                                drag: number(&pair[0], "dragForce", 0.5),
+                                gravity: number(&pair[0], "gravityPower", 0.0)
+                                    * vec3(&pair[0], "gravityDir", Vec3::NEG_Y),
+                                radius: number(&pair[0], "hitRadius", 0.0),
+                                at: [Vec3::ZERO; 2],
+                            })
+                            .collect(),
+                        colliders: indices(s, "colliderGroups")
+                            .iter()
+                            .flat_map(|&g| groups[g].clone())
+                            .collect(),
+                        center: s.get("center").filter(|c| !c.is_null()).map(bone),
+                    }
+                })
+                .collect::<Vec<_>>();
+            (!springs.is_empty()).then_some(Self { springs, colliders })
+        }
+
+        /// Puts every tail where this pose has it, still.
+        pub fn start(&mut self, sk: &Skeleton, pose: &[Transform]) {
+            let world = sk.world(pose);
+            for spring in &mut self.springs {
+                let center = spring.center.map(|c| world[c].matrix.inverse());
+                for joint in &mut spring.joints {
+                    let tail = world[joint.bone].matrix.transform_point3(joint.out);
+                    joint.at = [center.map_or(tail, |c| c.transform_point3(tail)); 2];
+                }
+            }
+        }
+
+        /// One step of `dt` seconds, as the specification writes it out: what is left of the tail's last move, a
+        /// push along the bone's rest line and gravity; back at the bone's length; out of each collider and back at
+        /// the bone's length again; then the bone is turned to its tail. `pose` has the body, and gets the bones.
+        pub fn step(&mut self, sk: &Skeleton, dt: f32, pose: &mut [Transform]) {
+            let rest = sk.world(&sk.rest());
+            for spring in &mut self.springs {
+                for joint in &mut spring.joints {
+                    let world = sk.world(pose);
+                    let b = joint.bone;
+                    let bone = &sk.bones()[b];
+                    let (up, up_turn) = bone.parent.map_or((glam::Mat4::IDENTITY, Quat::IDENTITY), |p| {
+                        (world[p].matrix, world[p].rotation)
+                    });
+                    let head = world[b].position();
+                    let axis = joint.out.normalize();
+                    let length = rest[b].matrix.transform_point3(joint.out).distance(rest[b].position());
+                    let center = spring.center.map(|c| world[c].matrix);
+                    let [now, was] = joint.at.map(|p| center.map_or(p, |c| c.transform_point3(p)));
+                    let inertia = (now - was) * (1.0 - joint.drag);
+                    let stiffness = dt * (up_turn * bone.rest.rotation * axis) * joint.stiffness;
+                    let mut next = now + inertia + stiffness + dt * joint.gravity;
+                    next = head + (next - head).normalize() * length;
+                    for &c in &spring.colliders {
+                        let collider = &self.colliders[c];
+                        let [from, to] = collider.ends.map(|e| world[collider.bone].matrix.transform_point3(e));
+                        let along = to - from;
+                        let t = ((next - from).dot(along) / along.length_squared().max(1e-20)).clamp(0.0, 1.0);
+                        let delta = next - (from + t * along);
+                        let distance = delta.length() - collider.radius - joint.radius;
+                        if distance < 0.0 {
+                            next -= delta.normalize() * distance;
+                            next = head + (next - head).normalize() * length;
+                        }
+                    }
+                    let back = center.map(|c| c.inverse());
+                    joint.at = [next, now].map(|p| back.map_or(p, |c| c.transform_point3(p)));
+                    let to = (up * bone.rest.matrix()).inverse().transform_point3(next).normalize();
+                    pose[b].rotation = (bone.rest.rotation * Quat::from_rotation_arc(axis, to)).normalize();
+                }
+            }
+        }
+    }
+}
+
+/// A clip's pose `t` seconds in, gone round as often as it takes: `wrap` seconds lie between its last pose and
+/// its first again, and each bone is `travel` further on every round, as a walk goes on.
+#[cfg(feature = "fs")]
+fn looped(clip: &Clip, wrap: f32, travel: &[Vec3], t: f32) -> Vec<Transform> {
+    let n = clip.poses.len();
+    let long = clip.times[n - 1] - clip.times[0];
+    let (round, into) = ((t / (long + wrap)).floor(), t % (long + wrap));
+    let (a, b, share) = if into >= long {
+        (n - 1, n, (into - long) / wrap)
+    } else {
+        let a = (0..n - 1)
+            .rfind(|&f| clip.times[f] - clip.times[0] <= into)
+            .unwrap_or(0);
+        let from = clip.times[a] - clip.times[0];
+        (a, a + 1, (into - from) / (clip.times[a + 1] - clip.times[a]))
+    };
+    // Past the last pose comes the first again, a round on.
+    let (next, on) = (&clip.poses[b % n], (b / n) as f32);
+    let pair = clip.poses[a].iter().zip(next).zip(travel);
+    pair.map(|((a, b), &travel)| Transform {
+        translation: a.translation.lerp(b.translation + on * travel, share) + round * travel,
+        rotation: a.rotation.slerp(b.rotation, share),
+        scale: a.scale,
+    })
+    .collect()
+}
+
+/// The mean, and the value 95 in a hundred are under.
+#[cfg(feature = "fs")]
+fn spread(values: &mut [f32]) -> (f32, f32) {
+    values.sort_by(f32::total_cmp);
+    let n = values.len().max(1);
+    (values.iter().sum::<f32>() / n as f32, values[(n * 95 / 100).min(n - 1)])
+}
+
+/// Prints the yardstick for [`Spring`]'s defaults: on VRM rigs that carry spring bones set up by hand, the bones
+/// both the file and [`sway::chains`] swing, swung both ways under the same body (clips played from another rig, gone
+/// round at 60 poses a second), and how far each way bends them from rest. Run with
+/// `cargo test --features fs --test sway -- --ignored --nocapture`.
+#[cfg(feature = "fs")]
+#[test]
+#[ignore = "prints numbers for a person to look over; needs bench/rigs/data"]
+fn prints_how_sway_compares_to_springs_set_up_by_hand() {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bench/rigs/data");
+    let Ok(source) = dittomo::load::Model::load(&dir.join("xbot.glb")) else {
+        println!("no rigs in {}", dir.display());
+        return;
+    };
+    let (dt, rounds) = (1.0f32 / 60.0, 4);
+    for file in ["seed-san.vrm", "vrm-twist.vrm"] {
+        let Ok(target) = dittomo::load::Model::load(&dir.join(file)) else {
+            println!("{file}: not there");
+            continue;
+        };
+        let sk = &target.skeleton;
+        let Some(mut by_hand) = authored::Springs::read(&dir.join(file), sk, &target.nodes) else {
+            println!("{file}: no springs set up by hand");
+            continue;
+        };
+        let map = Mapping::new(&source.skeleton, sk);
+        let mut sway = Sway::new(&map, sk).unwrap();
+        let chains = sway.chains().to_vec();
+        let chained = |b: usize| chains.iter().any(|c| c.bones.contains(&b));
+        // The bones both swing, with the name of the spring each is in.
+        let both: Vec<(usize, String)> = by_hand
+            .springs
+            .iter()
+            .flat_map(|s| s.joints.iter().map(|j| (j.bone, s.name.clone())))
+            .filter(|&(b, _)| chained(b))
+            .collect();
+        let (set, ours) = (
+            by_hand.springs.iter().map(|s| s.joints.len()).sum::<usize>(),
+            chains.iter().map(|c| c.bones.len()).sum::<usize>(),
+        );
+        println!(
+            "{file}: {set} bones swung by the file's springs, {ours} by sway, {} by both",
+            both.len()
+        );
+        let mut names: Vec<&str> = both.iter().map(|(_, n)| n.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        let rest: Vec<Quat> = sk.bones().iter().map(|b| b.rest.rotation.normalize()).collect();
+        for want in ["idle", "walk", "run"] {
+            let Some(clip) = source.clip(want) else { continue };
+            let body = map.apply_with(&source.skeleton, sk, clip, Fixes::ALL).unwrap();
+            let n = body.poses.len();
+            // The body comes round to how it started, but for how far it has walked. If its last pose isn't its
+            // first again, the first comes a pose's time after it.
+            let (first, last) = (&body.poses[0], &body.poses[n - 1]);
+            let pairs = || first.iter().zip(last.iter());
+            let turn = pairs().map(|(a, b)| apart(a.rotation, b.rotation)).fold(0.0, f32::max);
+            let long = body.times[n - 1] - body.times[0];
+            let wrap = if turn < 0.02 { 0.0 } else { long / (n - 1) as f32 };
+            let travel: Vec<Vec3> = pairs()
+                .map(|(a, b)| (b.translation - a.translation) * Vec3::new(1.0, 0.0, 1.0) * (1.0 + wrap / long))
+                .collect();
+            let moved = travel.iter().map(|t| t.length()).fold(0.0, f32::max);
+            let steps = ((long + wrap) / dt).round() as usize;
+            by_hand.start(sk, &looped(&body, wrap, &travel, 0.0));
+            sway.reset();
+            // By spring name, and all together: how far each way bends, and how far apart the two are.
+            let mut bends: Vec<[Vec<f32>; 3]> = vec![Default::default(); names.len() + 1];
+            for step in 0..rounds * steps {
+                let mut theirs = looped(&body, wrap, &travel, step as f32 * dt);
+                let mut mine = theirs.clone();
+                by_hand.step(sk, dt, &mut theirs);
+                sway.pose(if step == 0 { 0.0 } else { dt }, &mut mine);
+                if step < (rounds - 1) * steps {
+                    continue;
+                }
+                let (theirs_at, mine_at) = (sk.world(&theirs), sk.world(&mine));
+                for (b, name) in &both {
+                    let b = *b;
+                    let group = names.iter().position(|n| n == name).unwrap();
+                    let row = [
+                        apart(mine[b].rotation, rest[b]),
+                        apart(theirs[b].rotation, rest[b]),
+                        apart(mine_at[b].rotation, theirs_at[b].rotation),
+                    ];
+                    for at in [group, names.len()] {
+                        for k in 0..3 {
+                            bends[at][k].push(row[k]);
+                        }
+                    }
+                }
+            }
+            println!(
+                "  {want}: {n} poses over {long:.2} s, {moved:.2} traveled a round, its ends {turn:.3} apart; bent on \
+                 average and 95 in a hundred under, sway against by hand, and the two apart on average"
+            );
+            for (at, list) in bends.iter_mut().enumerate() {
+                let [(mine, mine_95), (theirs, theirs_95), (off, _)] = [0, 1, 2].map(|k| spread(&mut list[k]));
+                println!(
+                    "    {:14} sway {mine:.3} {mine_95:.3}, by hand {theirs:.3} {theirs_95:.3}, apart {off:.3}",
+                    names.get(at).copied().unwrap_or("all"),
+                );
+            }
+        }
+    }
 }

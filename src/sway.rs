@@ -20,7 +20,9 @@
 //! guessed from the bones. The floor is where the lowest bone stands at rest. A particle slides round its bone's head
 //! to get out, so its bone keeps its length, but may leave its cone: a rope let down lies along the floor however
 //! far that bends it. Nothing comes nearer a part of the body, or lower, than it is at rest, so a ponytail starting
-//! inside the head isn't thrown out of it and the rest pose stays at rest.
+//! inside the head isn't thrown out of it and the rest pose stays at rest. Nor is a tail asked further out from a
+//! part than its bone's head is, but for how much further out it is at rest: a skirt's bone starting on a thigh is
+//! laid along the thigh as it swings up through where the bone starts, not turned straight out of it.
 
 use glam::{Affine3A, Quat, Vec3};
 
@@ -246,14 +248,14 @@ pub struct Spring {
     /// How hard gravity pulls, in the rig's units a second squared: 9.81 for a rig in meters. It sets how fast every
     /// chain swings, so it must fit the rig's units and be more than nothing.
     pub gravity: f32,
-    /// How fast a bone swings back to its rest pose, beside a pendulum as long as the chain is from that bone to its
-    /// tip: 1 swings as fast as the pendulum, 2 twice as fast. First for a bone hanging straight down at rest, then
-    /// for one standing straight up, which needs more to stand; a bone between the two takes its share of each.
+    /// How fast a bone swings back to its rest pose, beside a pendulum as long as the bone: 1 swings as fast as the
+    /// pendulum, 2 twice as fast. First for a bone hanging straight down at rest, then for one standing straight
+    /// up; a bone between the two takes its share of each.
     pub stiffness: [f32; 2],
     /// How soon a swing dies out: 0 swings on, 1 comes to rest without swinging past. For a bone hanging down, then
     /// for one standing up, as for `stiffness`.
     pub damping: [f32; 2],
-    /// How much the still air slows a bone, a second: it lags a little more behind a body moving fast.
+    /// How much the still air slows a bone, a second: it trails behind a body on the move, the more the faster.
     pub drag: f32,
     /// How far a bone may bend from its rest pose under the bone above it, in radians. Pushed by the body or the
     /// floor it may bend further.
@@ -265,13 +267,17 @@ pub struct Spring {
 
 impl Spring {
     /// The spring for a rig this many of its units to the meter: 1 for meters, 100 for centimeters.
+    ///
+    /// Set to bend chains about as far as springs set up by hand do, on rigs that carry both: stiff, three times
+    /// as fast as a pendulum, with most of the slowing left to the air. A body standing in place hardly stirs them;
+    /// a walk bends them a quarter of a radian on average, a run nearly half.
     #[must_use]
     pub fn per_meter(units: f32) -> Self {
         Self {
             gravity: 9.81 * units,
-            stiffness: [1.0, 3.0],
-            damping: [0.45, 0.7],
-            drag: 0.5,
+            stiffness: [3.0, 3.0],
+            damping: [0.6, 0.6],
+            drag: 25.0,
             limit: 75f32.to_radians(),
             radius: 0.2,
         }
@@ -326,9 +332,8 @@ pub struct Sway {
     /// Which way its tail is from its head, in its own frame, and how far.
     axis: Vec<Vec3>,
     length: Vec<f32>,
-    /// How long the chain is from this bone's head to the tip, how far up the bone points at rest (0 straight down,
-    /// 1 straight up), and which way down is in its parent's frame at rest: what a [`Spring`] is fitted to.
-    left: Vec<f32>,
+    /// How far up the bone points at rest (0 straight down, 1 straight up), and which way down is in its parent's
+    /// frame at rest: with its length, what a [`Spring`] is fitted to.
     lift: Vec<f32>,
     down: Vec<Vec3>,
     /// The spring's pull for each unit off the goal, and one over it.
@@ -357,10 +362,11 @@ pub struct Sway {
     rods: Vec<Rod>,
     body: bool,
     ground: bool,
-    /// By chain bone and then by rod: how far the bone's tail is from the rod's line at rest, and how near it may
-    /// come.
+    /// By chain bone and then by rod: how far the bone's tail is from the rod's line at rest, how near it may
+    /// come, and how much further from that line it is at rest than the bone's head.
     apart: Vec<f32>,
     clear: Vec<f32>,
+    ahead: Vec<f32>,
     /// Each rod's ends in the world at the pose before, and at each step of this one, the steps one after another.
     was: Vec<[Vec3; 2]>,
     now: Vec<[Vec3; 2]>,
@@ -432,7 +438,6 @@ impl Sway {
             rest: Vec::new(),
             axis: Vec::new(),
             length: Vec::new(),
-            left: Vec::new(),
             lift: Vec::new(),
             down: Vec::new(),
             stiff: Vec::new(),
@@ -454,6 +459,7 @@ impl Sway {
             ground: true,
             apart: Vec::new(),
             clear: Vec::new(),
+            ahead: Vec::new(),
             was: Vec::new(),
             now: Vec::new(),
             near: Vec::new(),
@@ -482,12 +488,7 @@ impl Sway {
                 sway.down.push(rot(up).inverse() * Vec3::NEG_Y);
                 up = b;
             }
-            let first = sway.left.len();
-            sway.left.extend(&sway.length[first..]);
-            for i in (first..sway.left.len() - 1).rev() {
-                sway.left[i] += sway.left[i + 1];
-            }
-            chain.length = sway.left[first];
+            chain.length = sway.length[sway.length.len() - chain.bones.len()..].iter().sum();
             sway.offsets
                 .push(rot(chain.parent).inverse() * (pos(chain.bones[0]) - pos(chain.parent)));
             sway.starts.push(sway.bones.len());
@@ -511,11 +512,16 @@ impl Sway {
             }
         }
         let rods = sway.rods.len();
-        for &tail in &tails {
+        for (&tail, &bone) in tails.iter().zip(&sway.bones) {
             sway.rest_y.push(tail.y);
             for rod in &sway.rods {
                 let [a, b] = rod.ends.map(|(b, at)| shape.rest[b].matrix.transform_point3(at));
-                sway.apart.push(tail.distance(nearest(a, b, tail)));
+                let (far, head) = (
+                    tail.distance(nearest(a, b, tail)),
+                    pos(bone).distance(nearest(a, b, pos(bone))),
+                );
+                sway.apart.push(far);
+                sway.ahead.push((far - head).max(0.0));
             }
         }
         sway.clear.resize(sway.apart.len(), 0.0);
@@ -591,7 +597,7 @@ impl Sway {
             let blend = |[hangs, stands]: [f32; 2]| hangs + (stands - hangs) * lift;
             let quick = blend(spring.stiffness);
             // Never quite none: the pull is divided by.
-            let stiff = (quick * quick * spring.gravity / self.left[i]).max(1e-6);
+            let stiff = (quick * quick * spring.gravity / self.length[i]).max(1e-6);
             let drag = spring.drag.max(0.0);
             self.stiff[i] = stiff;
             self.loose[i] = 1.0 / stiff;
@@ -960,9 +966,12 @@ impl Sway {
                         dir = at;
                     }
                     // Out of the body and over the floor, though that take it out of the cone.
-                    let clear = &self.clear[i * rods..(i + 1) * rods];
+                    let reach = (
+                        &self.clear[i * rods..(i + 1) * rods],
+                        &self.ahead[i * rods..(i + 1) * rods],
+                    );
                     let (kept, struck, floored) =
-                        keep_out(head, self.length[i], dir, clear, &self.near, placed, self.level[i]);
+                        keep_out(head, self.length[i], dir, reach, &self.near, placed, self.level[i]);
                     if struck.is_some() || floored {
                         (dir, edge) = (kept, None);
                     }
@@ -1045,18 +1054,22 @@ fn cone(dir: Vec3, toward: Vec3, cos: f32, sin: f32) -> Option<(Vec3, Vec3)> {
 /// long, `clear` is how near its tail may come to each rod's line, `near` the rods to look at and `level` how low
 /// it may come. The tail goes round the head, straight away from where it is too near, until it is clear; the floor
 /// comes last, so it wins over a rod. Also the way out of the last rod it was in, and whether the floor held it up.
+///
+/// A tail is asked no further out from a rod's line than its bone's head is now, but for `ahead`: how much further
+/// out than the head it is at rest. So a bone that starts in a rod or on it (a skirt on a thigh, hair in the head)
+/// is let lie as deep as it starts, and one whose head a rod swings through is let be, not turned straight out.
 fn keep_out(
     head: Vec3,
     length: f32,
     mut dir: Vec3,
-    clear: &[f32],
+    (clear, ahead): (&[f32], &[f32]),
     near: &[usize],
     rods: &[[Vec3; 2]],
     level: f32,
 ) -> (Vec3, Option<Vec3>, bool) {
     let mut out = None;
     // A few times, as getting out of one may go into another, or further along the same.
-    for _ in 0..4 {
+    for _ in 0..8 {
         let mut any = false;
         for &k in near {
             let reach = clear[k];
@@ -1066,7 +1079,12 @@ fn keep_out(
             let [a, b] = rods[k];
             let tail = head + length * dir;
             let from = nearest(a, b, tail);
-            if tail.distance_squared(from) >= reach * reach {
+            let gap = tail.distance_squared(from);
+            if gap >= reach * reach {
+                continue;
+            }
+            let reach = reach.min(head.distance(nearest(a, b, head)) + ahead[k]);
+            if gap >= reach * reach {
                 continue;
             }
             // Round the head, the tail is `reach` from there at one angle off the line to it.
@@ -1241,20 +1259,26 @@ mod tests {
 
     #[test]
     fn a_bone_let_go_swings_as_a_damped_spring_does() {
-        // One bone hanging 0.2 m under a still body, let go a hundredth of its length to the side.
+        // One bone hanging 0.2 m under a still body, let go a hundredth of its length to the side. With springs
+        // that swing: as set, one comes to rest without swinging past.
         let sk = rig(&[(None, [0.0; 3]), (Some(0), [0.0, -0.2, 0.0])]);
+        let springy = Spring {
+            damping: [0.45, 0.45],
+            drag: 0.5,
+            ..Spring::per_meter(1.0)
+        };
         let slack = Spring {
             damping: [0.05, 0.05],
             drag: 0.0,
-            ..Spring::per_meter(1.0)
+            ..springy
         };
         let mut worst = 0.0f32;
-        for spring in [Spring::per_meter(1.0), slack] {
+        for spring in [springy, slack] {
             for dt in [1.0f32 / 20.0, 1.0 / 30.0, 1.0 / 60.0, 1.0 / 144.0] {
                 let mut sway = Sway::with(&sk, &[chain(&[1])], spring);
                 let mut pose = sk.rest();
                 sway.pose(dt, &mut pose);
-                assert!((sway.length[0] - 0.2).abs() < 1e-6 && (sway.stiff[0] - 9.81 / 0.2).abs() < 1e-3);
+                assert!((sway.length[0] - 0.2).abs() < 1e-6 && (sway.stiff[0] - 9.0 * 9.81 / 0.2).abs() < 1e-2);
                 let start = 0.002;
                 sway.at[0].x += start;
                 let (stiff, damp) = (sway.stiff[0], sway.damp[0]);
@@ -1330,7 +1354,7 @@ mod tests {
                     "energy, bones alone {single}, steps of {dt}: {:e} then {:e} then {:e}, growing by {grew:e}",
                     peaks[0], peaks[1], peaks[11]
                 );
-                assert!(peaks[0] > 0.01 && peaks[11] < 1e-6 * peaks[0], "{peaks:?}");
+                assert!(peaks[0] > 0.005 && peaks[11] < 1e-6 * peaks[0], "{peaks:?}");
                 for pair in peaks.windows(2) {
                     assert!(pair[1] < 0.5 * pair[0] || pair[1] < 1e-9 * peaks[0], "{peaks:?}");
                 }
@@ -1405,8 +1429,10 @@ mod tests {
         for (i, &at) in sway.at.iter().enumerate() {
             let thick = (0.2 * sway.length[i]).min(THICK * sway.height);
             worst = worst.max((sway.floor + thick).min(sway.rest_y[i] - room) - at.y);
+            let head = sway.heads[sway.bones[i]];
             for (k, &[a, b]) in sway.was.iter().enumerate() {
                 let reach = (thick + sway.rods[k].radius).min(sway.apart[i * rods + k] - room);
+                let reach = reach.min(head.distance(nearest(a, b, head)) + sway.ahead[i * rods + k]);
                 worst = worst.max(reach - at.distance(nearest(a, b, at)));
             }
         }
@@ -1492,6 +1518,52 @@ mod tests {
         assert!(coned < 1e-4, "{coned} of the height inside with the cone");
         // And the same to the bit a second time.
         assert!(bits == thrown(wide).1);
+    }
+
+    #[test]
+    fn a_skirt_whose_head_a_thigh_swings_through_isnt_turned_out() {
+        // Two short bones hanging from the hips in front of a thigh, and two behind it. The thigh swings forward and
+        // back past level, so its line goes through where the bones in front start.
+        let (person, _) = person();
+        let mut bones: Vec<(Option<usize>, [f32; 3])> = person
+            .bones()
+            .iter()
+            .map(|b| (b.parent, b.rest.translation.to_array()))
+            .collect();
+        let skirt = bones.len();
+        bones.extend([
+            (Some(0), [0.09, -0.05, 0.06]),
+            (Some(skirt), [0.0, -0.06, 0.0]),
+            (Some(0), [0.09, -0.05, -0.06]),
+            (Some(skirt + 2), [0.0, -0.06, 0.0]),
+        ]);
+        let sk = rig(&bones);
+        let chains = [chain(&[skirt, skirt + 1]), chain(&[skirt + 2, skirt + 3])];
+        let thigh = (0..sk.len())
+            .find(|&b| sk.bones()[b].parent == Some(0) && sk.bones()[b].rest.translation.x > 0.05 && b < skirt)
+            .unwrap();
+        let limit = Spring::per_meter(1.0).limit;
+        for swing in [1.2f32, 1.9] {
+            let mut sway = Sway::with(&sk, &chains, Spring::per_meter(1.0));
+            let mut most = 0.0f32;
+            for f in 0..240 {
+                let t = f as f32 / 60.0;
+                let mut pose = sk.rest();
+                pose[thigh].rotation = Quat::from_rotation_x(-swing * (3.0 * t).sin());
+                sway.pose(1.0 / 60.0, &mut pose);
+                for (i, &b) in sway.bones.iter().enumerate() {
+                    most = most.max(pose[b].rotation.angle_between(sway.rest[i]));
+                }
+            }
+            println!("skirt, thigh swung {swing} radians each way: bent {most} at most");
+            // Laid along the thigh at most, and hardly past the cone. (Asked as far out as the thigh is thick, the
+            // bones are bent 1.74 and 2.15 radians.)
+            assert!(most > 0.5, "the thigh never reached the skirt: {most}");
+            assert!(
+                most < swing.min(limit) + 0.05,
+                "bent {most} radians by a thigh swung {swing}"
+            );
+        }
     }
 
     #[test]
