@@ -43,6 +43,18 @@ pass from root to tip.
 - About 20 to 30 ns a bone a substep by estimate: 1.5 µs for a VRoid avatar's 60 spring bones.
 - VRM and KawaiiPhysics settings map onto it by matching poles at 60 poses a second.
 
+**Built so far** (`src/sway.rs`): finding chains and one-way chains with no colliders. On the VRoid bench rig all 83
+`J_Sec_` bones are found and nothing else; on the other VRM all 19 of its own spring joints. What differed from the
+plan above:
+
+- Speed isn't taken from how far the tail moved in the step (that damps a swing by how far it turned, so by frame
+  rate): what is across the bone is kept, carried round with the bone. Gravity's rest share is taken half a step
+  back. With both, 144 against 60 poses a second differ by 0.5 to 0.7% of a chain's length on a moderate dance,
+  from 4 to 7%. Whipped twice as hard they differ by 7 to 10%: a chain of several bones is touchy itself.
+- A lone bone with no children is never a chain (eyes, jaws, markers), so single-bone ears stay stiff.
+- The defaults are floppy: a vigorous dance drives long chains to the cone. To tune at the defaults stage.
+- A pose with no time passed puts the chains at rest; a pause should hold them. To fix when wired into `Live`.
+
 Stages: find chains; one chain's integrator against the analytic spring and across frame rates; colliders and
 limits; `Live`, whole clips, baking; defaults; VRM and KawaiiPhysics import; `Crowd` lanes; links between sibling
 chains (skirts), telling baked jiggle from intent, resampling a 3-bone chain onto 8.
@@ -56,10 +68,12 @@ chains (skirts), telling baked jiggle from intent, resampling a 3-bone chain ont
 
 In order, after the CPU versions:
 
-1. **Bake once, play on the GPU.** A retargeted clip library as a texture per target rig (a quaternion and a
-   translation per bone per frame, half floats: 5.8 MB for 50 clips of 3 s at 30 Hz and 80 bones), sampled in the
-   vertex shader, two clips cross-faded. CPU code only, every fix kept, runs on WebGL2. Babylon's baked layout can
-   be written as it is.
+1. **Bake once, play on the GPU.** A retargeted clip library per target rig (a quaternion and a translation per
+   bone per frame, half floats: 5.8 MB for 50 clips of 3 s at 30 Hz and 80 bones), sampled in the vertex shader,
+   two clips cross-faded. CPU code only, every fix kept. **WebGPU is the target** (decided 2026-11-26), not
+   WebGL2: the library is a storage buffer read by index, not a texture, so the same buffer feeds the compute
+   passes of steps 3 to 5 and nothing is laid out twice. A texture for WebGL2 can still be written from the same
+   records by a host that wants one.
 2. **World-space source clips and flat mapping tables**, used by `Crowd` itself: the groundwork for the rest.
 3. **Retarget on the GPU per instance**: one source library, about 8 KB per target rig, one compute pass with a
    thread per character. For many body types, big libraries, and live or generated sources.
@@ -67,6 +81,14 @@ In order, after the CPU versions:
 5. **Two-bone IK, floor and push-out on the GPU**, from contacts baked into the clip. Hands together, hands on the
    head and touch stay on the CPU, for heroes.
 6. Batched inference for the learned runtime in the plan, last.
+
+**Two tiers, one set of records.** WebGPU (WGSL, storage buffers, compute) is the floor: it runs in browsers and,
+through wgpu, natively. Later, a tier for what current Vulkan and D3D12 allow and WebGPU doesn't: buffer device
+addresses (pointers in shaders, so one pool holds every rig's library and an instance carries a pointer to its
+clip, its mapping table and its chain state, with no bind groups or per-rig batching), mesh shaders, and
+multi-draw indirect with culling in compute. The flat records are written so they hold offsets in the first tier
+and addresses in the second. What dittomo hands a host is then the data and the generated shader source for its
+tier, not a renderer.
 
 Left to hosts: skinning, instancing, culling, LOD, per-vertex animation textures, terrain queries.
 

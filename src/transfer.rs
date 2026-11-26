@@ -630,35 +630,8 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
             .abs()
             < 0.01 * shape.height
     };
-    // The first mapped bones down each path from every bone, and how many bones are under each.
-    let mut under = vec![1usize; n];
-    for i in (0..n).rev() {
-        for &c in &t.children[i] {
-            under[i] += under[c];
-        }
-    }
-    let mut next: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for i in (0..n).rev() {
-        let mut v = Vec::new();
-        for &c in &t.children[i] {
-            if mapped(c).is_some() {
-                v.push(c);
-            } else {
-                v.extend(next[c].iter().copied());
-            }
-        }
-        v.sort_by_key(|&c| (std::cmp::Reverse(under[c]), c));
-        next[i] = v;
-    }
-    let parent: Vec<Option<usize>> = {
-        let mut p = vec![None; n];
-        for (i, kids) in t.children.iter().enumerate() {
-            for &c in kids {
-                p[c] = Some(i);
-            }
-        }
-        p
-    };
+    let next = below(map, t);
+    let parent = parents(t);
     let above = |mut b: usize| -> Option<usize> {
         while let Some(p) = parent[b] {
             if mapped(p).is_some() {
@@ -828,30 +801,7 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         if plans[b] != Plan::Rest || !next[b].is_empty() {
             continue;
         }
-        let Some(p) = parent[b] else { continue };
-        let at = t.rest[b].position();
-        let reach = {
-            let (mut far, mut stack) = (Vec3::ZERO, t.children[b].to_vec());
-            while let Some(c) = stack.pop() {
-                let d = t.rest[c].position() - at;
-                if d.length() > far.length() {
-                    far = d;
-                }
-                stack.extend(t.children[c].iter().copied());
-            }
-            far
-        };
-        let beside = t.children[p].iter().copied().find(|&l| {
-            let Some(&low) = (l != b && mapped(l).is_some()).then(|| next[l].first()).flatten() else {
-                return false;
-            };
-            let along = t.rest[low].position() - t.rest[l].position();
-            let length = along.length();
-            length > 1e-6
-                && t.rest[l].position().distance(at) <= 0.1 * length
-                && (reach.length() < 0.05 * length || reach.normalize().dot(along / length) > 0.87)
-        });
-        if let Some(l) = beside {
+        if let Some(l) = parent[b].and_then(|p| beside(map, t, &next, p, b)) {
             plans[b] = Plan::Between {
                 above: l,
                 below: l,
@@ -887,6 +837,89 @@ fn plan(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> 
         }
     }
     (plans, moving, trunk, s_limb)
+}
+
+/// The first mapped bones down each path from every target bone, those with the most bones under them first.
+fn below(map: &Mapping, t: &Shape) -> Vec<Vec<usize>> {
+    let n = t.children.len();
+    let mut under = vec![1usize; n];
+    for i in (0..n).rev() {
+        for &c in &t.children[i] {
+            under[i] += under[c];
+        }
+    }
+    let mut next: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for i in (0..n).rev() {
+        let mut v = Vec::new();
+        for &c in &t.children[i] {
+            if map.source_of(c).is_some() {
+                v.push(c);
+            } else {
+                v.extend(next[c].iter().copied());
+            }
+        }
+        v.sort_by_key(|&c| (std::cmp::Reverse(under[c]), c));
+        next[i] = v;
+    }
+    next
+}
+
+/// Each bone's parent.
+fn parents(t: &Shape) -> Vec<Option<usize>> {
+    let mut p = vec![None; t.children.len()];
+    for (i, kids) in t.children.iter().enumerate() {
+        for &c in kids {
+            p[c] = Some(i);
+        }
+    }
+    p
+}
+
+/// The mapped child of `p` that target bone `b`, another child of `p` with nothing mapped under it, turns with: one
+/// starting where `b` starts, with `b` and all under it pointing along it. `next` is from [`below`].
+fn beside(map: &Mapping, t: &Shape, next: &[Vec<usize>], p: usize, b: usize) -> Option<usize> {
+    let at = t.rest[b].position();
+    let reach = {
+        let (mut far, mut stack) = (Vec3::ZERO, t.children[b].to_vec());
+        while let Some(c) = stack.pop() {
+            let d = t.rest[c].position() - at;
+            if d.length() > far.length() {
+                far = d;
+            }
+            stack.extend(t.children[c].iter().copied());
+        }
+        far
+    };
+    t.children[p].iter().copied().find(|&l| {
+        let Some(&low) = (l != b && map.source_of(l).is_some())
+            .then(|| next[l].first())
+            .flatten()
+        else {
+            return false;
+        };
+        let along = t.rest[low].position() - t.rest[l].position();
+        let length = along.length();
+        length > 1e-6
+            && t.rest[l].position().distance(at) <= 0.1 * length
+            && (reach.length() < 0.05 * length || reach.normalize().dot(along / length) > 0.87)
+    })
+}
+
+/// By target bone, whether playing leaves it at rest under its parent: no source bone plays it, it isn't between two
+/// bones that are played, and it doesn't turn with one beside it. `t` is the target's shape.
+pub(crate) fn kept(map: &Mapping, t: &Shape) -> Vec<bool> {
+    let n = t.children.len();
+    let (next, parent) = (below(map, t), parents(t));
+    let mapped = |b: usize| map.source_of(b).is_some();
+    let mut above = vec![false; n];
+    (0..n)
+        .map(|b| {
+            above[b] = parent[b].is_some_and(|p| above[p] || mapped(p));
+            let between = above[b] && !next[b].is_empty();
+            let turns = next[b].is_empty() && parent[b].is_some_and(|p| beside(map, t, &next, p, b).is_some());
+            !mapped(b) && !between && !turns
+        })
+        .collect()
 }
 
 /// The source bone whose turn places `a`'s mapped bones `below` it: `a` itself, or a bone under it that nothing plays,

@@ -25,6 +25,9 @@
 //! nothing ahead to look at, and makes the same fixes from the poses so far. [`Crowd`] poses many characters through
 //! one player at once, in about half the time each.
 //!
+//! [`Sway`] swings the target's bones that nothing drives (hair, tails, ears, skirts) after the body, pose by pose
+//! ([`sway`]).
+//!
 //! With the `load` feature, [`load::Model`] reads skeletons and clips from glTF, GLB and FBX (and USD with `usd`).
 //! [`load::Model::write_clip`] writes clips back into the target's own file, out as GLB or FBX, and, with no feature
 //! needed, [`bvh::write`] a skeleton and a clip as BVH motion capture.
@@ -41,6 +44,7 @@ mod mapping;
 mod names;
 mod shape;
 pub mod surface;
+pub mod sway;
 mod transfer;
 
 pub use contact::Fixes;
@@ -48,6 +52,7 @@ pub use glam::{Mat4, Quat, Vec3};
 pub use live::Live;
 pub use mapping::{Mapping, Pair};
 pub use surface::Surface;
+pub use sway::Sway;
 pub use transfer::{Crowd, Player};
 
 /// A bone's place relative to its parent: translation, rotation and scale, applied scale first.
