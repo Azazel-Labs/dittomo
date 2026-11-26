@@ -691,6 +691,24 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         };
         legs.push((leg, a, sole(map, [(source, s), (target, t)], &leg, a)));
     }
+    // Then each arm whose hand plays one of the source's: a hand down on the floor (crawling, a push-up, getting up)
+    // is held there as a foot is. Its height is told from the floor, not from where it is at rest.
+    let arms_from = legs.len();
+    if let Some(body) = body(target, t) {
+        for arm in &body.arms {
+            if let Some(a) = map.source_of(arm.limb.end) {
+                let wrist = Pair {
+                    source: a,
+                    target: arm.limb.end,
+                    s_rest_y: s.floor,
+                    t_rest_y: t.floor,
+                    s_floor: s.floor,
+                    t_floor: t.floor,
+                };
+                legs.push((arm.limb, a, vec![wrist]));
+            }
+        }
+    }
     let s_bones: Vec<usize> = legs
         .iter()
         .flat_map(|(_, a, sole)| std::iter::once(*a).chain(sole.iter().map(|p| p.source)))
@@ -709,13 +727,20 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
     );
     let ys = |t: Vec<Vec3>| -> Vec<f32> { t.iter().map(|v| v.y).collect() };
     let mut feet: Vec<Going> = Vec::new();
-    for (leg, a, sole) in legs {
+    for (i, (leg, a, sole)) in legs.into_iter().enumerate() {
         let s_at = s_tracks.next().unwrap_or_default();
         let s_ys: Vec<Vec<f32>> = s_tracks.by_ref().take(sole.len()).map(ys).collect();
         let t_at = t_tracks.next().unwrap_or_default();
         let t_ys: Vec<Vec<f32>> = t_tracks.by_ref().take(sole.len()).map(ys).collect();
         let (hip, knee) = (t_tracks.next().unwrap_or_default(), t_tracks.next().unwrap_or_default());
-        let down = contacts(&s_at, &from.times, s.rest[a].position().y, s.height);
+        let down = if i < arms_from {
+            contacts(&s_at, &from.times, s.rest[a].position().y, s.height)
+        } else {
+            // A wrist is a little over the floor its palm lies on.
+            let mut down = Vec::with_capacity(n);
+            detect(&s_at, &from.times, s.floor + 0.03 * s.height, s.height, &mut down);
+            down
+        };
         let mut runs = Vec::new();
         let mut f = 0;
         while f < n {
@@ -729,6 +754,10 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
             } else {
                 f += 1;
             }
+        }
+        // An arm whose hand never comes down is left out of it all.
+        if i >= arms_from && runs.is_empty() {
+            continue;
         }
         let mut goals = vec![None; n];
         let locks = locks(&runs, &t_at);

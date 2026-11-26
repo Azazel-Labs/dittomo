@@ -140,3 +140,14 @@ A hanging arm brought from less far (1% to 4%, others from 6% to 14%) holds limb
 with the narrow gate for the rest gets 3.0°; but the atlas's hands on thighs are on arms hanging straight down, and
 lose what placing gave them (in the body 29.2% again, from 22.7%), and the wider gate round the head does harm with
 skins (in the body 13.5% from 10.6%). Not kept: one narrow gate for all stays.
+
+## The floor, and hands on it (2026-11-26)
+
+- Seven CMU clips picked for what the hands do are played on every rig (`-- --moves`). They showed first that a clip
+  whose floor isn't its rest pose's left the target hanging over a meter above its own: fixed (see the README).
+- A hand down on the floor and still is now held there as a foot is, over a whole clip (an arm takes part only if
+  its hand comes down somewhere in the clip). Crawling: a low, still wrist is 0.051 of the height off the source's
+  height over the floor, from 0.060, and slides 0.0022 a frame, from 0.0026. Feet get to 0.0000 and 0.00001: a
+  crawl has knees down too, and a body with other arms and legs has to pitch its trunk to bring both down, which
+  reaching with the arms alone can't. That (knees and elbows as contacts, the trunk pitched between hands and
+  knees) is the next step for the floor; `Live` doesn't hold hands yet.
