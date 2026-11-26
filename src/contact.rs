@@ -738,7 +738,7 @@ pub(crate) fn plant(map: &Mapping, rigs: [(&Skeleton, &Shape); 2], from: &Clip, 
         } else {
             // A wrist is a little over the floor its palm lies on.
             let mut down = Vec::with_capacity(n);
-            detect(&s_at, &from.times, s.floor + 0.03 * s.height, s.height, &mut down);
+            detect(&s_at, &from.times, s.floor + WRIST * s.height, s.height, &mut down);
             down
         };
         let mut runs = Vec::new();
@@ -1527,6 +1527,168 @@ fn reach_all<'a>(
         reach_in(target, played, tw, leg, goal);
     }
 }
+
+/// Hands kept still while the source's are down on the floor (crawling, a push-up, getting up), worked out as the poses
+/// come from those so far, as [`Feet`] keeps feet. A foot's ground is learned from the lowest it has been ([`Ground`]),
+/// but a hand hanging still by the hip is on nothing, so a hand is down only on the floor the source's rest pose stands
+/// on: once its wrist is within a few hundredths of the height of it and nearly still, till it moves off or rises a
+/// little higher. The target's is held where it was the pose before the source's came down, moved on as far as the
+/// source's has since (scaled), as high over its own floor as the source's is over its (scaled), and let go over
+/// [`SETTLE`]. A hand coming down to the floor is brought to that height as it nears it, so it lands without a jump.
+/// An arm whose hand is well off the floor is left as it is played, and costs next to nothing.
+pub(crate) struct HandsDown {
+    arms: Vec<Palm>,
+    s_path: Vec<usize>,
+    t_path: Vec<usize>,
+    /// The target's height over the source's.
+    k: f32,
+    s_height: f32,
+    /// How high the source's floor is, and the target's.
+    floors: [f32; 2],
+}
+
+/// An arm whose hand plays one of the source's, and what [`HandsDown`] keeps of it from pose to pose.
+#[derive(Clone, Copy)]
+struct Palm {
+    arm: Limb,
+    source: usize,
+    last: Option<Vec3>,
+    /// The source hand's speed across the floor.
+    speed: f32,
+    down: bool,
+    /// Where the target's hand is held, if it is or is letting go.
+    lock: Option<Vec3>,
+    /// How far the hold moved the hand from where it was played, the last pose it was held.
+    off: Vec3,
+    /// Where the target's hand was shown the pose before, if it was near the floor.
+    shown: Option<Vec3>,
+    /// Seconds since the hand came down or lifted.
+    since: f32,
+}
+
+impl HandsDown {
+    /// Nothing if no target arm's hand plays a source bone.
+    pub(crate) fn new(map: &Mapping, [(source, s), (target, t)]: [(&Skeleton, &Shape); 2]) -> Option<Self> {
+        let arms: Vec<Palm> = body(target, t)?
+            .arms
+            .iter()
+            .filter_map(|a| {
+                Some(Palm {
+                    arm: a.limb,
+                    source: map.source_of(a.limb.end)?,
+                    last: None,
+                    speed: 0.0,
+                    down: false,
+                    lock: None,
+                    off: Vec3::ZERO,
+                    shown: None,
+                    since: 0.0,
+                })
+            })
+            .collect();
+        (!arms.is_empty()).then(|| Self {
+            s_path: paths(source, arms.iter().map(|a| a.source)),
+            t_path: paths(target, arms.iter().map(|a| a.arm.end)),
+            arms,
+            k: t.height / s.height,
+            s_height: s.height,
+            floors: [s.floor, t.floor],
+        })
+    }
+
+    /// Forgets every contact, as after a cut.
+    pub(crate) fn reset(&mut self) {
+        for a in &mut self.arms {
+            *a = Palm {
+                last: None,
+                speed: 0.0,
+                down: false,
+                lock: None,
+                off: Vec3::ZERO,
+                shown: None,
+                since: 0.0,
+                ..*a
+            };
+        }
+    }
+
+    /// The source bones to place ([`place_source`]) before each pose.
+    pub(crate) fn s_path(&self) -> &[usize] {
+        &self.s_path
+    }
+
+    /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]), `dt` seconds
+    /// after the pose before.
+    pub(crate) fn pose(&mut self, target: &Skeleton, dt: f32, played: &mut [Transform], scratch: &mut Scratch) {
+        let h = self.s_height;
+        let [s_floor, t_floor] = self.floors;
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+        let Scratch { sw, tw, .. } = scratch;
+        let mut placed = false;
+        for a in &mut self.arms {
+            let at = sw[a.source].position();
+            let step = a.last.map_or(Vec3::ZERO, |last| flat(at - last));
+            if dt > 0.0 && a.last.is_some() {
+                a.speed = step.length() / dt;
+            }
+            a.last = Some(at);
+            let low = at.y - (s_floor + WRIST * h);
+            a.since += dt;
+            if a.down {
+                if low > 0.06 * h || a.speed > HAND_SLOW * h {
+                    (a.down, a.since) = (false, 0.0);
+                }
+            } else if low < 0.04 * h && a.speed < HAND_SLOW * h {
+                // Held where it was shown the pose before, moved on as the source's hand has since, as a foot is.
+                (a.down, a.since) = (true, 0.0);
+                a.lock = a.shown.map(|p| p + step * self.k);
+            }
+            let ease = match (a.down, a.lock) {
+                (true, _) => 1.0,
+                (false, Some(_)) if a.since < SETTLE => smooth(1.0 - a.since / SETTLE),
+                _ => {
+                    a.lock = None;
+                    0.0
+                }
+            };
+            // Its height is the source's scaled while down, and on the way down to the floor from twice the height a
+            // hand is down at, as a foot's is.
+            let up = ease.max(smooth((0.08 * h - low) / (0.04 * h)));
+            if up <= 0.0 {
+                a.shown = None;
+                continue;
+            }
+            // Arms hang apart, so reaching one leaves the other placed as it was.
+            if !placed {
+                place(target, played, &self.t_path, tw);
+                placed = true;
+            }
+            let free = tw[a.arm.end].position();
+            let lock = if a.down {
+                let lock = *a.lock.get_or_insert(free);
+                a.off = lock - free;
+                lock
+            } else {
+                free + a.off
+            };
+            let y = t_floor + ((at.y - s_floor) * self.k).max(0.0);
+            let goal = Vec3::new(
+                free.x + (lock.x - free.x) * ease,
+                free.y + (y - free.y) * up,
+                free.z + (lock.z - free.z) * ease,
+            );
+            reach_in(target, played, tw, &a.arm, goal);
+            a.shown = Some(goal);
+        }
+    }
+}
+
+/// How high over the floor, in heights, the wrist of a hand lying on it is taken to be: more than a palm is thick, as
+/// motion capture has a crawling hand's wrist well over the floor its feet find.
+const WRIST: f32 = 0.05;
+
+/// How fast, in heights a second, a hand near the floor may move across it and still be down.
+const HAND_SLOW: f32 = 0.25;
 
 /// The pose a contact ended at, and how far it moved the foot from where it was played the pose before.
 type Ended = (usize, Vec3);

@@ -1,7 +1,7 @@
 //! Retargeting as the poses come, with the contact fixes made frame by frame from the poses so far: a character driven
 //! by motion capture streaming in, a networked player, another animation system's output.
 
-use crate::contact::{self, Ahead, Body, Charts, Feet, Floor, Hands, OnHead, Scratch, Touch, Travel};
+use crate::contact::{self, Ahead, Body, Charts, Feet, Floor, Hands, HandsDown, OnHead, Scratch, Touch, Travel};
 use crate::held::{self, Held};
 use crate::shape::Shape;
 use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
@@ -16,7 +16,8 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 /// plants as soon as the source's is down and nearly still and lets go once it lifts, held where it was when it
 /// planted. A clip walked in place is planted on the travel its feet imply, as far as the planted foot slides back,
 /// then kept in place unless [`Fixes::travel`] moves it on. A body whose legs can't reach where its feet are held is
-/// lowered at once as far as they need, then eased back up, where the whole clip eases it down ahead.
+/// lowered at once as far as they need, then eased back up, where the whole clip eases it down ahead. A hand down on
+/// the floor and nearly still (crawling, a push-up) is held there as a foot is, with planted feet ([`Fixes::feet`]).
 ///
 /// A foot can be held only once it has landed, where the whole clip eases it toward where it will land, so planted
 /// feet slide more. [`Live::delayed`] plays each pose a few poses late, and plants feet with those few in sight as the
@@ -47,6 +48,8 @@ pub struct Live {
     /// The target playing the source's pose without its travel, if the travel is taken off.
     still: Vec<Transform>,
     feet: Option<Feet>,
+    /// Hands held while down on the floor, if feet are planted.
+    down: Option<HandsDown>,
     floor: Option<Floor>,
     /// The target's body, if arms are kept out of it or hands meet.
     body: Option<Body>,
@@ -135,6 +138,7 @@ impl Live {
             treadmill: !fixes.travel,
             still: target.rest(),
             feet: fixes.feet.then(|| Feet::new(map, rigs)).flatten(),
+            down: fixes.feet.then(|| HandsDown::new(map, rigs)).flatten(),
             floor: fixes.floor.then(|| Floor::new(map, rigs)).flatten(),
             push_out,
             body: t_body,
@@ -166,16 +170,17 @@ impl Live {
         let travel = self.travel.as_ref().map_or(empty, Travel::path);
         let feet = self.feet.as_ref().map_or(empty, Feet::s_path);
         let floor = self.floor.as_ref().map_or(empty, Floor::s_path);
+        let down = self.down.as_ref().map_or(empty, HandsDown::s_path);
         let hands = self.hands.as_ref().map_or(empty, Hands::s_path);
         let head = self.head.as_ref().map_or(empty, OnHead::s_path);
         let charts = self.charts.as_ref().map_or(empty, Charts::s_path);
         let touch = self.touch.as_ref().map_or(empty, Touch::s_path);
         if self.kept.is_empty() {
-            self.s_now = contact::union(&[travel, feet, floor, hands, charts, head, touch]);
+            self.s_now = contact::union(&[travel, feet, floor, down, hands, charts, head, touch]);
             self.s_due = Vec::new();
         } else {
             self.s_now = contact::union(&[travel, feet, floor]);
-            self.s_due = contact::union(&[hands, charts, head, touch]);
+            self.s_due = contact::union(&[down, hands, charts, head, touch]);
         }
     }
 
@@ -214,7 +219,7 @@ impl Live {
         let hung = self.held[0].as_ref().map(|h| h.hang_clip(clip));
         let clip = hung.as_ref().unwrap_or(clip);
         self.player.moving_in(clip)?;
-        if self.floor.is_some() {
+        if self.floor.is_some() || self.feet.is_some() {
             let shape = crate::shape::Shape::light(&self.source);
             self.over = contact::floor_over(&self.source, &shape, clip).unwrap_or(0.0);
         }
@@ -237,6 +242,9 @@ impl Live {
         }
         if let Some(f) = &mut self.feet {
             f.reset();
+        }
+        if let Some(d) = &mut self.down {
+            d.reset();
         }
         if let Some(h) = &mut self.hands {
             h.reset();
@@ -336,6 +344,9 @@ impl Live {
                 f.knees(&self.target, out, &mut self.scratch);
             }
         }
+        if let Some(d) = &mut self.down {
+            d.pose(&self.target, dt, out, &mut self.scratch);
+        }
         if self.treadmill && self.travel.is_some() {
             self.player.pose(source, &mut self.still)?;
             keep_translations(out, &self.still);
@@ -390,14 +401,18 @@ impl Live {
                 f.knees(&self.target, out, &mut self.scratch);
             }
         }
+        // From here on the fixes look at the source's pose played, not the one that has just come.
+        if !self.s_due.is_empty() {
+            contact::place_source(&self.source, from, &self.s_due, &mut self.scratch);
+        }
+        if let Some(d) = &mut self.down {
+            d.pose(&self.target, dt, out, &mut self.scratch);
+        }
         if treadmill {
             keep_translations(out, still);
         }
         if let (Some(path), Some(body)) = (&self.push_out, &self.body) {
             contact::push_pose(&self.target, body, path, out, &mut self.scratch);
-        }
-        if !self.s_due.is_empty() {
-            contact::place_source(&self.source, from, &self.s_due, &mut self.scratch);
         }
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
             h.placed(&self.target, body, out, &mut self.scratch);

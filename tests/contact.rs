@@ -1809,3 +1809,77 @@ fn a_clip_whose_floor_is_not_its_rest_poses_is_stood_on_the_targets_floor() {
     }
     assert!((low - want).abs() < 0.02 * height(&target), "live {low} against {want}");
 }
+
+/// On all fours for a second and a half: the hips low and turned forward, the feet where they stand at rest, each wrist
+/// still under its shoulder a twentieth of the height over the floor, and the body swaying over them.
+fn on_all_fours(sk: &Skeleton) -> Clip {
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let h = height(sk);
+    let floor = world.iter().map(|w| w.position().y).fold(f32::MAX, f32::min);
+    let root = (0..sk.len()).find(|&b| sk.bones()[b].parent.is_none()).unwrap();
+    let crouched = |sway: f32| {
+        let mut pose = rest.clone();
+        pose[root].translation += Vec3::new(sway, -0.35 * h, sway);
+        pose[root].rotation = dittomo::Quat::from_rotation_x(1.2) * pose[root].rotation;
+        pose
+    };
+    let shoulders = sk.world(&crouched(0.0));
+    let frames = 45;
+    let poses = (0..frames)
+        .map(|f| {
+            let t = f as f32 / 30.0;
+            let mut pose = crouched(0.03 * h * (std::f32::consts::TAU * t).sin());
+            for leg in contact::legs(sk) {
+                contact::reach(sk, &mut pose, &leg, world[leg.end].position());
+            }
+            for arm in contact::arms(sk) {
+                let under = shoulders[arm.upper].position();
+                contact::reach(sk, &mut pose, &arm, Vec3::new(under.x, floor + 0.05 * h, under.z));
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn live_holds_a_hand_down_on_the_floor_still() {
+    let source = common::mixamo();
+    let target = long_arms(&source, 1.25);
+    let clip = on_all_fours(&source);
+    let map = Mapping::new(&source, &target);
+    let h = height(&target);
+    let floor = target
+        .world(&target.rest())
+        .iter()
+        .map(|w| w.position().y)
+        .fold(f32::MAX, f32::min);
+    // How far the wrists slide a frame, and the farthest one gets from a twentieth of the height over the floor.
+    let wrists = |played: &Clip| {
+        let (mut slid, mut off, mut count) = (0.0, 0.0f32, 0);
+        for arm in contact::arms(&target) {
+            let at: Vec<Vec3> = played.poses.iter().map(|p| at(&target, p, arm.end)).collect();
+            for w in at.windows(2) {
+                let d = w[1] - w[0];
+                slid += Vec3::new(d.x, 0.0, d.z).length();
+                off = off.max(((w[1].y - floor) / h - 0.05).abs());
+                count += 1;
+            }
+        }
+        assert!(count > 0, "the target has arms");
+        (slid / count as f32 / h, off)
+    };
+    let (before, under) = wrists(&map.apply(&source, &target, &clip).unwrap());
+    for delay in [0, 6] {
+        let (slid, off) = wrists(&late(&map, &source, &target, &clip, feet_only(), delay));
+        eprintln!(
+            "{delay} late, slide a frame over height: {before:.5} -> {slid:.5}, height off {under:.4} -> {off:.4}"
+        );
+        assert!(slid < 0.1 * before, "{before} -> {slid}");
+        assert!(off < 0.01 && off < 0.2 * under, "{under} -> {off}");
+    }
+}
