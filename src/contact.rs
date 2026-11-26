@@ -41,6 +41,9 @@ pub struct Fixes {
     /// playing the pose leaves them nearly there ([`crate::Mapping::apply_touching`] knows the skins; without, the
     /// bodies are guessed from their bones). Off by default: being tried.
     pub place: bool,
+    /// Swing the target's bones that nothing drives after the body: hair, tails, ears, capes and skirts
+    /// ([`crate::Sway`]), last, kept out of the body and over the floor. Off by default: being tried.
+    pub sway: bool,
 }
 
 impl Fixes {
@@ -53,6 +56,7 @@ impl Fixes {
         hands: true,
         head: true,
         place: false,
+        sway: false,
     };
     pub const NONE: Self = Self {
         travel: false,
@@ -63,6 +67,7 @@ impl Fixes {
         hands: false,
         head: false,
         place: false,
+        sway: false,
     };
 }
 
@@ -2111,6 +2116,35 @@ fn head(above: &[usize], s: &Shape) -> Option<Head> {
 pub(crate) fn body(skeleton: &Skeleton, s: &Shape) -> Option<Body> {
     let Parts { trunk, legs } = parts(skeleton, s)?;
     body_in(skeleton, s, trunk, legs)
+}
+
+/// The body as rods with round ends, for what swings loose to keep out of ([`crate::Sway`]): each from a point in one
+/// bone's frame to a point in another's, with how thick it is from its line. Along the spine as thick as the spheres
+/// arms keep out of, along the neck, the arms and the legs as thick as an arm is taken to be, and the head, a ball,
+/// fitted to the skin if there is enough of it. None for a skeleton with no body found.
+pub(crate) fn rods(skeleton: &Skeleton, s: &Shape, skin: &Surface) -> Vec<([(usize, Vec3); 2], f32)> {
+    let Some(mut body) = body(skeleton, s) else {
+        return Vec::new();
+    };
+    body.fit_head(s, skin);
+    let line = |a: usize, b: usize, radius: f32| ([(a, Vec3::ZERO), (b, Vec3::ZERO)], radius);
+    let mut out: Vec<_> = body.spine.windows(2).map(|w| line(w[0], w[1], body.torso)).collect();
+    let chest = body.spine[body.spine.len() - 1];
+    if body.spine.len() == 1 {
+        out.push(line(chest, chest, body.torso));
+    }
+    if let Some(h) = body.head {
+        if below(skeleton, h.bone, chest) {
+            out.push(([(chest, Vec3::ZERO), (h.bone, h.center)], body.limb));
+        }
+        out.push(([(h.bone, h.center); 2], h.radius));
+    }
+    let limbs = body.arms.iter().map(|a| &a.limb).chain(legs_of(skeleton, s));
+    for l in limbs {
+        out.push(line(l.upper, l.lower, body.limb));
+        out.push(line(l.lower, l.end, body.limb));
+    }
+    out
 }
 
 fn body_in(skeleton: &Skeleton, s: &Shape, trunk: &Trunk, legs: &[Limb]) -> Option<Body> {

@@ -43,7 +43,8 @@ pass from root to tip.
 - About 20 to 30 ns a bone a substep by estimate: 1.5 µs for a VRoid avatar's 60 spring bones.
 - VRM and KawaiiPhysics settings map onto it by matching poles at 60 poses a second.
 
-**Built so far** (`src/sway.rs`): finding chains and one-way chains with no colliders. On the VRoid bench rig all 83
+**Built so far** (`src/sway.rs`): finding chains, one-way chains, the body and the floor kept out of, and playing
+(`Fixes::sway`, off by default, in `Live` and whole clips; `Sway::clip` by itself). On the VRoid bench rig all 83
 `J_Sec_` bones are found and nothing else; on the other VRM all 19 of its own spring joints. What differed from the
 plan above:
 
@@ -52,8 +53,25 @@ plan above:
   back. With both, 144 against 60 poses a second differ by 0.5 to 0.7% of a chain's length on a moderate dance,
   from 4 to 7%. Whipped twice as hard they differ by 7 to 10%: a chain of several bones is touchy itself.
 - A lone bone with no children is never a chain (eyes, jaws, markers), so single-bone ears stay stiff.
-- The defaults are floppy: a vigorous dance drives long chains to the cone. To tune at the defaults stage.
-- A pose with no time passed puts the chains at rest; a pause should hold them. To fix when wired into `Live`.
+- The defaults are floppy: a vigorous dance drives long chains to the cone, and real walks and runs swing a VRoid
+  rig's chains so hard they never settle into a round. To tune at the defaults stage, before the fix is on by
+  default.
+- A pose with no time passed holds the chains (each bone points at where its tail was); only the first puts them
+  at rest. They start moving as the body does by the second pose, so a clip that starts mid-stride doesn't whip
+  them back.
+- The body is the one arms keep out of, as rods with round ends: spine, neck, arms and legs, and the head's ball
+  (fitted to the skin where `Live` and `apply_touching` know it). No rig-made colliders, no skin-fitted limbs, and
+  nothing for a body with no arms found (animals): only the floor. A particle slides round its bone's head to get
+  out, so lengths hold; no pair comes nearer than at rest, so rest stays a fixed point. Getting out wins over the
+  cone: a rope let down lies flat, and a short bone whose head a thigh swings through is turned straight out of
+  it (5 to 7% of chain bones' poses past their cones in a run on the VRoid rigs).
+- A knock comes when a step ends inside, so frame rates tell more where chains touch the body: 3.8% of a chain's
+  length between 30, 60 and 144 poses a second where a ponytail knocks on the back, against 0.7% swinging free.
+- Twice round a loop isn't enough: what is left of the start takes nearly 2 s to halve. A loop is gone round till a round
+  starts as the one before did (eight times at most), and what is left is eased away over its last 0.3 s, so the
+  ends meet whatever the chains do. A loop is told from its ends alone: a clip that only starts and ends in the
+  same stance is taken for one.
+- `Sway::jump` carries the chains with a body set down elsewhere; `Live` has no such call yet, only `reset`.
 
 Stages: find chains; one chain's integrator against the analytic spring and across frame rates; colliders and
 limits; `Live`, whole clips, baking; defaults; VRM and KawaiiPhysics import; `Crowd` lanes; links between sibling

@@ -14,20 +14,44 @@
 //! hundredth of that length of where it would at another rate. Whipped about harder, a chain of several bones is as
 //! touchy as a real one, and rates tell. Gravity pulls less what the rest pose already carries, so a chain at rest
 //! stays at rest. The body never feels a chain: only the chains' own rotations are written.
+//!
+//! Last, each particle is kept out of the body and over the floor. The body is the one arms are kept out of
+//! ([`contact`]): rods with round ends along the spine, the neck, the arms and the legs, and a ball for the head,
+//! guessed from the bones. The floor is where the lowest bone stands at rest. A particle slides round its bone's head
+//! to get out, so its bone keeps its length, but may leave its cone: a rope let down lies along the floor however
+//! far that bends it. Nothing comes nearer a part of the body, or lower, than it is at rest, so a ponytail starting
+//! inside the head isn't thrown out of it and the rest pose stays at rest.
 
 use glam::{Affine3A, Quat, Vec3};
 
 use crate::shape::Shape;
-use crate::{Error, Mapping, Skeleton, Transform, contact, held, transfer};
+use crate::{Clip, Error, Mapping, Skeleton, Surface, Transform, contact, held, transfer};
 
 /// The longest step the spring is advanced by, in seconds: a longer time between poses is split into equal steps.
 const STEP: f32 = 1.0 / 60.0;
 /// The most steps one pose is split into.
 const STEPS: f32 = 4.0;
+/// A clip that loops is gone round till its chains start a round within this many radians of how they started the
+/// one before, and never more often than this.
+const LOOP_CLOSED: f32 = 0.01;
+const ROUNDS: usize = 8;
+/// What is left between a loop's ends is eased away over this many seconds at its end, or a third of it if shorter.
+const LOOP_EASE: f32 = 0.3;
+/// A clip loops if the body is this near at its end to where it starts: each chain's root and each part of the body
+/// within this share of the height, the roots turned within this many radians.
+const LOOP_NEAR: f32 = 0.1;
+const LOOP_TURN: f32 = 0.35;
+/// And its last pose is its first again if within this share of the height, and this many radians.
+const LOOP_SAME: f32 = 0.02;
 /// A chain shorter than this share of the rig's height is left out, and so is a bone this share of that nearer its
 /// parent: the first is a helper or a marker, the second has no length to swing.
 const SHORT: f32 = 0.01;
 const NO_LENGTH: f32 = 1e-4;
+/// No chain bone is taken to be thicker than this share of the rig's height, from its middle to its side.
+const THICK: f32 = 0.02;
+/// A particle nearer a part of the body at rest than the two are thick keeps this share of the rig's height less
+/// than that away from it, and as much lower than at rest: room for rounding, so the rest pose never touches.
+const ROOM: f32 = 1e-4;
 
 /// A run of bones to sway, each hanging from the one before.
 #[derive(Clone, Debug, PartialEq)]
@@ -231,8 +255,12 @@ pub struct Spring {
     pub damping: [f32; 2],
     /// How much the still air slows a bone, a second: it lags a little more behind a body moving fast.
     pub drag: f32,
-    /// How far a bone may bend from its rest pose under the bone above it, in radians.
+    /// How far a bone may bend from its rest pose under the bone above it, in radians. Pushed by the body or the
+    /// floor it may bend further.
     pub limit: f32,
+    /// How thick a bone is, from its middle to its side, as a share of its length: what is kept out of the body and
+    /// over the floor. Never taken for more than a fiftieth of the rig's height.
+    pub radius: f32,
 }
 
 impl Spring {
@@ -245,6 +273,7 @@ impl Spring {
             damping: [0.45, 0.7],
             drag: 0.5,
             limit: 75f32.to_radians(),
+            radius: 0.2,
         }
     }
 
@@ -320,10 +349,30 @@ pub struct Sway {
     goal: Vec<Vec3>,
     /// Which way the rest pose's down was under the bone above, a step ago.
     lean: Vec<Vec3>,
+    /// How high its tail is at rest, and how low it may come.
+    rest_y: Vec<f32>,
+    level: Vec<f32>,
+
+    /// The parts of the body the chains keep out of, and whether they and the floor are kept out of at all.
+    rods: Vec<Rod>,
+    body: bool,
+    ground: bool,
+    /// By chain bone and then by rod: how far the bone's tail is from the rod's line at rest, and how near it may
+    /// come.
+    apart: Vec<f32>,
+    clear: Vec<f32>,
+    /// Each rod's ends in the world at the pose before, and at each step of this one, the steps one after another.
+    was: Vec<[Vec3; 2]>,
+    now: Vec<[Vec3; 2]>,
+    /// The rods the chain in hand could reach.
+    near: Vec<usize>,
+    floor: f32,
+    height: f32,
 
     step: f32,
-    /// Whether a pose has been taken since the start or the last reset.
+    /// Whether a pose has been taken since the start or the last reset, and whether time has yet to pass since.
     live: bool,
+    still: bool,
 }
 
 impl Sway {
@@ -335,7 +384,15 @@ impl Sway {
         if map.pairs().len() != target.len() {
             return Err(Error::NotTheirMapping);
         }
-        Ok(Self::with(target, &chains(map, target), Spring::of(target)))
+        Self::skinned(map, target, &Surface::default())
+    }
+
+    /// [`Sway::new`], knowing the target's skin: its head is as big as the skin shows.
+    pub(crate) fn skinned(map: &Mapping, target: &Skeleton, skin: &Surface) -> Result<Self, Error> {
+        if map.pairs().len() != target.len() {
+            return Err(Error::NotTheirMapping);
+        }
+        Ok(Self::build(target, &chains(map, target), Spring::of(target), skin))
     }
 
     /// Sways these chains of `target`, each with this spring: for chains found another way, as from a rig's own
@@ -347,6 +404,10 @@ impl Sway {
     /// bone that is under a chain but in none.
     #[must_use]
     pub fn with(target: &Skeleton, chains: &[Chain], spring: Spring) -> Self {
+        Self::build(target, chains, spring, &Surface::default())
+    }
+
+    fn build(target: &Skeleton, chains: &[Chain], spring: Spring, skin: &Surface) -> Self {
         let n = target.len();
         let mut chains = chains.to_vec();
         chains.sort_by_key(|c| c.bones.first().copied());
@@ -354,6 +415,8 @@ impl Sway {
         let (pos, rot) = (|b: usize| shape.rest[b].position(), |b: usize| shape.rest[b].rotation);
         let parent = |b: usize| target.bones()[b].parent;
         let mut chained = vec![false; n];
+        // Where each chain bone ends at rest.
+        let mut tails = Vec::new();
         let mut sway = Self {
             springs: vec![spring; chains.len()],
             above: Vec::new(),
@@ -384,8 +447,21 @@ impl Sway {
             speed: Vec::new(),
             goal: Vec::new(),
             lean: Vec::new(),
+            rest_y: Vec::new(),
+            level: Vec::new(),
+            rods: Vec::new(),
+            body: true,
+            ground: true,
+            apart: Vec::new(),
+            clear: Vec::new(),
+            was: Vec::new(),
+            now: Vec::new(),
+            near: Vec::new(),
+            floor: shape.floor,
+            height: shape.height,
             step: f32::NAN,
             live: false,
+            still: true,
             chains: Vec::new(),
         };
         for chain in &mut chains {
@@ -397,6 +473,7 @@ impl Sway {
                 let end = tail(target, &shape, b, chain.bones.get(k + 1).copied());
                 let (along, length) = (end - pos(b), end.distance(pos(b)));
                 assert!(length > 0.0, "bone {b} has no length");
+                tails.push(end);
                 sway.bones.push(b);
                 sway.rest.push(target.bones()[b].rest.rotation.normalize());
                 sway.axis.push(rot(b).inverse() * (along / length));
@@ -415,10 +492,41 @@ impl Sway {
                 .push(rot(chain.parent).inverse() * (pos(chain.bones[0]) - pos(chain.parent)));
             sway.starts.push(sway.bones.len());
         }
-        // The bones above the chains that aren't in one, to place from each pose.
+        // The body's parts, as the rig with any held feet hung from their legs has them. One carried by a chain's
+        // bone, or by a bone under one, is left out: it goes where the chain does.
+        let mut swung = chained.clone();
+        for b in 0..n {
+            swung[b] |= parent(b).is_some_and(|p| swung[p]);
+        }
+        let hung = held::held(target);
+        let rods = match &hung {
+            Some(h) => contact::rods(&h.skeleton, &Shape::light(&h.skeleton), &h.skin(skin)),
+            None => contact::rods(target, &shape, skin),
+        };
+        let real = |b: usize| hung.as_ref().map_or(b, |h| h.real(b));
+        for (ends, radius) in rods {
+            let ends = ends.map(|(b, at)| (real(b), at));
+            if ends.iter().all(|&(b, _)| !swung[b]) {
+                sway.rods.push(Rod { ends, radius });
+            }
+        }
+        let rods = sway.rods.len();
+        for &tail in &tails {
+            sway.rest_y.push(tail.y);
+            for rod in &sway.rods {
+                let [a, b] = rod.ends.map(|(b, at)| shape.rest[b].matrix.transform_point3(at));
+                sway.apart.push(tail.distance(nearest(a, b, tail)));
+            }
+        }
+        sway.clear.resize(sway.apart.len(), 0.0);
+        sway.was.resize(rods, [Vec3::ZERO; 2]);
+        sway.now.resize(rods * STEPS as usize, [Vec3::ZERO; 2]);
+        sway.near.reserve(rods);
+        // The bones above the chains that aren't in one, and those carrying the body's parts, to place from each pose.
         let mut needed = vec![false; n];
-        for chain in &chains {
-            let mut up = Some(chain.parent);
+        let holds = sway.rods.iter().flat_map(|r| r.ends.map(|(b, _)| b));
+        for top in chains.iter().map(|c| c.parent).chain(holds) {
+            let mut up = Some(top);
             while let Some(b) = up.filter(|&b| !chained[b] && !needed[b]) {
                 needed[b] = true;
                 up = parent(b);
@@ -436,7 +544,7 @@ impl Sway {
         for list in [&mut sway.stiff, &mut sway.loose, &mut sway.damp, &mut sway.drag] {
             list.resize(all, 0.0);
         }
-        for list in [&mut sway.gravity, &mut sway.cos, &mut sway.sin] {
+        for list in [&mut sway.gravity, &mut sway.cos, &mut sway.sin, &mut sway.level] {
             list.resize(all, 0.0);
         }
         sway.carry.resize(all, [0.0; 4]);
@@ -491,27 +599,85 @@ impl Sway {
             self.drag[i] = drag;
             self.gravity[i] = spring.gravity;
             (self.sin[i], self.cos[i]) = (sin, cos);
+            // No nearer the body's parts than the two are thick, nor lower than its own thickness over the floor;
+            // but as near and as low as it is at rest.
+            let thick = (spring.radius * self.length[i]).clamp(0.0, THICK * self.height);
+            let room = ROOM * self.height;
+            self.level[i] = if self.ground {
+                (self.floor + thick).min(self.rest_y[i] - room)
+            } else {
+                f32::NEG_INFINITY
+            };
+            let rods = self.rods.len();
+            for (k, rod) in self.rods.iter().enumerate() {
+                let at = i * rods + k;
+                self.clear[at] = if self.body {
+                    (thick + rod.radius).min(self.apart[at] - room)
+                } else {
+                    0.0
+                };
+            }
         }
         // The steps carried are worked out again at the next pose.
         self.step = f32::NAN;
     }
 
-    /// Forgets where the chains are and how they move: the next pose puts them at rest under the body as it is then,
-    /// as after a cut to another place or another clip.
-    pub fn reset(&mut self) {
-        self.live = false;
+    /// Whether the chains are kept out of the body, and over the floor: both, unless said otherwise here.
+    pub fn collide(&mut self, body: bool, floor: bool) {
+        (self.body, self.ground) = (body, floor);
+        for c in 0..self.chains.len() {
+            self.fit(c);
+        }
     }
 
-    /// Sways the chains `dt` seconds on from the last pose. `pose` is the target's, each transform relative to its
-    /// parent, as played and fixed up: the body is read from it, and each chain bone's rotation is written to it
-    /// (whatever it was: a chain's goal is its rest pose under the bone above). The first pose, the first after
-    /// [`Sway::reset`] and any with no time passed put the chains at rest under the body, still.
-    ///
-    /// The bones' scales are taken to be as at rest.
+    /// Forgets where the chains are and how they move: the next pose puts them at rest under the body as it is then,
+    /// moving as it does, as after a cut to another place or another clip.
+    pub fn reset(&mut self) {
+        (self.live, self.still) = (false, true);
+    }
+
+    /// Takes the chains along with a body put at `pose` all at once: a character set down somewhere else, or a clip
+    /// that loops starting over. Each chain goes with the bone it hangs from, as it is under it and as it moves
+    /// beside it, and its bones' rotations are written to `pose`, the same as at the pose before. The first pose
+    /// and the first after [`Sway::reset`] put the chains at rest, as [`Sway::pose`] does.
     ///
     /// # Panics
     /// If `pose` doesn't have one transform per bone.
-    pub fn pose(&mut self, dt: f32, pose: &mut [Transform]) {
+    pub fn jump(&mut self, pose: &mut [Transform]) {
+        if self.live {
+            self.place(pose);
+            for c in 0..self.chains.len() {
+                let hangs = self.chains[c].parent;
+                let (turn, start) = (self.rots[hangs], self.heads[hangs] + self.rots[hangs] * self.offsets[c]);
+                let round = (turn * self.root_turn[c].inverse()).normalize();
+                let from = std::mem::replace(&mut self.root_at[c], start);
+                self.root_turn[c] = turn;
+                for i in self.starts[c]..self.starts[c + 1] {
+                    self.at[i] = start + round * (self.at[i] - from);
+                    self.speed[i] = round * self.speed[i];
+                    // Its bone too, for a chain hanging from it.
+                    let b = self.bones[i];
+                    self.heads[b] = start + round * (self.heads[b] - from);
+                    self.rots[b] = (round * self.rots[b]).normalize();
+                }
+            }
+        }
+        // Held there: each bone points at where its tail now is.
+        self.pose(0.0, pose);
+    }
+
+    /// Moves the chains with a body moved `by` all at once, nothing turned.
+    fn shift(&mut self, by: Vec3) {
+        for at in self.at.iter_mut().chain(&mut self.goal).chain(&mut self.root_at) {
+            *at += by;
+        }
+        for ends in &mut self.was {
+            *ends = ends.map(|end| end + by);
+        }
+    }
+
+    /// Places the bones above the chains, and those carrying the body's parts, in the world.
+    fn place(&mut self, pose: &[Transform]) {
         let n = self.mats.len() - 1;
         assert_eq!(pose.len(), n, "one transform per bone");
         for (&b, &p) in self.above.iter().zip(&self.above_parent) {
@@ -522,6 +688,134 @@ impl Sway {
             self.rots[b] = (self.rots[p] * rotation).normalize();
             self.heads[b] = self.mats[b].translation.into();
         }
+    }
+
+    /// Sways a whole clip of the target, as played and fixed up, stepped through its times: each chain bone's
+    /// rotation is written to each pose.
+    ///
+    /// A clip that loops, the body at its end nearly as at its start but for where on the floor it stands, is gone
+    /// round first, twice at least, till the chains start a round as they started the one before (to a hundredth of
+    /// a radian; eight times at most), and the round after is kept. Chains swung hard never settle into a round, so
+    /// what is left between how the round kept starts and how the next would is eased away over its last third of a
+    /// second: the chains end as they start and the loop closes, though they may come a little into the body or out
+    /// of their cones there. Any other clip starts with its chains at rest.
+    ///
+    /// # Errors
+    /// If the clip doesn't pose the target.
+    pub fn clip(&mut self, clip: &mut Clip) -> Result<(), Error> {
+        let n = clip.poses.len();
+        clip.check(self.mats.len() - 1)?;
+        if n == 0 || self.chains.is_empty() {
+            return Ok(());
+        }
+        let Clip { times, poses } = clip;
+        let dt = |f: usize| times[f] - times[f - 1];
+        // Where the body is at the end, against where it starts.
+        self.reset();
+        let mut pose = poses[n - 1].clone();
+        self.pose(0.0, &mut pose);
+        let end = (self.root_at.clone(), self.root_turn.clone(), self.was.clone());
+        self.reset();
+        pose.clone_from(&poses[0]);
+        self.pose(0.0, &mut pose);
+        let roots = self.root_at.len() as f32;
+        let mut travel = (0..end.0.len()).map(|c| end.0[c] - self.root_at[c]).sum::<Vec3>() / roots;
+        travel.y = 0.0;
+        let off = (0..end.0.len())
+            .map(|c| end.0[c] - travel - self.root_at[c])
+            .chain((0..end.2.len()).flat_map(|k| [0, 1].map(|e| end.2[k][e] - travel - self.was[k][e])))
+            .map(Vec3::length)
+            .fold(0.0, f32::max);
+        let turned = (0..end.1.len())
+            .map(|c| 2.0 * end.1[c].dot(self.root_turn[c]).abs().min(1.0).acos())
+            .fold(0.0, f32::max);
+        let long = times[n - 1] - times[0];
+        if !(n > 2 && long > 0.0 && off <= LOOP_NEAR * self.height && turned <= LOOP_TURN) {
+            self.reset();
+            for f in 0..n {
+                self.pose(if f == 0 { 0.0 } else { dt(f) }, &mut poses[f]);
+            }
+            return Ok(());
+        }
+        // A last pose that is nearly the first again takes no time to get from: the chains jump there with the body.
+        // Else the first comes as long after it as a pose does, the body traveling on through that pose as it does
+        // through the others.
+        let same = off <= LOOP_SAME * self.height && turned <= LOOP_SAME;
+        let wrap = if same { 0.0 } else { long / (n - 1) as f32 };
+        let back = -travel * (n as f32 / (n - 1) as f32);
+        let again = |sway: &mut Self, first: &[Transform], pose: &mut Vec<Transform>| -> Vec<Quat> {
+            pose.clear();
+            pose.extend_from_slice(first);
+            if same {
+                sway.jump(pose);
+            } else {
+                sway.shift(back);
+                sway.pose(wrap, pose);
+            }
+            sway.bones.iter().map(|&b| pose[b].rotation).collect()
+        };
+        let mut first: Vec<Quat> = Vec::new();
+        for _ in 0..ROUNDS {
+            for f in 1..n {
+                pose.clone_from(&poses[f]);
+                self.pose(dt(f), &mut pose);
+            }
+            let before = std::mem::replace(&mut first, again(self, &poses[0], &mut pose));
+            let moved = before
+                .iter()
+                .zip(&first)
+                .map(|(a, b)| apart(*a, *b))
+                .fold(0.0, f32::max);
+            if !before.is_empty() && moved <= LOOP_CLOSED {
+                break;
+            }
+        }
+        // The round kept: its first pose has its chains as the last round left them.
+        for (&b, &turn) in self.bones.iter().zip(&first) {
+            poses[0][b].rotation = turn;
+        }
+        for f in 1..n {
+            self.pose(dt(f), &mut poses[f]);
+        }
+        // How the chains would start the round after, against how this one started: what is left between the two
+        // is eased away over the last poses, so the loop closes however wildly the chains swing.
+        let next = again(self, &poses[0], &mut pose);
+        let ease = LOOP_EASE.min(long / 3.0);
+        for f in 1..n {
+            let left = (times[n - 1] + wrap - times[f]) / ease;
+            if left >= 1.0 {
+                continue;
+            }
+            let share = 1.0 - left.max(0.0);
+            let share = share * share * (3.0 - 2.0 * share);
+            for (i, &b) in self.bones.iter().enumerate() {
+                let mut off = next[i].inverse() * first[i];
+                if off.w < 0.0 {
+                    off = -off;
+                }
+                poses[f][b].rotation = (poses[f][b].rotation * Quat::IDENTITY.slerp(off, share)).normalize();
+            }
+        }
+        Ok(())
+    }
+
+    /// Sways the chains `dt` seconds on from the last pose. `pose` is the target's, each transform relative to its
+    /// parent, as played and fixed up: the body is read from it, and each chain bone's rotation is written to it
+    /// (whatever it was: a chain's goal is its rest pose under the bone above). The first pose and the first after
+    /// [`Sway::reset`] put the chains at rest under the body, moving as the body does by the pose after: one already
+    /// walking then doesn't whip them back.
+    ///
+    /// A later pose with no time passed (or a time that is no number, or less than none) holds the chains: each
+    /// bone points at where its tail was, from where the body has it now, at its own length and within its cone,
+    /// and how fast it moved is kept for when time goes on. So a pause shows the chains as they were, and a body
+    /// moved while paused drags them after it. Nothing is kept out of the body or the floor then.
+    ///
+    /// The bones' scales are taken to be as at rest.
+    ///
+    /// # Panics
+    /// If `pose` doesn't have one transform per bone.
+    pub fn pose(&mut self, dt: f32, pose: &mut [Transform]) {
+        self.place(pose);
         let moving = self.live && dt.is_finite() && dt > 0.0;
         let steps = if moving {
             (dt / STEP - 1e-3).ceil().clamp(1.0, STEPS)
@@ -536,6 +830,24 @@ impl Sway {
             self.step = h;
         }
         let per_h = 1.0 / h;
+        // The body's parts go from where they were to where they are, evenly through the steps, as the chains' roots
+        // do.
+        let rods = self.rods.len();
+        let collide = moving && self.body && rods > 0;
+        for (k, rod) in self.rods.iter().enumerate() {
+            let ends = rod.ends.map(|(b, at)| self.mats[b].transform_point3(at));
+            let from = std::mem::replace(&mut self.was[k], ends);
+            if !collide {
+                continue;
+            }
+            let (mut step, last) = (1.0, steps as usize - 1);
+            for at in 0..last {
+                let t = step / steps;
+                self.now[at * rods + k] = [from[0].lerp(ends[0], t), from[1].lerp(ends[1], t)];
+                step += 1.0;
+            }
+            self.now[last * rods + k] = ends;
+        }
         for c in 0..self.chains.len() {
             let hangs = self.chains[c].parent;
             let (turn, start) = (self.rots[hangs], self.heads[hangs] + self.rots[hangs] * self.offsets[c]);
@@ -544,20 +856,53 @@ impl Sway {
                 let (mut head, mut up) = (start, turn);
                 for i in range {
                     let b = self.bones[i];
-                    let turned = (up * self.rest[i]).normalize();
-                    let goal = head + self.length[i] * (turned * self.axis[i]);
-                    (self.at[i], self.speed[i], self.goal[i]) = (goal, Vec3::ZERO, goal);
+                    let rested = (up * self.rest[i]).normalize();
+                    let toward = rested * self.axis[i];
+                    let goal = head + self.length[i] * toward;
+                    let turned = if self.live {
+                        // Held: toward where its tail was, at its length and within its cone.
+                        let out = self.at[i] - head;
+                        let far = out.length_squared();
+                        let dir = if far > 1e-12 * self.length[i] * self.length[i] {
+                            out / far.sqrt()
+                        } else {
+                            toward
+                        };
+                        let dir = cone(dir, toward, self.cos[i], self.sin[i]).map_or(dir, |(dir, _)| dir);
+                        self.at[i] = head + self.length[i] * dir;
+                        (arc(toward, dir) * rested).normalize()
+                    } else {
+                        (self.at[i], self.speed[i]) = (goal, Vec3::ZERO);
+                        rested
+                    };
+                    self.goal[i] = goal;
                     self.lean[i] = up * self.down[i];
-                    pose[b].rotation = self.rest[i];
+                    pose[b].rotation = if self.live {
+                        (up.inverse() * turned).normalize()
+                    } else {
+                        self.rest[i]
+                    };
                     (self.rots[b], self.heads[b]) = (turned, head);
-                    (head, up) = (goal, turned);
+                    (head, up) = (self.at[i], turned);
                 }
                 (self.root_at[c], self.root_turn[c]) = (start, turn);
                 continue;
             }
+            if self.still {
+                // The first time on from rest, each tail is taken to have been moving as its goal does now: a
+                // body already walking when it is first seen doesn't whip its chains back.
+                let (mut head, mut up) = (start, turn);
+                for i in range.clone() {
+                    up = (up * self.rest[i]).normalize();
+                    head += self.length[i] * (up * self.axis[i]);
+                    self.speed[i] = (head - self.goal[i]) / dt;
+                }
+            }
             // The bone the chain hangs from goes from where it was to where it is, evenly through the steps.
             let (from_at, from_turn) = (self.root_at[c], self.root_turn[c]);
             let to_turn = if from_turn.dot(turn) < 0.0 { -turn } else { turn };
+            // No rod further from where the chain starts than the chain is long and the two are thick can touch it.
+            let within = self.chains[c].length + THICK * self.height;
             let (mut k, mut root_was) = (1.0, from_at);
             while k <= steps {
                 let last = k == steps;
@@ -567,6 +912,19 @@ impl Sway {
                     let t = k / steps;
                     (from_at.lerp(start, t), from_turn.lerp(to_turn, t).normalize())
                 };
+                let placed = if collide {
+                    let at = (k as usize - 1) * rods;
+                    &self.now[at..at + rods]
+                } else {
+                    &[]
+                };
+                self.near.clear();
+                for (r, &[a, b]) in placed.iter().enumerate() {
+                    let reach = within + self.rods[r].radius;
+                    if head.distance_squared(nearest(a, b, head)) < reach * reach {
+                        self.near.push(r);
+                    }
+                }
                 // Where this bone's head was a step ago, and how fast it moves now.
                 let mut head_was = std::mem::replace(&mut root_was, head);
                 let mut drift = (head - head_was) * per_h;
@@ -596,6 +954,18 @@ impl Sway {
                     } else {
                         toward
                     };
+                    let (cos, sin) = (self.cos[i], self.sin[i]);
+                    let mut edge = cone(dir, toward, cos, sin);
+                    if let Some((at, _)) = edge {
+                        dir = at;
+                    }
+                    // Out of the body and over the floor, though that take it out of the cone.
+                    let clear = &self.clear[i * rods..(i + 1) * rods];
+                    let (kept, struck, floored) =
+                        keep_out(head, self.length[i], dir, clear, &self.near, placed, self.level[i]);
+                    if struck.is_some() || floored {
+                        (dir, edge) = (kept, None);
+                    }
                     // The bone holds the tail in along its line, so about its head the tail keeps only its speed
                     // across the bone: across the bone as it was, carried round to the bone as it is, beside the
                     // head as it moves now. (Dropping what is along the bone as it is now would slow a swing by how
@@ -604,25 +974,20 @@ impl Sway {
                     let before = (was - head_was) / self.length[i];
                     let across = speed - drift;
                     let across = across - across.dot(before) * before;
-                    let round = |dir: Vec3| {
-                        across - (across.dot(dir) / (1.0 + before.dot(dir)).max(1e-6)) * (before + dir) + drift
-                    };
-                    let bent = dir.dot(toward);
-                    let speed = if bent < self.cos[i] {
-                        let side = dir - bent * toward;
-                        let wide = side.length_squared();
-                        let side = if wide > 1e-12 {
-                            side / wide.sqrt()
-                        } else {
-                            toward.any_orthonormal_vector()
-                        };
-                        dir = self.cos[i] * toward + self.sin[i] * side;
+                    let mut speed =
+                        across - (across.dot(dir) / (1.0 + before.dot(dir)).max(1e-6)) * (before + dir) + drift;
+                    if let Some((_, side)) = edge {
                         // At the cone's edge it stops going outward, beside the goal.
-                        let (speed, outward) = (round(dir), self.cos[i] * side - self.sin[i] * toward);
-                        speed - (speed - pace).dot(outward).max(0.0) * outward
-                    } else {
-                        round(dir)
-                    };
+                        let outward = cos * side - sin * toward;
+                        speed -= (speed - pace).dot(outward).max(0.0) * outward;
+                    }
+                    if let Some(away) = struck {
+                        // Against the body it stops going in, beside the goal, which moves as the body does.
+                        speed -= (speed - pace).dot(away).min(0.0) * away;
+                    }
+                    if floored {
+                        speed.y = speed.y.max(0.0);
+                    }
                     let at = head + self.length[i] * dir;
                     self.speed[i] = speed;
                     self.at[i] = at;
@@ -639,8 +1004,115 @@ impl Sway {
             }
             (self.root_at[c], self.root_turn[c]) = (start, turn);
         }
+        self.still &= !moving;
         self.live = true;
     }
+}
+
+/// A part of the body a chain keeps out of: a rod with round ends from a point in one bone's frame to a point in
+/// another's, or a ball if the two are one.
+#[derive(Clone, Copy, Debug)]
+struct Rod {
+    ends: [(usize, Vec3); 2],
+    radius: f32,
+}
+
+/// The point of the line from `a` to `b` nearest `p`.
+fn nearest(a: Vec3, b: Vec3, p: Vec3) -> Vec3 {
+    let along = b - a;
+    let t = ((p - a).dot(along) / along.length_squared().max(1e-20)).clamp(0.0, 1.0);
+    a + t * along
+}
+
+/// A bone's direction kept within the cone about `toward`: nothing if it is already, else the direction at the
+/// cone's edge and the way across from `toward` it is at.
+fn cone(dir: Vec3, toward: Vec3, cos: f32, sin: f32) -> Option<(Vec3, Vec3)> {
+    let bent = dir.dot(toward);
+    if bent >= cos {
+        return None;
+    }
+    let side = dir - bent * toward;
+    let wide = side.length_squared();
+    let side = if wide > 1e-12 {
+        side / wide.sqrt()
+    } else {
+        toward.any_orthonormal_vector()
+    };
+    Some((cos * toward + sin * side, side))
+}
+
+/// A bone's direction with its tail out of the rods and over the floor: the bone starts at `head` and is `length`
+/// long, `clear` is how near its tail may come to each rod's line, `near` the rods to look at and `level` how low
+/// it may come. The tail goes round the head, straight away from where it is too near, until it is clear; the floor
+/// comes last, so it wins over a rod. Also the way out of the last rod it was in, and whether the floor held it up.
+fn keep_out(
+    head: Vec3,
+    length: f32,
+    mut dir: Vec3,
+    clear: &[f32],
+    near: &[usize],
+    rods: &[[Vec3; 2]],
+    level: f32,
+) -> (Vec3, Option<Vec3>, bool) {
+    let mut out = None;
+    // A few times, as getting out of one may go into another, or further along the same.
+    for _ in 0..4 {
+        let mut any = false;
+        for &k in near {
+            let reach = clear[k];
+            if reach <= 0.0 {
+                continue;
+            }
+            let [a, b] = rods[k];
+            let tail = head + length * dir;
+            let from = nearest(a, b, tail);
+            if tail.distance_squared(from) >= reach * reach {
+                continue;
+            }
+            // Round the head, the tail is `reach` from there at one angle off the line to it.
+            let to = from - head;
+            let far = to.length();
+            if far <= 1e-6 * length {
+                continue;
+            }
+            let to = to / far;
+            let cos = (length * length + far * far - reach * reach) / (2.0 * length * far);
+            if cos >= 1.0 {
+                continue;
+            }
+            // With no way out, as far as it gets: straight away.
+            let cos = cos.max(-1.0);
+            let side = dir - dir.dot(to) * to;
+            let wide = side.length_squared();
+            let side = if wide > 1e-12 {
+                side / wide.sqrt()
+            } else {
+                to.any_orthonormal_vector()
+            };
+            dir = cos * to + (1.0 - cos * cos).sqrt() * side;
+            out = Some((head + length * dir - from).normalize_or(side));
+            any = true;
+        }
+        if !any {
+            break;
+        }
+    }
+    let low = (level - head.y) / length;
+    if dir.y >= low {
+        return (dir, out, false);
+    }
+    if low >= 1.0 {
+        return (Vec3::Y, out, true);
+    }
+    let flat = Vec3::new(dir.x, 0.0, dir.z);
+    let wide = flat.length_squared();
+    let flat = if wide > 1e-12 { flat / wide.sqrt() } else { Vec3::X };
+    (low * Vec3::Y + (1.0 - low * low).sqrt() * flat, out, true)
+}
+
+/// The angle between two turns, nearly: right for small ones, never more than 2.
+fn apart(a: Quat, b: Quat) -> f32 {
+    2.0 * (a.inverse() * b).xyz().length()
 }
 
 /// The shortest turn taking one direction to another, with no library math. (glam's own gives no turn at all under
@@ -833,6 +1305,8 @@ mod tests {
             for dt in [0.5f32, 1.0 / 30.0, 1.0 / 60.0, 1.0 / 144.0] {
                 let mut sway = Sway::with(sk, chains, Spring::per_meter(1.0));
                 let mut pose = sk.rest();
+                // Still for a pose first: a body moving when first seen is taken to have been moving all along.
+                sway.pose(dt, &mut pose);
                 sway.pose(dt, &mut pose);
                 pose[0].translation.x += 0.3;
                 sway.pose(dt, &mut pose);
@@ -868,6 +1342,156 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A person in meters, 1.8 tall, with arms out, fingers, legs and toes, a tail of four bones under the hips and
+    /// a ponytail of three under the head, and those two as chains.
+    fn person() -> (Skeleton, Vec<Chain>) {
+        let mut bones = vec![
+            (None, [0.0, 1.0, 0.0]),
+            (Some(0), [0.0, 0.15, 0.0]),
+            (Some(1), [0.0, 0.15, 0.0]),
+            (Some(2), [0.0, 0.2, 0.0]),
+            (Some(3), [0.0, 0.1, 0.0]),
+            (Some(4), [0.0, 0.2, 0.0]),
+        ];
+        for side in [1.0f32, -1.0] {
+            let at = bones.len();
+            bones.extend([
+                (Some(2), [0.05 * side, 0.15, 0.0]),
+                (Some(at), [0.12 * side, 0.0, 0.0]),
+                (Some(at + 1), [0.28 * side, 0.0, 0.0]),
+                (Some(at + 2), [0.26 * side, 0.0, 0.0]),
+                (Some(at + 3), [0.08 * side, 0.0, 0.03]),
+                (Some(at + 4), [0.03 * side, 0.0, 0.0]),
+                (Some(at + 3), [0.08 * side, 0.0, -0.03]),
+                (Some(at + 6), [0.03 * side, 0.0, 0.0]),
+            ]);
+        }
+        for side in [1.0f32, -1.0] {
+            let at = bones.len();
+            bones.extend([
+                (Some(0), [0.09 * side, -0.05, 0.0]),
+                (Some(at), [0.0, -0.45, 0.0]),
+                (Some(at + 1), [0.0, -0.42, 0.0]),
+                (Some(at + 2), [0.0, -0.08, 0.12]),
+            ]);
+        }
+        let tail = bones.len();
+        bones.extend([
+            (Some(0), [0.0, -0.02, -0.08]),
+            (Some(tail), [0.0, -0.08, -0.08]),
+            (Some(tail + 1), [0.0, -0.1, -0.06]),
+            (Some(tail + 2), [0.0, -0.1, -0.04]),
+            (Some(4), [0.0, 0.12, -0.06]),
+            (Some(tail + 4), [0.0, -0.04, -0.02]),
+            (Some(tail + 5), [0.0, -0.1, -0.02]),
+        ]);
+        let chains = vec![
+            chain(&[tail, tail + 1, tail + 2, tail + 3]),
+            Chain {
+                parent: 4,
+                ..chain(&[tail + 4, tail + 5, tail + 6])
+            },
+        ];
+        (rig(&bones), chains)
+    }
+
+    /// How far inside the body or under the floor any tail is past what it may be, over the rig's height, whether
+    /// or not it is kept out: the most of any, none if all are clear.
+    fn depth(sway: &Sway) -> f32 {
+        let (rods, room) = (sway.rods.len(), ROOM * sway.height);
+        let mut worst = 0.0f32;
+        for (i, &at) in sway.at.iter().enumerate() {
+            let thick = (0.2 * sway.length[i]).min(THICK * sway.height);
+            worst = worst.max((sway.floor + thick).min(sway.rest_y[i] - room) - at.y);
+            for (k, &[a, b]) in sway.was.iter().enumerate() {
+                let reach = (thick + sway.rods[k].radius).min(sway.apart[i * rods + k] - room);
+                worst = worst.max(reach - at.distance(nearest(a, b, at)));
+            }
+        }
+        worst / sway.height
+    }
+
+    /// The person thrown about for three seconds: dropped and shoved to each side, the trunk bowing and the head
+    /// nodding, so the tail is swung into the legs and the trunk and the ponytail into the head and the neck. With
+    /// what `set` makes of the sway, the deepest any tail came into the body or the floor, and every chain bone's
+    /// turn at every pose.
+    fn thrown(set: impl Fn(&mut Sway)) -> (f32, Vec<u32>) {
+        let (sk, chains) = person();
+        let mut sway = Sway::with(&sk, &chains, Spring::per_meter(1.0));
+        set(&mut sway);
+        let (mut worst, mut bits) = (0.0f32, Vec::new());
+        for f in 0..180 {
+            let t = f as f32 / 60.0;
+            let mut pose = sk.rest();
+            pose[0].translation += Vec3::new(
+                0.4 * (7.0 * t).sin(),
+                -0.12 * (1.0 - (5.0 * t).cos()),
+                0.3 * (4.0 * t).sin(),
+            );
+            pose[0].rotation = Quat::from_rotation_y(3.0 * t) * Quat::from_rotation_x(0.8 * (6.0 * t).sin());
+            pose[1].rotation = Quat::from_rotation_x(0.6 * (9.0 * t).sin());
+            pose[4].rotation = Quat::from_rotation_x(0.9 * (11.0 * t).sin());
+            sway.pose(1.0 / 60.0, &mut pose);
+            worst = worst.max(depth(&sway));
+            bits.extend(
+                sway.bones
+                    .iter()
+                    .flat_map(|&b| pose[b].rotation.to_array().map(f32::to_bits)),
+            );
+        }
+        (worst, bits)
+    }
+
+    #[test]
+    fn a_body_has_rods_and_rest_touches_none() {
+        let (sk, chains) = person();
+        let mut sway = Sway::with(&sk, &chains, Spring::per_meter(1.0));
+        // Three along the spine and the neck, the head, and two for each arm and each leg.
+        assert_eq!(sway.rods.len(), 12, "{:?}", sway.rods);
+        // The ponytail starts inside the head, nearer it than the two are thick.
+        let rods = sway.rods.len();
+        let first = sway.starts[1];
+        assert!(
+            (0..rods).any(|k| sway.apart[first * rods + k] < sway.rods[k].radius),
+            "the ponytail starts clear of the head"
+        );
+        for _ in 0..120 {
+            let mut pose = sk.rest();
+            sway.pose(1.0 / 60.0, &mut pose);
+            assert_eq!(depth(&sway), 0.0);
+            for (i, &b) in sway.bones.iter().enumerate() {
+                let off = pose[b].rotation.angle_between(sway.rest[i]);
+                assert!(off < 1e-4, "bone {b} is {off} radians off rest");
+            }
+        }
+    }
+
+    #[test]
+    fn chains_thrown_about_stay_out_of_the_body_and_over_the_floor() {
+        // With no cone to hold a bone back from getting out.
+        let wide = |sway: &mut Sway| {
+            for c in 0..2 {
+                let spring = Spring {
+                    limit: std::f32::consts::PI,
+                    ..sway.spring(c)
+                };
+                sway.set_spring(c, spring);
+            }
+        };
+        let (free, _) = thrown(|sway| {
+            wide(sway);
+            sway.collide(false, false);
+        });
+        let (kept, bits) = thrown(wide);
+        let (coned, _) = thrown(|_| ());
+        println!("thrown: {free} of the height into the body let be, {kept} kept out, {coned} with the cone");
+        assert!(free > 0.03, "nothing was swung into the body: {free}");
+        assert!(kept < 1e-4, "{kept} of the height inside");
+        assert!(coned < 1e-4, "{coned} of the height inside with the cone");
+        // And the same to the bit a second time.
+        assert!(bits == thrown(wide).1);
     }
 
     #[test]

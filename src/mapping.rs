@@ -170,6 +170,7 @@ impl Mapping {
     /// The clip played by the target, then fixed up: travel given to a clip walked in place, feet kept still while
     /// planted, arms kept out of the body and head, hands brought together where the source's meet and kept on the
     /// head where the source's are on theirs. [`Fixes::ALL`] makes every fix; [`Fixes::NONE`] is [`Mapping::apply`].
+    /// With [`Fixes::sway`], the bones nothing drives are swung last ([`crate::Sway::clip`]).
     ///
     /// # Errors
     /// If the clip doesn't pose the source, or the mapping was made for skeletons of other sizes.
@@ -195,6 +196,12 @@ impl Mapping {
             return Err(Error::NotTheirMapping);
         }
         clip.check(source.len())?;
+        // What swings loose is swung last, on the target as it is.
+        let mut sway = if fixes.sway {
+            Some(crate::Sway::skinned(self, target, skins[1])?)
+        } else {
+            None
+        };
         // Feet held from the root are played as the ends of their legs, and put back at the end.
         let (hs, ht) = (held::held(source), held::held(target));
         let hung = hs.as_ref().map(|h| h.hang_clip(clip));
@@ -272,6 +279,9 @@ impl Mapping {
         );
         if let Some(h) = &ht {
             h.unhang_clip(&mut out);
+        }
+        if let Some(sway) = &mut sway {
+            sway.clip(&mut out)?;
         }
         Ok(out)
     }

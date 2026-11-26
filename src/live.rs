@@ -4,7 +4,7 @@
 use crate::contact::{self, Ahead, Body, Charts, Feet, Floor, Hands, HandsDown, OnHead, Scratch, Touch, Travel};
 use crate::held::{self, Held};
 use crate::shape::Shape;
-use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
+use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Sway, Transform};
 
 /// Plays poses of one skeleton on another as they come, a frame at a time, without allocating, and fixes each up as
 /// [`Mapping::apply_with`] fixes a clip, but from the poses so far, with nothing ahead to look at.
@@ -18,6 +18,8 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
 /// then kept in place unless [`Fixes::travel`] moves it on. A body whose legs can't reach where its feet are held is
 /// lowered at once as far as they need, then eased back up, where the whole clip eases it down ahead. A hand down on
 /// the floor and nearly still (crawling, a push-up) is held there as a foot is, with planted feet ([`Fixes::feet`]).
+/// With [`Fixes::sway`], the bones nothing drives are swung after the body last of all ([`Sway`]), from rest at the
+/// first pose and the first after [`Live::reset`]; a pose with no time passed holds them.
 ///
 /// A foot can be held only once it has landed, where the whole clip eases it toward where it will land, so planted
 /// feet slide more. [`Live::delayed`] plays each pose a few poses late, and plants feet with those few in sight as the
@@ -74,6 +76,10 @@ pub struct Live {
     /// If poses are played late, the last few: each the source's pose with its travel, the target playing it, and the
     /// target playing it without, if the travel is taken off.
     kept: Vec<(Vec<Transform>, Vec<Transform>, Vec<Transform>)>,
+    /// What swings loose on the target, if anything does and it is swung, and if poses are played late, how long
+    /// after the one before each of the last few came.
+    sway: Option<Sway>,
+    waits: Vec<f32>,
     /// How many poses have come since the start or the last reset.
     seen: usize,
 }
@@ -103,6 +109,12 @@ impl Live {
         if source.len() != map.sources() || target.len() != map.pairs().len() {
             return Err(Error::NotTheirMapping);
         }
+        // What swings loose is swung on the target as it is, not with its held feet hung.
+        let sway = if fixes.sway {
+            Some(Sway::skinned(map, target, skins[1])?).filter(|s| !s.chains().is_empty())
+        } else {
+            None
+        };
         let held = [held::held(source), held::held(target)];
         let source = held[0].as_ref().map_or(source, |h| &h.skeleton);
         let target = held[1].as_ref().map_or(target, |h| &h.skeleton);
@@ -158,6 +170,8 @@ impl Live {
             target: target.clone(),
             ahead: None,
             kept: Vec::new(),
+            sway,
+            waits: Vec::new(),
             seen: 0,
         };
         live.paths();
@@ -198,6 +212,7 @@ impl Live {
         } else {
             Vec::new()
         };
+        self.waits = vec![0.0; self.kept.len()];
         self.paths();
         self.reset();
         self
@@ -258,6 +273,9 @@ impl Live {
         if let Some(a) = &mut self.ahead {
             a.reset();
         }
+        if let Some(s) = &mut self.sway {
+            s.reset();
+        }
         self.seen = 0;
     }
 
@@ -312,11 +330,17 @@ impl Live {
         }
         self.held[1] = held;
         self.hung = hung;
-        done
+        // Last, what swings loose, by how long after the pose before the one played came.
+        let waited = done?;
+        if let Some(s) = &mut self.sway {
+            s.pose(waited, out);
+        }
+        Ok(())
     }
 
-    /// [`Self::pose`], played as it comes, with any held feet hung from their legs in both poses.
-    fn pose_now(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<(), Error> {
+    /// [`Self::pose`], played as it comes, with any held feet hung from their legs in both poses. How long after the
+    /// pose before the one played came.
+    fn pose_now(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<f32, Error> {
         let from = match &mut self.travel {
             Some(t) => {
                 t.pose(
@@ -366,12 +390,13 @@ impl Live {
         if let Some(t) = &mut self.touch {
             t.placed(&self.target, out, &mut self.scratch);
         }
-        Ok(())
+        Ok(dt)
     }
 
-    /// [`Self::pose`], played [`Self::delay`] poses late.
-    fn pose_late(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<(), Error> {
+    /// [`Self::pose`], played [`Self::delay`] poses late. How long after the pose before the one played came.
+    fn pose_late(&mut self, dt: f32, source: &[Transform], out: &mut [Transform]) -> Result<f32, Error> {
         let n = self.kept.len();
+        self.waits[self.seen % n] = dt;
         let (walked, played, still) = &mut self.kept[self.seen % n];
         match &mut self.travel {
             Some(t) => t.pose(&self.source, dt, source, walked, &mut self.scratch, Some(&self.s_now)),
@@ -392,6 +417,8 @@ impl Live {
             a.see(&self.target, dt, played, &mut self.scratch);
         }
         let due = self.seen.saturating_sub(n - 1);
+        // Till enough have come the first pose is played again, with no time passed.
+        let waited = if due == 0 { 0.0 } else { self.waits[due % n] };
         self.seen += 1;
         let (from, played, still) = &self.kept[due % n];
         out.copy_from_slice(played);
@@ -426,7 +453,7 @@ impl Live {
         if let Some(t) = &mut self.touch {
             t.placed(&self.target, out, &mut self.scratch);
         }
-        Ok(())
+        Ok(waited)
     }
 }
 
