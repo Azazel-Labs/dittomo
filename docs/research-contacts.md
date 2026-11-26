@@ -151,3 +151,11 @@ skins (in the body 13.5% from 10.6%). Not kept: one narrow gate for all stays.
   crawl has knees down too, and a body with other arms and legs has to pitch its trunk to bring both down, which
   reaching with the arms alone can't. That (knees and elbows as contacts, the trunk pitched between hands and
   knees) is the next step for the floor; `Live` doesn't hold hands yet.
+
+### The head's size without a skin (tried, 2026-11-26)
+
+Heads guessed from bones are about 30% smaller than skins show (0.050 of the height against 0.062 to 0.088). Guessing
+them that much bigger did harm: hands in the head on the atlas 37.2% from 33.8%, pops 0.36% from 0.30%. A hand is put
+by the ratio of the two heads, which a bigger guess for both leaves as it was, while a bigger head is "near" from
+farther off and takes hold of more hands. Not kept. What a hand in the head without a skin needs is the hand's own
+size (its fingers reach into the head from a wrist put right), not a bigger head.
