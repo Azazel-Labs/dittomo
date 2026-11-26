@@ -171,6 +171,11 @@ fn main() {
     if has("--dump") {
         return;
     }
+    // --atlas: only the contact atlas.
+    if has("--atlas") {
+        atlas(&rigs);
+        return;
+    }
 
     // --show source target: the target's tree, each bone with what it plays.
     if let Some(i) = args.iter().position(|a| a == "--show") {
@@ -281,6 +286,7 @@ fn main() {
     let mean = motion(&rigs, show);
     contact(&rigs);
     touching(&rigs);
+    atlas(&rigs);
     let flag = |f: &str| {
         args.iter()
             .position(|a| a == f)
@@ -903,5 +909,173 @@ over each one's height"
             "| {name} | {mean:.4} / {p90:.4} | {:.1}% |",
             100.0 * inside[m] as f64 / frames.max(1) as f64
         );
+    }
+}
+
+/// The labeled joints whose skin a hand can be put on, and the group each counts in. A point of skin belongs to the
+/// nearest of these at or above its bone.
+const PARTS: [(&str, usize); 17] = [
+    ("hips", 0),
+    ("spine", 0),
+    ("chest", 0),
+    ("l_clavicle", 0),
+    ("r_clavicle", 0),
+    ("neck", 1),
+    ("head", 1),
+    ("l_thigh", 2),
+    ("r_thigh", 2),
+    ("l_shin", 3),
+    ("r_shin", 3),
+    ("l_foot", 3),
+    ("r_foot", 3),
+    ("l_toe", 3),
+    ("r_toe", 3),
+    ("l_upperarm", 4),
+    ("r_upperarm", 4),
+];
+const GROUPS: [&str; 4] = ["trunk", "head and neck", "thighs", "shins and feet"];
+
+/// A contact atlas: on each rig with a skin, standing at rest, each hand is put by two-bone IK on points all over the
+/// skin of its body (not its arms), touching and a little off, wherever it reaches; each such pose is then played on
+/// every other rig with a skin, bones only (`apply`, `apply_with`) and knowing the skins (`apply_touching`). Over the
+/// poses with the source's hand within 5% of its height of its skin: how often the target's wrist is nearest skin of
+/// the same part of the body, how far its hand's gap to its skin is from the source's (over each one's height), and
+/// how often it is in its body by over 1% of its height.
+fn atlas(rigs: &[Rig]) {
+    const RUNS: [&str; 3] = [
+        "none (`apply`)",
+        "all, bones only (`apply_with`)",
+        "all (`apply_touching`)",
+    ];
+    const SPOTS: usize = 60;
+    let joints = ["l_hand", "r_hand", "l_upperarm", "r_upperarm", "hips"];
+    let ready = |r: &Rig| !r.model.skin.is_empty() && joints.iter().all(|j| r.labels.contains_key(*j));
+    // Each bone's part: the labeled joint at or above it, if any.
+    let parts = |r: &Rig| -> Vec<Option<usize>> {
+        let sk = &r.model.skeleton;
+        (0..sk.len())
+            .map(|b| {
+                let mut at = Some(b);
+                while let Some(x) = at {
+                    if let Some(k) = PARTS.iter().position(|(name, _)| r.labels.get(*name) == Some(&x)) {
+                        return Some(k);
+                    }
+                    at = sk.bones()[x].parent;
+                }
+                None
+            })
+            .collect()
+    };
+    // The part of the body skin nearest a point, arms left out.
+    let part_at = |points: &[(Vec3, Vec3, usize)], part: &[Option<usize>], p: Vec3| {
+        points
+            .iter()
+            .filter_map(|&(q, _, b)| Some((q.distance_squared(p), part[b].filter(|&k| PARTS[k].1 < GROUPS.len())?)))
+            .min_by(|x, y| x.0.total_cmp(&y.0))
+            .map(|(_, k)| k)
+    };
+    let (mut pairs, mut poses) = (0usize, [0usize; GROUPS.len()]);
+    let mut same = [[0usize; GROUPS.len()]; RUNS.len()];
+    let mut inside = [[0usize; GROUPS.len()]; RUNS.len()];
+    let mut off: [[Vec<f32>; GROUPS.len()]; RUNS.len()] = Default::default();
+    for s in rigs.iter().filter(|r| ready(r)) {
+        let (ss, hs) = (&s.model.skeleton, height(&s.model.skeleton));
+        let s_away = [s.labels["l_upperarm"], s.labels["r_upperarm"]];
+        let (rest, s_part) = (ss.rest(), parts(s));
+        let s_points = s.model.skin.points(&ss.world(&rest));
+        let spots: Vec<(Vec3, Vec3)> = s_points
+            .iter()
+            .filter(|&&(_, _, b)| s_part[b].is_some_and(|k| PARTS[k].1 < GROUPS.len()))
+            .map(|&(p, n, _)| (p, n))
+            .collect();
+        let step = spots.len().div_ceil(SPOTS).max(1);
+        // Each pose with a hand by the body: the pose, the hand, its gap and the part it is by.
+        let mut samples = Vec::new();
+        for limb in dittomo::contact::arms(ss) {
+            let Some(hand) = ["l_hand", "r_hand"].into_iter().find(|h| s.labels[*h] == limb.end) else {
+                continue;
+            };
+            for &(p, n) in spots.iter().step_by(step) {
+                for out in [0.03, 0.06] {
+                    let mut pose = rest.clone();
+                    dittomo::contact::reach(ss, &mut pose, &limb, p + n * out * hs);
+                    let sw = ss.world(&pose);
+                    let Some(gap) = s.model.skin.gap(ss, &sw, limb.end, &s_away, s.labels["hips"]) else {
+                        continue;
+                    };
+                    let Some(part) = part_at(&s_points, &s_part, sw[limb.end].position()) else {
+                        continue;
+                    };
+                    if (-0.01..0.05).contains(&(gap / hs)) {
+                        samples.push((pose, hand, gap / hs, part));
+                    }
+                }
+            }
+        }
+        for t in rigs.iter().filter(|r| ready(r)) {
+            if std::ptr::eq(s, t) {
+                continue;
+            }
+            pairs += 1;
+            let (ts, ht) = (&t.model.skeleton, height(&t.model.skeleton));
+            let t_away = [t.labels["l_upperarm"], t.labels["r_upperarm"]];
+            let (map, t_part) = (Mapping::new(ss, ts), parts(t));
+            let skins = [&s.model.skin, &t.model.skin];
+            for (pose, hand, gs, part) in &samples {
+                let clip = Clip {
+                    times: vec![0.0],
+                    poses: vec![pose.clone()],
+                };
+                let played = [
+                    map.apply(ss, ts, &clip).expect("plays"),
+                    map.apply_with(ss, ts, &clip, Fixes::ALL).expect("plays"),
+                    map.apply_touching(ss, ts, skins, &clip, Fixes::ALL).expect("plays"),
+                ];
+                let g = PARTS[*part].1;
+                poses[g] += 1;
+                for (m, c) in played.iter().enumerate() {
+                    let tw = ts.world(&c.poses[0]);
+                    let Some(gt) = t.model.skin.gap(ts, &tw, t.labels[*hand], &t_away, t.labels["hips"]) else {
+                        continue;
+                    };
+                    let gt = gt / ht;
+                    off[m][g].push((gt - gs).abs());
+                    inside[m][g] += usize::from(gt < -0.01);
+                    let at = part_at(&t.model.skin.points(&tw), &t_part, tw[t.labels[*hand]].position());
+                    same[m][g] += usize::from(at.is_some_and(|k| PARTS[k].0 == PARTS[*part].0));
+                }
+            }
+        }
+    }
+    println!(
+        "
+A contact atlas: {pairs} pairs with skins, a hand put by IK on the skin of the source standing at rest. Poses with the
+hand by the {}: {}. Each cell: the target's wrist nearest the same part; its gap off the source's (mean / p90, over
+each one's height); in its body",
+        GROUPS.join(", "),
+        poses.map(|n| n.to_string()).join(", ")
+    );
+    println!(
+        "| Fixes | {} |
+| --- | {}",
+        GROUPS.join(" | "),
+        "---: | ".repeat(GROUPS.len())
+    );
+    for (m, name) in RUNS.iter().enumerate() {
+        let cells: Vec<String> = (0..GROUPS.len())
+            .map(|g| {
+                let mut v = off[m][g].clone();
+                v.sort_by(f32::total_cmp);
+                let mean = v.iter().sum::<f32>() / v.len().max(1) as f32;
+                let n = poses[g].max(1) as f64;
+                format!(
+                    "{:.0}%; {mean:.4} / {:.4}; {:.1}%",
+                    100.0 * same[m][g] as f64 / n,
+                    v.get(v.len() * 9 / 10).copied().unwrap_or(0.0),
+                    100.0 * inside[m][g] as f64 / n
+                )
+            })
+            .collect();
+        println!("| {name} | {} |", cells.join(" | "));
     }
 }

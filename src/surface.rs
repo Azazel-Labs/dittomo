@@ -211,6 +211,18 @@ impl Surface {
         self.at.is_empty()
     }
 
+    /// Every point as the bones placed in `world` carry it: where it is, the way it faces, and its bone. For drawing
+    /// the skin, or measuring against it.
+    #[must_use]
+    pub fn points(&self, world: &[Placed]) -> Vec<(Vec3, Vec3, usize)> {
+        (0..self.at.len())
+            .map(|i| {
+                let w = &world[self.bone[i]];
+                (w.point(self.at[i]), w.turn() * self.normal[i], self.bone[i])
+            })
+            .collect()
+    }
+
     /// The points posed with their bones placed in `world`, those `keep` allows: (position, normal).
     pub(crate) fn posed<F: Frame>(&self, world: &[F], keep: impl Fn(usize) -> bool, out: &mut Vec<(Vec3, Vec3)>) {
         out.clear();
