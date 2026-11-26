@@ -4,7 +4,7 @@
 const $ = (id) => document.getElementById(id);
 const ui = {
   err: $("err"), view: $("view"), playing: $("playing"), scrub: $("scrub"), clip: $("clip"), save: $("save"), fbx: $("fbx"), bvh: $("bvh"),
-  travel: $("travel"), feet: $("feet"), push: $("push"), floor: $("floor"), touch: $("touch"), hands: $("hands"), head: $("head"), sample: $("sample"), stats: $("stats"), pairs: $("pairs"),
+  travel: $("travel"), feet: $("feet"), push: $("push"), floor: $("floor"), touch: $("touch"), hands: $("hands"), head: $("head"), place: $("place"), sample: $("sample"), stats: $("stats"), pairs: $("pairs"),
 };
 
 let wasm;
@@ -60,7 +60,7 @@ function remap() {
 
 function play() {
   if (!report) return;
-  const fixes = (ui.travel.checked ? 1 : 0) | (ui.feet.checked ? 2 : 0) | (ui.push.checked ? 4 : 0) | (ui.touch.checked ? 8 : 0) | (ui.hands.checked ? 16 : 0) | (ui.head.checked ? 32 : 0) | (ui.floor.checked ? 64 : 0);
+  const fixes = (ui.travel.checked ? 1 : 0) | (ui.feet.checked ? 2 : 0) | (ui.push.checked ? 4 : 0) | (ui.touch.checked ? 8 : 0) | (ui.hands.checked ? 16 : 0) | (ui.head.checked ? 32 : 0) | (ui.floor.checked ? 64 : 0) | (ui.place.checked ? 128 : 0);
   const t0 = performance.now();
   frames = wasm.play(+ui.clip.value || 0, fixes);
   report.played = performance.now() - t0;
@@ -235,7 +235,7 @@ for (const drop of document.querySelectorAll(".drop")) {
 }
 ui.playing.onclick = () => { playing = !playing; ui.playing.textContent = playing ? "Pause" : "Play"; };
 ui.scrub.oninput = () => { frame = +ui.scrub.value; clock = times ? times[frame] - times[0] : 0; };
-for (const el of [ui.clip, ui.travel, ui.feet, ui.push, ui.floor, ui.touch, ui.hands, ui.head]) el.onchange = play;
+for (const el of [ui.clip, ui.travel, ui.feet, ui.push, ui.floor, ui.touch, ui.hands, ui.head, ui.place]) el.onchange = play;
 ui.sample.onclick = sample;
 ui.save.onclick = () => save("glb");
 ui.fbx.onclick = () => save("fbx");
