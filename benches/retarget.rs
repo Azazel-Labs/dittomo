@@ -15,7 +15,7 @@ mod common;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use dittomo::{Clip, Crowd, Fixes, Live, Mapping, Player, Skeleton, Surface, Transform, Vec3};
+use dittomo::{Bone, Clip, Crowd, Fixes, Live, Mapping, Player, Skeleton, Surface, Transform, Vec3};
 
 struct Case {
     name: &'static str,
@@ -176,6 +176,34 @@ fn skin(sk: &Skeleton) -> Surface {
     Surface::new(sk, points, spacing)
 }
 
+/// The skeleton with fifteen locks of hair of four bones each hung round the back of its head: sixty bones nothing
+/// drives, about what an avatar with hair and clothes set up to swing has.
+fn haired(sk: &Skeleton) -> Skeleton {
+    let head = sk.index_of("head").expect("a head");
+    let at = sk.world(&sk.rest())[head];
+    let mut bones = sk.bones().to_vec();
+    for lock in 0..15 {
+        let turn = (lock as f32 - 7.0) * 0.2;
+        let out = Vec3::new(turn.sin(), 0.0, -turn.cos());
+        let mut up = head;
+        for k in 0..4 {
+            let (translation, rotation) = if k == 0 {
+                let from = Vec3::new(0.0, 12.0, 0.0) + 9.0 * out;
+                (at.rotation.inverse() * from, at.rotation.inverse())
+            } else {
+                (Vec3::new(0.0, -6.0, 0.0) + out, dittomo::Quat::IDENTITY)
+            };
+            bones.push(Bone {
+                name: format!("lock_{lock}_{k}"),
+                parent: Some(up),
+                rest: Transform::new(translation, rotation),
+            });
+            up = bones.len() - 1;
+        }
+    }
+    Skeleton::new(bones).expect("parents first")
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let flag = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
@@ -185,6 +213,13 @@ fn main() {
     let mixamo = common::mixamo();
     let mannequin = common::mannequin();
     let walk = common::walk(&mixamo, 60);
+    let hairy = haired(&mannequin);
+    let to_hairy = Mapping::new(&mixamo, &hairy);
+    let swung: usize = dittomo::sway::chains(&to_hairy, &hairy)
+        .iter()
+        .map(|c| c.bones.len())
+        .sum();
+    assert_eq!(swung, 60, "every bone of hair is swung, and nothing else");
     if let Some(path) = flag("--dump") {
         dump(&path, &mixamo, &mannequin, &walk, &Mapping::new(&mixamo, &mannequin));
         return;
@@ -237,6 +272,40 @@ fn main() {
         }) / clip.poses.len() as f64;
         cases.push(Case {
             name: Box::leak(format!("mixamo 65 → mannequin 76: {name}").into_boxed_str()),
+            micros,
+            per: "frame, reused live player",
+        });
+    }
+
+    // Sixty bones of hair on the target, swung after the body: the whole clip, then as it comes.
+    let swaying = Fixes {
+        sway: true,
+        ..Fixes::ALL
+    };
+    for (name, fixes) in [("all fixes", Fixes::ALL), ("all fixes and sway", swaying)] {
+        let micros = time(budget, || {
+            black_box(
+                to_hairy
+                    .apply_with(&mixamo, &hairy, black_box(&gait), fixes)
+                    .expect("plays"),
+            );
+        }) / gait.poses.len() as f64;
+        cases.push(Case {
+            name: Box::leak(format!("mixamo 65 → mannequin with hair 136: walk, {name}").into_boxed_str()),
+            micros,
+            per: "frame",
+        });
+        let mut live = Live::new(&to_hairy, &mixamo, &hairy, fixes).expect("fits");
+        let mut out = hairy.rest();
+        let micros = time(budget, || {
+            live.reset();
+            for p in &gait.poses {
+                live.pose(1.0 / 30.0, black_box(p), &mut out).expect("plays");
+            }
+            black_box(&out);
+        }) / gait.poses.len() as f64;
+        cases.push(Case {
+            name: Box::leak(format!("mixamo 65 → mannequin with hair 136: walk, live, {name}").into_boxed_str()),
             micros,
             per: "frame, reused live player",
         });
