@@ -300,6 +300,13 @@ the hips stand. That took the slide with travel alone from 0.00143 to 0.00123 an
 degree they cost is the legs bending to keep feet down where the target's stride and leg proportions differ from the
 source's. Where a planted foot is further below the hip than the target's leg reaches, bent as it was played, the body
 is lowered, eased in and out, rather than the knee snapped straight: that took the height error from 0.0015 to 0.0001.
+Motion capture often has its floor elsewhere than under its skeleton at rest: a CMU clip stands on the world's floor,
+its skeleton at rest with its hips there, a leg's length lower. Played as it was, the target hung over a meter above
+its own floor (1.1 to 1.2 m on a 1.78 m rig, on six of the seven CMU clips tried) and nothing knew where the floor
+was. A clip whose feet come down to the world's floor, its rest pose over a tenth of its height off it, is now stood
+on the floor its rest pose stands on first; a clip that hovers or sinks from where its rest pose stands is meant to,
+and is left. `Live` does the same given the clip (`moving_in`) or the floor's height (`floor_at`).
+
 The body is lowered a tenth of the leg at most, and never so far that a bone but the feet goes under the floor. Where a
 planted foot is played under the floor instead, the body is raised to hold it there bent as it was played, rather than
 the knee bent further, as far as every foot held still reaches a little short of straight: a target standing with its

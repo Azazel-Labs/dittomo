@@ -209,6 +209,9 @@ impl Mapping {
         ];
         let skins = [0, 1].map(|i| skinned[i].as_ref().unwrap_or(skins[i]));
         let (s, t) = (Shape::light(source), Shape::light(target));
+        // A clip whose floor isn't its rest pose's is stood on that first.
+        let stood = fixes.floor.then(|| contact::grounded(source, &s, clip)).flatten();
+        let clip = stood.as_ref().unwrap_or(clip);
         // A clip walked in place is planted on the travel its feet imply, as its feet slide too fast to be taken for
         // planted otherwise; without the travel fix the travel is taken off again after, so the target walks in place
         // as the source does, its planted feet sliding back with the source's.

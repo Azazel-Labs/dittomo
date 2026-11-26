@@ -52,6 +52,9 @@ pub struct Live {
     body: Option<Body>,
     /// The bones to place for the body, if arms are kept out of it.
     push_out: Option<Vec<usize>>,
+    /// How far over the floor its rest pose stands on the source's own floor is, and its roots, lowered by that.
+    over: f32,
+    roots: Vec<usize>,
     hands: Option<Hands>,
     charts: Option<Charts>,
     head: Option<OnHead>,
@@ -135,6 +138,10 @@ impl Live {
             floor: fixes.floor.then(|| Floor::new(map, rigs)).flatten(),
             push_out,
             body: t_body,
+            over: 0.0,
+            roots: (0..source.len())
+                .filter(|&b| source.bones()[b].parent.is_none())
+                .collect(),
             hands,
             charts,
             head,
@@ -197,15 +204,29 @@ impl Live {
         self.kept.len().saturating_sub(1)
     }
 
-    /// Marks the source bones that move, not just turn, somewhere in this clip, as [`Player::moving_in`] does.
+    /// Marks the source bones that move, not just turn, somewhere in this clip, as [`Player::moving_in`] does, and
+    /// finds the floor the clip stands on, if the floor is kept ([`Self::floor_at`]).
     ///
     /// # Errors
     /// If the clip doesn't pose the source.
     pub fn moving_in(&mut self, clip: &crate::Clip) -> Result<&mut Self, Error> {
         clip.check(self.source.len())?;
         let hung = self.held[0].as_ref().map(|h| h.hang_clip(clip));
-        self.player.moving_in(hung.as_ref().unwrap_or(clip))?;
+        let clip = hung.as_ref().unwrap_or(clip);
+        self.player.moving_in(clip)?;
+        if self.floor.is_some() {
+            let shape = crate::shape::Shape::light(&self.source);
+            self.over = contact::floor_over(&self.source, &shape, clip).unwrap_or(0.0);
+        }
         Ok(self)
+    }
+
+    /// Says how high the floor the source's poses stand on is, in the source's world, when it isn't the one its
+    /// rest pose stands on: motion capture often has its floor elsewhere, and the target would be played that far
+    /// off its own. [`Self::moving_in`] finds it from a clip.
+    pub fn floor_at(&mut self, height: f32) -> &mut Self {
+        self.over = height - crate::shape::Shape::light(&self.source).floor;
+        self
     }
 
     /// Forgets the poses so far: where feet are planted, how far a clip walked in place has traveled, where hands
@@ -250,14 +271,18 @@ impl Live {
         }
         let mut hung = std::mem::take(&mut self.hung);
         let [s_hung, t_hung] = &mut hung;
-        let source = match &self.held[0] {
-            Some(h) => {
-                s_hung.clear();
-                s_hung.extend_from_slice(source);
+        let source = if self.held[0].is_some() || self.over != 0.0 {
+            s_hung.clear();
+            s_hung.extend_from_slice(source);
+            if let Some(h) = &self.held[0] {
                 h.hang(source, s_hung);
-                &s_hung[..]
             }
-            None => source,
+            for &r in &self.roots {
+                s_hung[r].translation.y -= self.over;
+            }
+            &s_hung[..]
+        } else {
+            source
         };
         let held = self.held[1].take();
         let target = match &held {

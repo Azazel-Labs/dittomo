@@ -552,6 +552,52 @@ pub fn travel(skeleton: &Skeleton, clip: &Clip) -> Clip {
     traveled(skeleton, &Shape::light(skeleton), clip).unwrap_or_else(|| clip.clone())
 }
 
+/// The clip moved up or down so that its feet stand on the floor its rest pose stands on, or nothing if they do as it
+/// is. Motion capture often has its floor somewhere else than under its skeleton at rest (the hips at rest at the
+/// world's middle, the clip's floor there too): every fix that knows the floor by the rest pose would then be off by
+/// the length of a leg, and the target played a leg's length off its own floor. The clip's floor is where its feet
+/// are lowest (they may stand on it for a few poses only, then hang from a stool). It is taken for another floor than
+/// the rest pose's when over a tenth of the height from it and at the world's own, height nought: a clip that hovers
+/// over the floor its rest pose stands on, or sinks under it, is meant to.
+pub(crate) fn grounded(skeleton: &Skeleton, s: &Shape, clip: &Clip) -> Option<Clip> {
+    let off = floor_over(skeleton, s, clip)?;
+    let mut out = clip.clone();
+    for pose in &mut out.poses {
+        for (b, bone) in skeleton.bones().iter().enumerate() {
+            if bone.parent.is_none() {
+                pose[b].translation.y -= off;
+            }
+        }
+    }
+    Some(out)
+}
+
+/// How far over the floor its rest pose stands on a clip's own floor is ([`grounded`]), if it is another.
+pub(crate) fn floor_over(skeleton: &Skeleton, s: &Shape, clip: &Clip) -> Option<f32> {
+    let legs = legs_of(skeleton, s);
+    if legs.is_empty() || clip.poses.is_empty() {
+        return None;
+    }
+    // Each foot and what hangs from it.
+    let soles: Vec<usize> = (0..skeleton.len())
+        .filter(|&b| legs.iter().any(|l| b == l.end || below(skeleton, b, l.end)))
+        .collect();
+    let path = paths(skeleton, soles.iter().copied());
+    let lowest = |world: &dyn Fn(usize) -> f32| soles.iter().map(|&b| world(b)).fold(f32::INFINITY, f32::min);
+    let rest = lowest(&|b| s.rest[b].position().y);
+    let mut world = vec![At::IDENTITY; skeleton.len()];
+    let low = clip
+        .poses
+        .iter()
+        .map(|p| {
+            place(skeleton, p, &path, &mut world);
+            lowest(&|b| world[b].position().y)
+        })
+        .fold(f32::INFINITY, f32::min);
+    let off = low - rest;
+    (off.abs() > 0.1 * s.height && low.abs() < 0.1 * s.height).then_some(off)
+}
+
 /// [`travel`], or nothing if the clip is to be left as it is.
 pub(crate) fn traveled(skeleton: &Skeleton, s: &Shape, clip: &Clip) -> Option<Clip> {
     let legs = legs_of(skeleton, s);

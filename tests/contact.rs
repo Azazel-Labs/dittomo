@@ -1770,3 +1770,42 @@ fn live_feet_stand_on_a_floor_found_where_a_clip_stands_above_its_rest() {
     assert!(off(&plain) > 0.01, "{}", off(&plain));
     assert!(off(&fixed) < 0.002, "{}", off(&fixed));
 }
+
+/// Motion capture often has its floor elsewhere than under its skeleton at rest, the hips at rest at the world's
+/// middle: a walk on the world's floor, for a skeleton resting half its height under it, plays as it does for one
+/// resting on it, the target on its own floor, whole and a pose at a time.
+#[test]
+fn a_clip_whose_floor_is_not_its_rest_poses_is_stood_on_the_targets_floor() {
+    let stands = common::mixamo();
+    let target = common::mannequin();
+    let walk = common::gait(&stands, 60, false);
+    let down = 0.5 * height(&stands);
+    let mut bones = stands.bones().to_vec();
+    for b in bones.iter_mut().filter(|b| b.parent.is_none()) {
+        b.rest.translation.y -= down;
+    }
+    let sunk = Skeleton::new(bones).unwrap();
+    let lowest = |clip: &Clip| {
+        clip.poses
+            .iter()
+            .flat_map(|p| target.world(p).into_iter().map(|w| w.position().y))
+            .fold(f32::MAX, f32::min)
+    };
+    let want = lowest(
+        &Mapping::new(&stands, &target)
+            .apply_with(&stands, &target, &walk, Fixes::ALL)
+            .unwrap(),
+    );
+    let map = Mapping::new(&sunk, &target);
+    let got = lowest(&map.apply_with(&sunk, &target, &walk, Fixes::ALL).unwrap());
+    assert!((got - want).abs() < 0.01 * height(&target), "{got} against {want}");
+    let mut live = Live::new(&map, &sunk, &target, Fixes::ALL).unwrap();
+    live.moving_in(&walk).unwrap();
+    let mut out = target.rest();
+    let mut low = f32::MAX;
+    for pose in &walk.poses {
+        live.pose(1.0 / 30.0, pose, &mut out).unwrap();
+        low = target.world(&out).iter().map(|w| w.position().y).fold(low, f32::min);
+    }
+    assert!((low - want).abs() < 0.02 * height(&target), "live {low} against {want}");
+}
