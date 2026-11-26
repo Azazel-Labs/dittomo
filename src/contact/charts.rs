@@ -563,7 +563,22 @@ impl Charts {
             }
             let end: &At = &tw[arm.limb.end];
             let now = end.matrix.transform_point3(arm.middle[1]);
-            let goal = now.lerp(goal / all, most);
+            let mut goal = now.lerp(goal / all, most);
+            // Between two parts' answers it can come nearer one than the source's is to its own: then out to as far
+            // off that part as the source's, the nearer the source's is to it the more.
+            for p in self.parts.iter().filter(|p| p.arm != Some(i)) {
+                let (by, _) = p.sides[0].by(sw, from);
+                let w = (1.0 - (by.gap / hs - NEAR) / (FAR - NEAR)).clamp(0.0, 1.0);
+                if w <= 0.0 {
+                    continue;
+                }
+                let (at, _) = p.sides[1].by(tw, goal);
+                let want = by.gap * ht / hs;
+                if at.gap < want {
+                    let out = By { gap: want, ..at };
+                    goal = goal.lerp(p.sides[1].point(tw, out), w);
+                }
+            }
             reach_in(target, played, tw, &arm.limb, end.position() + goal - now);
             place(target, played, &arm.below, tw);
         }
