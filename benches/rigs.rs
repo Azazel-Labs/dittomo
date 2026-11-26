@@ -176,6 +176,11 @@ fn main() {
         atlas(&rigs);
         return;
     }
+    // --contact: only the fixes on the clips.
+    if has("--contact") {
+        contact(&rigs);
+        return;
+    }
 
     // --show source target: the target's tree, each bone with what it plays.
     if let Some(i) = args.iter().position(|a| a == "--show") {
@@ -609,7 +614,7 @@ fn height(s: &Skeleton) -> f32 {
 /// is further from where it would be moving steadily from the frame before to the frame after than the source's by over
 /// 1% of the height, as a fix taking hold or letting go in a frame jerks the joints it moves.
 fn contact(rigs: &[Rig]) {
-    const RUNS: [(&str, Fixes); 5] = [
+    const RUNS: [(&str, Fixes); 6] = [
         ("none (`apply`)", Fixes::NONE),
         (
             "travel",
@@ -633,6 +638,13 @@ fn contact(rigs: &[Rig]) {
             },
         ),
         ("all (`apply_with`)", Fixes::ALL),
+        (
+            "all and place",
+            Fixes {
+                place: true,
+                ..Fixes::ALL
+            },
+        ),
     ];
     // And every fix made frame by frame, from the poses so far, then with a few poses ahead in sight.
     const LATE: [usize; 2] = [0, 6];
@@ -738,7 +750,8 @@ fn contact(rigs: &[Rig]) {
                             let want = kink(&raw, f, a, sh, hs);
                             joint_frames += 1;
                             for (m, w) in tgt.iter().enumerate() {
-                                pops[m] += usize::from(kink(w, f, b, th, ht) - want > 0.01);
+                                let pop = kink(w, f, b, th, ht) - want > 0.01;
+                                pops[m] += usize::from(pop);
                             }
                         }
                     }

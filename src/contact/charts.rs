@@ -19,6 +19,14 @@ const ROUND: usize = 8;
 const NEAR: f32 = 0.05;
 const FAR: f32 = 0.15;
 
+/// A hand is brought all the way to its place from within `SURE` of it (over the height), and not at all from past
+/// `UNSURE`.
+const SURE: f32 = 0.03;
+const UNSURE: f32 = 0.10;
+
+/// How much of an arm's length, toward its full reach, is given up softly.
+const SOFT: f32 = 0.1;
+
 /// How far along a trunk, from between its hips' joints to its head's, its shoulders count as.
 const SHOULDERS: f32 = 0.6;
 
@@ -102,18 +110,6 @@ impl Side {
             cuts,
             radius: [[0.0; ROUND]; ALONG],
         })
-    }
-
-    fn ball<F: Frame>(joint: usize, center: Vec3, radius: f32, rest: &[F], axes: [Vec3; 3]) -> Self {
-        Self {
-            joints: vec![joint],
-            center,
-            offsets: vec![Vec3::ZERO],
-            rest: vec![rest[joint].turn().inverse()],
-            axes,
-            cuts: Vec::new(),
-            radius: [[radius; ROUND]; ALONG],
-        }
     }
 
     /// The part's frame at joint `i`, the bones placed in `world`: across, along and the third, with `along` the way
@@ -271,7 +267,6 @@ pub(crate) struct Charts {
 /// foot, each arm's upper and lower by its hand.
 struct Found {
     trunk: Option<Side>,
-    head: Option<Side>,
     legs: Vec<(usize, [Side; 2])>,
     arms: Vec<(usize, [Side; 2])>,
 }
@@ -331,7 +326,6 @@ fn find(skeleton: &Skeleton, s: &Shape, body: &Body, skin: &Surface, axes: [Vec3
             }
         });
     }
-    let head = body.head.map(|h| Side::ball(h.bone, h.center, h.radius, rest, axes));
     let pair = |limb: &Limb, thick: [f32; 3]| -> Option<[Side; 2]> {
         let mut upper = Side::line(vec![limb.upper, limb.lower], Vec3::ZERO, None, rest, sized)?;
         let mut lower = Side::line(vec![limb.lower, limb.end], Vec3::ZERO, None, rest, sized)?;
@@ -347,7 +341,6 @@ fn find(skeleton: &Skeleton, s: &Shape, body: &Body, skin: &Surface, axes: [Vec3
     };
     let mut found = Found {
         trunk,
-        head,
         legs: legs
             .iter()
             .filter_map(|l| Some((l.end, pair(l, [1.1 * hips, 0.9 * hips, 0.55 * hips])?)))
@@ -383,10 +376,6 @@ fn find(skeleton: &Skeleton, s: &Shape, body: &Body, skin: &Surface, axes: [Vec3
         for &b in &body.spine {
             owner[b] = Some(Some(sides.len()));
         }
-        sides.push(side);
-    }
-    if let (Some(side), Some(h)) = (&mut found.head, body.head) {
-        owner[h.bone] = Some(Some(sides.len()));
         sides.push(side);
     }
     let limbs: Vec<Limb> = legs.iter().copied().chain(body.arms.iter().map(|a| a.limb)).collect();
@@ -430,19 +419,34 @@ impl Charts {
         [s_body, t_body]: [&Body; 2],
     ) -> Option<Self> {
         let [(source, s, s_skin), (target, t, t_skin)] = rigs;
-        let middle = |skeleton: &Skeleton, shape: &Shape, skin: &Surface, hand: usize| {
+        // Without a skin, halfway to where its fingers start: the bones hanging from it no farther off than half its
+        // forearm is long, as a sword's bone or a sleeve's may hang from a hand too.
+        let middle = |skeleton: &Skeleton, shape: &Shape, skin: &Surface, hand: usize, lower: usize| {
             skin.center(hand).unwrap_or_else(|| {
-                let kids = &shape.children[hand];
                 let rest = skeleton.rest();
-                kids.iter().map(|&c| rest[c].translation).sum::<Vec3>() / (2 * kids.len().max(1)) as f32
+                let most = 0.5 * shape.rest[lower].position().distance(shape.rest[hand].position());
+                let scale = shape.rest[hand].matrix.x_axis.truncate().length().max(1e-9);
+                let (sum, count) = shape.children[hand]
+                    .iter()
+                    .map(|&c| rest[c].translation)
+                    .filter(|t| t.length() * scale <= most)
+                    .fold((Vec3::ZERO, 0), |(s, n), t| (s + t, n + 1));
+                sum / (2 * count.max(1)) as f32
             })
         };
         let arms: Vec<Reach> = played(map, s_body, t_body)
             .into_iter()
-            .map(|(limb, a)| Reach {
+            .filter_map(|(limb, a)| {
+                let from = s_body.arms.iter().find(|sa| sa.limb.end == a)?.limb;
+                Some((limb, a, from))
+            })
+            .map(|(limb, a, from)| Reach {
                 limb,
                 source: a,
-                middle: [middle(source, s, s_skin, a), middle(target, t, t_skin, limb.end)],
+                middle: [
+                    middle(source, s, s_skin, a, from.lower),
+                    middle(target, t, t_skin, limb.end, limb.lower),
+                ],
                 below: paths(target, [limb.end])
                     .into_iter()
                     .filter(|&b| b == limb.upper || super::below(target, b, limb.upper))
@@ -455,19 +459,36 @@ impl Charts {
         // The source body's left, up and forward, and the target's as the mapping turns them: the two then agree on
         // which way is which, whichever way each faces.
         let s_axes = [s.frame * Vec3::X, s.frame * Vec3::Y, s.frame * Vec3::Z];
-        let t_axes = s_axes.map(|a| map.turn() * a);
+        let mut t_axes = s_axes.map(|a| map.turn() * a);
+        let mut s_axes = s_axes;
+        // Better, from two arms the rigs share: across from one's shoulder to the other's is the same way on both.
+        let shoulder = |r: &Reach| {
+            s_body
+                .arms
+                .iter()
+                .find(|sa| sa.limb.end == r.source)
+                .map(|sa| sa.limb.upper)
+        };
+        if let [p, q, ..] = &arms[..]
+            && let (Some(sp), Some(sq)) = (shoulder(p), shoulder(q))
+        {
+            let across = |a: Vec3, b: Vec3| {
+                let d = b - a;
+                Vec3::new(d.x, 0.0, d.z).try_normalize()
+            };
+            let from = across(s.rest[sp].position(), s.rest[sq].position());
+            let to = across(t.rest[p.limb.upper].position(), t.rest[q.limb.upper].position());
+            if let (Some(from), Some(to)) = (from, to) {
+                s_axes = [from, Vec3::Y, from.cross(Vec3::Y)];
+                t_axes = [to, Vec3::Y, to.cross(Vec3::Y)];
+            }
+        }
         let (fs, ft) = (
             find(source, s, s_body, s_skin, s_axes),
             find(target, t, t_body, t_skin, t_axes),
         );
         let mut parts = Vec::new();
         if let (Some(a), Some(b)) = (fs.trunk, ft.trunk) {
-            parts.push(Part {
-                sides: [a, b],
-                arm: None,
-            });
-        }
-        if let (Some(a), Some(b)) = (fs.head, ft.head) {
             parts.push(Part {
                 sides: [a, b],
                 arm: None,
@@ -538,7 +559,7 @@ impl Charts {
                 .filter_map(|p| {
                     let (by, _) = p.sides[0].by(sw, from);
                     let w = 1.0 - (by.gap / hs - NEAR) / (FAR - NEAR);
-                    (w > 0.0).then(|| (p, by, w.min(1.0)))
+                    (w > 0.0).then(|| (p, by, super::smooth(w.min(1.0))))
                 })
                 .peekable();
             if near.peek().is_none() {
@@ -563,12 +584,20 @@ impl Charts {
             }
             let end: &At = &tw[arm.limb.end];
             let now = end.matrix.transform_point3(arm.middle[1]);
+            // Only what is nearly there already is brought there: a broad body's hands hang far from its thighs, and
+            // aren't to be pulled in because a slight one's hang by its own.
+            let off = (goal / all).distance(now) / ht;
+            let sure = super::smooth(1.0 - (off - SURE) / (UNSURE - SURE));
+            let most = most * sure;
+            if most <= 0.0 {
+                continue;
+            }
             let mut goal = now.lerp(goal / all, most);
             // Between two parts' answers it can come nearer one than the source's is to its own: then out to as far
             // off that part as the source's, the nearer the source's is to it the more.
             for p in self.parts.iter().filter(|p| p.arm != Some(i)) {
                 let (by, _) = p.sides[0].by(sw, from);
-                let w = (1.0 - (by.gap / hs - NEAR) / (FAR - NEAR)).clamp(0.0, 1.0);
+                let w = sure * super::smooth((1.0 - (by.gap / hs - NEAR) / (FAR - NEAR)).clamp(0.0, 1.0));
                 if w <= 0.0 {
                     continue;
                 }
@@ -579,7 +608,21 @@ impl Charts {
                     goal = goal.lerp(p.sides[1].point(tw, out), w);
                 }
             }
-            reach_in(target, played, tw, &arm.limb, end.position() + goal - now);
+            // Toward its full length an arm's elbow moves ever faster for the same move of its hand: the last tenth of
+            // its reach is given up softly, never bending an arm straighter than this as it was played.
+            let (a, b, c) = (
+                tw[arm.limb.upper].position(),
+                tw[arm.limb.lower].position(),
+                end.position(),
+            );
+            let mut wrist = c + goal - now;
+            let (length, was, far) = (a.distance(b) + b.distance(c), a.distance(c), a.distance(wrist));
+            let soft = SOFT * length;
+            if far > length - soft {
+                let eased = length - soft * (-(far - (length - soft)) / soft).exp();
+                wrist = a + (wrist - a) * (eased.max(far.min(was)) / far);
+            }
+            reach_in(target, played, tw, &arm.limb, wrist);
             place(target, played, &arm.below, tw);
         }
     }

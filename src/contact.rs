@@ -37,9 +37,9 @@ pub struct Fixes {
     /// Keep the target's hands on its head where the source's are on theirs (covering the ears, clasped on top, a palm
     /// to the forehead): at the same place on the head, scaled to the head's size, turning with it.
     pub head: bool,
-    /// Keep the target's hands where the source's are by its body ([`crate::Mapping::apply_touching`] knows the skins;
-    /// without, the bodies are guessed from their bones): by a hip, a knee, the chest, the other arm, the head. Takes
-    /// the place of `head`. Off by default: being tried.
+    /// Keep the target's hands where the source's are by its body: by a hip, a thigh, the chest, the other arm, when
+    /// playing the pose leaves them nearly there ([`crate::Mapping::apply_touching`] knows the skins; without, the
+    /// bodies are guessed from their bones). Off by default, and not made by [`crate::Live`] yet: being tried.
     pub place: bool,
 }
 
@@ -2059,7 +2059,7 @@ pub(crate) fn fix_arms(
         .filter(|_| fixes.place)
         .and_then(|(sb, tb)| Charts::new(map, rigs, [sb, tb]));
     let mut head = both
-        .filter(|_| fixes.head && !fixes.place)
+        .filter(|_| fixes.head)
         .and_then(|(sb, tb)| OnHead::new(map, shapes, [sb, tb]));
     let mut touch = both
         .filter(|_| fixes.touch)

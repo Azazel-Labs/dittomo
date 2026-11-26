@@ -94,3 +94,25 @@ Better where a hand is along the trunk and thighs, and its gap there; not yet on
 body. Lessons: skin binding near the hips differs too much between rigs to say which part a hand is by, so labeled
 bones do; guessed thicknesses were half the real ones until set against skins. Next: keep a hand no deeper than the
 source's after placing; the head; hands meeting; `Live`; hands on the floor.
+
+### After two fixes (2026-11-26, later)
+
+- A placed hand comes no nearer a part than the source's is to its own.
+- **Only what is nearly there is brought there** (all the way from within 3% of the height, not at all from past
+  10%). Without this a broad-shouldered target's hands, hanging far from its thighs, were pulled a quarter of its
+  height inward because a slight source's hang by its own: on real clips arm directions went from 2.9° to 4.2° off
+  and pops from 0.30% to 0.75%. A hand hanging by a thigh is by it by chance, not by intent; the gate is how the two
+  are told apart for now.
+- The head is left to the fix made for it, which eases a hand on and off.
+- An arm's last tenth of reach is given up softly.
+
+| Fixes | trunk | head and neck | thighs | real clips: limbs, pops |
+| --- | ---: | ---: | ---: | ---: |
+| all, bones only | 59%, 0.46, 0.0307, 18.7% | 93%, 1.13, 0.0426, 33.8% | 88%, 0.18, 0.0294, 29.0% | 2.9°, 0.30% |
+| all, with skins | 59%, 0.47, 0.0091, 3.7% | 94%, 1.18, 0.0177, 10.6% | 88%, 0.18, 0.0083, 3.8% | |
+| all and place, bones only | 65%, 0.39, 0.0277, 18.4% | 93%, 1.09, 0.0415, 33.8% | 90%, 0.15, 0.0240, 22.6% | 3.2°, 0.33% |
+| all and place, with skins | 63%, 0.40, 0.0077, 3.2% | 94%, 1.17, 0.0178, 10.6% | 88%, 0.16, 0.0068, 2.5% | |
+
+Nothing on the atlas is worse with it; a wider gate (6% to 14%) places better still (68%, 0.0072) but costs 3.5° and
+0.42% pops. Open: telling intent from chance better than by distance (stillness against the part; an arm hanging
+straight down), so the gate can widen; `Live`; hands meeting; the floor.
