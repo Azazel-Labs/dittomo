@@ -135,3 +135,8 @@ before or after has it, less that time; live, it rises and falls no faster than 
 whole clip (0.30% without), 0.33% live (0.33%); limbs 3.2° (2.9°) and 3.7° (3.4°). The atlas is as before. A wider
 gate now costs few pops (0.34% at 6% to 14%) but more of the source's arm directions (3.6°), mostly arms hanging by
 thighs: that, not pops, is what keeps the gate narrow now.
+
+A hanging arm brought from less far (1% to 4%, others from 6% to 14%) holds limbs to 3.2° and pops to 0.34%, and
+with the narrow gate for the rest gets 3.0°; but the atlas's hands on thighs are on arms hanging straight down, and
+lose what placing gave them (in the body 29.2% again, from 22.7%), and the wider gate round the head does harm with
+skins (in the body 13.5% from 10.6%). Not kept: one narrow gate for all stays.
