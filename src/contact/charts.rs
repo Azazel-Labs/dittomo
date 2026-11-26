@@ -51,6 +51,8 @@ struct Side {
     cuts: Vec<f32>,
     /// How far out the surface is: along the line (or up a ball, bottom to top), then round it from the front.
     radius: [[f32; ROUND]; ALONG],
+    /// The farthest out its surface is.
+    widest: f32,
 }
 
 /// A point by a part: how far along, which way out in the part's own frame, and how far off the surface.
@@ -112,6 +114,7 @@ impl Side {
             axes,
             cuts,
             radius: [[0.0; ROUND]; ALONG],
+            widest: 0.0,
         })
     }
 
@@ -156,6 +159,12 @@ impl Side {
             })
             .min_by(|x, y| x.2.distance_squared(p).total_cmp(&y.2.distance_squared(p)))
             .unwrap_or((0, 0.0, p))
+    }
+
+    /// [`Self::by`], or nothing if `p` is over `reach` off the surface: told from how far it is from the line alone.
+    fn within<F: Frame>(&self, world: &[F], p: Vec3, reach: f32) -> Option<By> {
+        let (_, _, c) = self.nearest(world, p);
+        (c.distance(p) <= self.widest + reach).then(|| self.by(world, p).0)
     }
 
     /// Where `p` is by the part, and how far from its line or its ball's middle.
@@ -267,6 +276,8 @@ pub(crate) struct Charts {
     /// How much each hand is to be placed: as the pose shows, and as it was last pose.
     on: Vec<f32>,
     eased: Vec<f32>,
+    /// Where each arm's source hand is by each part, as last looked ([`Self::look`]).
+    by: Vec<Option<By>>,
 }
 
 /// One rig's parts by what they are, to pair with the other's: the trunk, the head, each leg's thigh and shin by its
@@ -535,10 +546,14 @@ impl Charts {
         if parts.is_empty() {
             return None;
         }
+        for side in parts.iter_mut().flat_map(|p| &mut p.sides) {
+            side.widest = side.radius.as_flattened().iter().copied().fold(0.0, f32::max);
+        }
         let joints = |i: usize| parts.iter().flat_map(move |p| p.sides[i].joints.iter().copied());
         Some(Self {
             s_path: paths(source, joints(0).chain(arms.iter().map(|a| a.source))),
             t_path: paths(target, joints(1).chain(arms.iter().map(|a| a.limb.end))),
+            by: vec![None; arms.len() * parts.len()],
             on: vec![0.0; arms.len()],
             eased: vec![0.0; arms.len()],
             parts,
@@ -568,20 +583,39 @@ impl Charts {
             *on = *was;
         }
         let on = std::mem::take(&mut self.on);
-        self.put(target, played, scratch, &on);
+        self.put(target, played, scratch, &on, true);
         self.on = on;
     }
 
-    /// Where arm `i`'s hand's middle goes, the bones of both placed, and how much it is to be brought there: nothing
-    /// if no part is anywhere near.
-    fn aim(&self, i: usize, sw: &[At], tw: &[At]) -> Option<(Vec3, f32)> {
-        let [hs, ht] = self.heights;
+    /// Looks where arm `i`'s source hand is by each part within [`WIDE`] of it, the source placed in `sw`, and says
+    /// how much the nearest brings it to its place.
+    fn look(&mut self, i: usize, sw: &[At]) -> f32 {
+        let hs = self.heights[0];
         let arm = &self.arms[i];
         let from = sw[arm.source].matrix.transform_point3(arm.middle[0]);
+        let n = self.parts.len();
+        let mut most = 0.0f32;
+        for (k, p) in self.parts.iter().enumerate() {
+            let by = (p.arm != Some(i))
+                .then(|| p.sides[0].within(sw, from, WIDE * hs))
+                .flatten();
+            if let Some(by) = by {
+                most = most.max(super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR)));
+            }
+            self.by[i * n + k] = by;
+        }
+        most
+    }
+
+    /// Where arm `i`'s hand's middle goes, as [`Self::look`] saw it and the target's bones are placed, and how much it
+    /// is to be brought there: nothing if no part is anywhere near.
+    fn aim(&self, i: usize, tw: &[At]) -> Option<(Vec3, f32)> {
+        let [hs, ht] = self.heights;
+        let (arm, n) = (&self.arms[i], self.parts.len());
         // Between where each part says, the nearer the more; brought there as much as the nearest is near.
         let (mut goal, mut all, mut most) = (Vec3::ZERO, 0.0, 0.0f32);
-        for p in self.parts.iter().filter(|p| p.arm != Some(i)) {
-            let (by, _) = p.sides[0].by(sw, from);
+        for (p, by) in self.parts.iter().zip(&self.by[i * n..(i + 1) * n]) {
+            let Some(by) = *by else { continue };
             let gap = by.gap / hs;
             // Parts count toward where from farther off than they bring a hand there, so that a hand eased off its
             // place still has one.
@@ -612,9 +646,17 @@ impl Charts {
     /// Sets how much each hand is to be placed ([`Self::on`]), as this pose alone shows.
     pub(crate) fn weigh(&mut self, target: &Skeleton, played: &[Transform], scratch: &mut Scratch) {
         let Scratch { sw, tw, .. } = scratch;
-        place(target, played, &self.t_path, tw);
+        let mut ready = false;
         for i in 0..self.arms.len() {
-            self.on[i] = self.aim(i, sw, tw).map_or(0.0, |(_, w)| w);
+            self.on[i] = 0.0;
+            if self.look(i, sw) <= 0.0 {
+                continue;
+            }
+            if !ready {
+                place(target, played, &self.t_path, tw);
+                ready = true;
+            }
+            self.on[i] = self.aim(i, tw).map_or(0.0, |(_, w)| w);
         }
     }
 
@@ -623,36 +665,50 @@ impl Charts {
         &self.on
     }
 
-    /// Places each hand `on` of the way to where it goes.
-    pub(crate) fn put(&self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch, on: &[f32]) {
+    /// Places each hand `on` of the way to where it goes; `looked` if [`Self::weigh`] has just looked at this pose of
+    /// the source.
+    pub(crate) fn put(
+        &mut self,
+        target: &Skeleton,
+        played: &mut [Transform],
+        scratch: &mut Scratch,
+        on: &[f32],
+        looked: bool,
+    ) {
         let Scratch { sw, tw, .. } = scratch;
         let [hs, ht] = self.heights;
+        let n = self.parts.len();
         let mut ready = false;
-        for (i, arm) in self.arms.iter().enumerate() {
+        for i in 0..self.arms.len() {
             if on[i] <= 0.0 {
                 continue;
+            }
+            if !looked {
+                self.look(i, sw);
             }
             if !ready {
                 place(target, played, &self.t_path, tw);
                 ready = true;
             }
-            let Some((to, _)) = self.aim(i, sw, tw) else {
+            let Some((to, _)) = self.aim(i, tw) else {
                 continue;
             };
-            let from = sw[arm.source].matrix.transform_point3(arm.middle[0]);
+            let arm = &self.arms[i];
             let end: &At = &tw[arm.limb.end];
             let now = end.matrix.transform_point3(arm.middle[1]);
             let mut goal = now.lerp(to, on[i]);
             // Between two parts' answers it can come nearer one than the source's is to its own: then out to as far
             // off that part as the source's, the nearer the source's is to it the more.
-            for p in self.parts.iter().filter(|p| p.arm != Some(i)) {
-                let (by, _) = p.sides[0].by(sw, from);
+            for (p, by) in self.parts.iter().zip(&self.by[i * n..(i + 1) * n]) {
+                let Some(by) = *by else { continue };
                 let w = on[i] * super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR));
                 if w <= 0.0 {
                     continue;
                 }
-                let (at, _) = p.sides[1].by(tw, goal);
                 let want = by.gap * ht / hs;
+                let Some(at) = p.sides[1].within(tw, goal, want) else {
+                    continue;
+                };
                 if at.gap < want {
                     let out = By { gap: want, ..at };
                     goal = goal.lerp(p.sides[1].point(tw, out), w);

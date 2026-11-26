@@ -195,7 +195,15 @@ fn main() {
     let gait = common::gait(&mixamo, 90, false);
     let in_place = common::gait(&mixamo, 90, true);
     let mapping = Mapping::new(&mixamo, &mannequin);
-    for (name, clip, fixes) in [("walk", &gait, Fixes::ALL), ("walk in place", &in_place, Fixes::ALL)] {
+    let placing = Fixes {
+        place: true,
+        ..Fixes::ALL
+    };
+    for (name, clip, fixes) in [
+        ("walk, all fixes", &gait, Fixes::ALL),
+        ("walk in place, all fixes", &in_place, Fixes::ALL),
+        ("walk, all fixes and place", &gait, placing),
+    ] {
         let micros = time(budget, || {
             black_box(
                 mapping
@@ -204,18 +212,19 @@ fn main() {
             );
         }) / clip.poses.len() as f64;
         cases.push(Case {
-            name: Box::leak(format!("mixamo 65 → mannequin 76: {name}, all fixes").into_boxed_str()),
+            name: Box::leak(format!("mixamo 65 → mannequin 76: {name}").into_boxed_str()),
             micros,
             per: "frame",
         });
     }
     // The same walks a pose at a time as they come, every fix a live player makes on, then played six poses late.
-    for (name, clip, late) in [
-        ("walk", &gait, 0),
-        ("walk in place", &in_place, 0),
-        ("walk, 6 poses late", &gait, 6),
+    for (name, clip, late, fixes) in [
+        ("walk, live, all fixes", &gait, 0, Fixes::ALL),
+        ("walk in place, live, all fixes", &in_place, 0, Fixes::ALL),
+        ("walk, 6 poses late, live, all fixes", &gait, 6, Fixes::ALL),
+        ("walk, live, all fixes and place", &gait, 0, placing),
     ] {
-        let mut live = Live::new(&mapping, &mixamo, &mannequin, Fixes::ALL)
+        let mut live = Live::new(&mapping, &mixamo, &mannequin, fixes)
             .expect("fits")
             .delayed(late);
         let mut out = mannequin.rest();
@@ -227,7 +236,7 @@ fn main() {
             black_box(&out);
         }) / clip.poses.len() as f64;
         cases.push(Case {
-            name: Box::leak(format!("mixamo 65 → mannequin 76: {name}, live, all fixes").into_boxed_str()),
+            name: Box::leak(format!("mixamo 65 → mannequin 76: {name}").into_boxed_str()),
             micros,
             per: "frame, reused live player",
         });

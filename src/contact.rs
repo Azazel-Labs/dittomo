@@ -2137,8 +2137,8 @@ pub(crate) fn fix_arms(
     ]);
     for (f, (pose, played)) in from.poses.iter().zip(&mut out.poses).enumerate() {
         place(source, pose, &second, &mut scratch.sw);
-        if let Some(fix) = &charts {
-            fix.put(target, played, &mut scratch, &placing[f * kc..(f + 1) * kc]);
+        if let Some(fix) = &mut charts {
+            fix.put(target, played, &mut scratch, &placing[f * kc..(f + 1) * kc], false);
         }
         if let Some(fix) = &mut head {
             fix.on.clear();
