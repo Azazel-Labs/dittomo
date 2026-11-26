@@ -71,3 +71,26 @@ self-penetration repair 0.75 ms on one core; Unreal, Unity, HumanIK publish noth
 
 Mapping any topology with no name table; contact fixes with no per-rig setup; live planting with no look-ahead;
 hand-on-head scaled by head size; the floor fix for quadrupeds; microseconds a frame.
+
+## First prototype (`Fixes::place`, off by default, whole clips only)
+
+`src/contact/charts.rs`: a trunk (from between the hips' joints to the head's, the shoulders counted as three fifths
+along), a head ball, thighs, shins, upper arms and forearms, each with its surface along and round (6 by 8), from the
+skin where known, else guessed from hip and shoulder spacing. The hand's middle is mapped, nearer parts counting for
+more; the two bodies' axes are tied by the mapping's turn, as a rig's own forward can face the other way.
+
+The contact atlas (`cargo bench --features fs --bench rigs -- --atlas`; `ATLAS_PAIRS=1` prints each pair,
+`ATLAS_ONLY=a.glb,b.glb` runs one, `ATLAS_SELF=1` plays each rig onto itself, which must come back unchanged) on 210
+pairs, each cell the same labeled bone, along-bone error, hand gap off (mean), in the body:
+
+| Fixes | trunk | head and neck | thighs |
+| --- | ---: | ---: | ---: |
+| all, bones only | 59%, 0.46, 0.0307, 18.7% | 93%, 1.13, 0.0426, 33.8% | 88%, 0.18, 0.0294, 29.0% |
+| all, with skins | 59%, 0.47, 0.0091, 3.7% | 94%, 1.18, 0.0177, 10.6% | 88%, 0.18, 0.0083, 3.8% |
+| all and place, bones only | 68%, 0.32, 0.0263, 25.3% | 93%, 1.03, 0.0409, 34.8% | 91%, 0.09, 0.0226, 29.0% |
+| all and place, with skins | 68%, 0.33, 0.0081, 6.1% | 93%, 1.19, 0.0185, 13.5% | 89%, 0.11, 0.0060, 4.5% |
+
+Better where a hand is along the trunk and thighs, and its gap there; not yet on the head, and more hands end in the
+body. Lessons: skin binding near the hips differs too much between rigs to say which part a hand is by, so labeled
+bones do; guessed thicknesses were half the real ones until set against skins. Next: keep a hand no deeper than the
+source's after placing; the head; hands meeting; `Live`; hands on the floor.

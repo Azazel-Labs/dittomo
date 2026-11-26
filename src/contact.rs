@@ -13,6 +13,9 @@ use crate::shape::Shape;
 use crate::surface::{Around, Balls, Surface, Toward, on_body, under};
 use crate::{Clip, Mapping, Skeleton, Transform};
 
+mod charts;
+pub(crate) use charts::Charts;
+
 /// The fixes [`Mapping::apply_with`] makes. All but travel are on by default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fixes {
@@ -34,6 +37,10 @@ pub struct Fixes {
     /// Keep the target's hands on its head where the source's are on theirs (covering the ears, clasped on top, a palm
     /// to the forehead): at the same place on the head, scaled to the head's size, turning with it.
     pub head: bool,
+    /// Keep the target's hands where the source's are by its body ([`crate::Mapping::apply_touching`] knows the skins;
+    /// without, the bodies are guessed from their bones): by a hip, a knee, the chest, the other arm, the head. Takes
+    /// the place of `head`. Off by default: being tried.
+    pub place: bool,
 }
 
 impl Fixes {
@@ -45,6 +52,7 @@ impl Fixes {
         touch: true,
         hands: true,
         head: true,
+        place: false,
     };
     pub const NONE: Self = Self {
         travel: false,
@@ -54,6 +62,7 @@ impl Fixes {
         touch: false,
         hands: false,
         head: false,
+        place: false,
     };
 }
 
@@ -2046,8 +2055,11 @@ pub(crate) fn fix_arms(
     let mut hands = both
         .filter(|_| fixes.hands)
         .and_then(|(sb, tb)| Hands::new(map, shapes, [sb, tb]));
+    let charts = both
+        .filter(|_| fixes.place)
+        .and_then(|(sb, tb)| Charts::new(map, rigs, [sb, tb]));
     let mut head = both
-        .filter(|_| fixes.head)
+        .filter(|_| fixes.head && !fixes.place)
         .and_then(|(sb, tb)| OnHead::new(map, shapes, [sb, tb]));
     let mut touch = both
         .filter(|_| fixes.touch)
@@ -2056,6 +2068,7 @@ pub(crate) fn fix_arms(
     let first = union(&[
         hands.as_ref().map_or(none, |h| h.s_path()),
         head.as_ref().map_or(none, |h| h.s_path()),
+        charts.as_ref().map_or(none, |c| c.s_path()),
         touch.as_ref().filter(|_| head.is_none()).map_or(none, |t| t.s_path()),
     ]);
     let mut scratch = Scratch::new(source, target);
@@ -2069,6 +2082,9 @@ pub(crate) fn fix_arms(
         place(source, pose, &first, &mut scratch.sw);
         if let (Some(fix), Some(tb)) = (&mut hands, t_body) {
             fix.placed(target, tb, played, &mut scratch);
+        }
+        if let Some(fix) = &charts {
+            fix.placed(target, played, &mut scratch);
         }
         match &mut head {
             Some(fix) => {
