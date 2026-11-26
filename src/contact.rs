@@ -2055,7 +2055,7 @@ pub(crate) fn fix_arms(
     let mut hands = both
         .filter(|_| fixes.hands)
         .and_then(|(sb, tb)| Hands::new(map, shapes, [sb, tb]));
-    let charts = both
+    let mut charts = both
         .filter(|_| fixes.place)
         .and_then(|(sb, tb)| Charts::new(map, rigs, [sb, tb]));
     let mut head = both
@@ -2069,12 +2069,17 @@ pub(crate) fn fix_arms(
         hands.as_ref().map_or(none, |h| h.s_path()),
         head.as_ref().map_or(none, |h| h.s_path()),
         charts.as_ref().map_or(none, |c| c.s_path()),
-        touch.as_ref().filter(|_| head.is_none()).map_or(none, |t| t.s_path()),
+        touch
+            .as_ref()
+            .filter(|_| head.is_none() && charts.is_none())
+            .map_or(none, |t| t.s_path()),
     ]);
     let mut scratch = Scratch::new(source, target);
     let dt = |f: usize| f.checked_sub(1).map_or(0.0, |e| from.times[f] - from.times[e]);
     let k = head.as_ref().map_or(0, |h| h.arms.len());
     let mut raw = Vec::with_capacity(from.poses.len() * k);
+    let kc = charts.as_ref().map_or(0, |c| c.on().len());
+    let mut placing: Vec<f32> = Vec::with_capacity(from.poses.len() * kc);
     for (f, (pose, played)) in from.poses.iter().zip(&mut out.poses).enumerate() {
         if let Some((body, path)) = &push {
             push_pose(target, body, path, played, &mut scratch);
@@ -2083,28 +2088,37 @@ pub(crate) fn fix_arms(
         if let (Some(fix), Some(tb)) = (&mut hands, t_body) {
             fix.placed(target, tb, played, &mut scratch);
         }
-        if let Some(fix) = &charts {
+        if let Some(fix) = &mut charts {
+            fix.weigh(target, played, &mut scratch);
+            placing.extend_from_slice(fix.on());
+        }
+        if let Some(fix) = &mut head {
+            fix.weigh(dt(f), &scratch.sw);
+            fix.aim(target, played, &mut scratch);
+            raw.extend_from_slice(&fix.on);
+        } else if let (Some(fix), None) = (&mut touch, &charts) {
             fix.placed(target, played, &mut scratch);
         }
-        match &mut head {
-            Some(fix) => {
-                fix.weigh(dt(f), &scratch.sw);
-                fix.aim(target, played, &mut scratch);
-                raw.extend_from_slice(&fix.on);
-            }
-            None => {
-                if let Some(fix) = &mut touch {
-                    fix.placed(target, played, &mut scratch);
-                }
-            }
+    }
+    if head.is_none() && charts.is_none() {
+        return;
+    }
+    // Each hand placed by its body no less than a pose `ONTO` before or after has it, but for how long that is away:
+    // brought to its place ahead of the source's, and let go as slowly.
+    let n = from.poses.len();
+    for f in 1..n {
+        for i in 0..kc {
+            placing[f * kc + i] = placing[f * kc + i].max(placing[(f - 1) * kc + i] - dt(f) / ONTO);
         }
     }
-    let Some(fix) = &mut head else {
-        return;
-    };
+    for f in (1..n).rev() {
+        for i in 0..kc {
+            placing[(f - 1) * kc + i] = placing[(f - 1) * kc + i].max(placing[f * kc + i] - dt(f) / ONTO);
+        }
+    }
     // Each hand eased onto the head ahead of the source's and off after it, over `ONTO` at least, never less than the
     // source's is on its own head ([`carry`]).
-    let (mut eased, n) = (raw, from.poses.len());
+    let mut eased = raw;
     let mut ease = |p: usize, q: usize, step: f32| eased[q] = carry(eased[p], eased[q], step);
     for f in 1..n {
         for i in 0..k {
@@ -2116,13 +2130,22 @@ pub(crate) fn fix_arms(
             ease(f * k + i, (f - 1) * k + i, dt(f) / ONTO);
         }
     }
-    let second = union(&[fix.s_path(), touch.as_ref().map_or(none, |t| t.s_path())]);
+    let second = union(&[
+        head.as_ref().map_or(none, |h| h.s_path()),
+        charts.as_ref().map_or(none, |c| c.s_path()),
+        touch.as_ref().map_or(none, |t| t.s_path()),
+    ]);
     for (f, (pose, played)) in from.poses.iter().zip(&mut out.poses).enumerate() {
         place(source, pose, &second, &mut scratch.sw);
-        fix.on.clear();
-        fix.on
-            .extend(eased[f * k..(f + 1) * k].iter().map(|&(w, aim)| (smooth(w), aim)));
-        fix.put(target, played, &mut scratch);
+        if let Some(fix) = &charts {
+            fix.put(target, played, &mut scratch, &placing[f * kc..(f + 1) * kc]);
+        }
+        if let Some(fix) = &mut head {
+            fix.on.clear();
+            fix.on
+                .extend(eased[f * k..(f + 1) * k].iter().map(|&(w, aim)| (smooth(w), aim)));
+            fix.put(target, played, &mut scratch);
+        }
         if let Some(t) = &mut touch {
             t.placed(target, played, &mut scratch);
         }

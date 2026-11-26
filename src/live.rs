@@ -223,6 +223,9 @@ impl Live {
         if let Some(h) = &mut self.head {
             h.reset();
         }
+        if let Some(c) = &mut self.charts {
+            c.reset();
+        }
         if let Some(a) = &mut self.ahead {
             a.reset();
         }
@@ -318,8 +321,8 @@ impl Live {
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
             h.placed(&self.target, body, out, &mut self.scratch);
         }
-        if let Some(c) = &self.charts {
-            c.placed(&self.target, out, &mut self.scratch);
+        if let Some(c) = &mut self.charts {
+            c.placed(&self.target, dt, out, &mut self.scratch);
         }
         if let Some(h) = &mut self.head {
             h.placed(&self.target, dt, out, &mut self.scratch);
@@ -374,8 +377,8 @@ impl Live {
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
             h.placed(&self.target, body, out, &mut self.scratch);
         }
-        if let Some(c) = &self.charts {
-            c.placed(&self.target, out, &mut self.scratch);
+        if let Some(c) = &mut self.charts {
+            c.placed(&self.target, dt, out, &mut self.scratch);
         }
         if let Some(h) = &mut self.head {
             h.placed(&self.target, dt, out, &mut self.scratch);

@@ -19,6 +19,9 @@ const ROUND: usize = 8;
 const NEAR: f32 = 0.05;
 const FAR: f32 = 0.15;
 
+/// How far off a part (over the height) still counts toward where a hand goes.
+const WIDE: f32 = 0.45;
+
 /// A hand is brought all the way to its place from within `SURE` of it (over the height), and not at all from past
 /// `UNSURE`.
 const SURE: f32 = 0.03;
@@ -261,6 +264,9 @@ pub(crate) struct Charts {
     s_path: Vec<usize>,
     t_path: Vec<usize>,
     heights: [f32; 2],
+    /// How much each hand is to be placed: as the pose shows, and as it was last pose.
+    on: Vec<f32>,
+    eased: Vec<f32>,
 }
 
 /// One rig's parts by what they are, to pair with the other's: the trunk, the head, each leg's thigh and shin by its
@@ -533,6 +539,8 @@ impl Charts {
         Some(Self {
             s_path: paths(source, joints(0).chain(arms.iter().map(|a| a.source))),
             t_path: paths(target, joints(1).chain(arms.iter().map(|a| a.limb.end))),
+            on: vec![0.0; arms.len()],
+            eased: vec![0.0; arms.len()],
             parts,
             arms,
             heights: [s.height, t.height],
@@ -544,60 +552,102 @@ impl Charts {
         &self.s_path
     }
 
-    /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]).
-    pub(crate) fn placed(&self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch) {
+    /// Forgets how far each hand was placed, as after a cut.
+    pub(crate) fn reset(&mut self) {
+        self.eased.fill(0.0);
+    }
+
+    /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]), `dt` seconds
+    /// after the pose before: each hand is placed no more than it was last pose but for what `ONTO` allows, so it
+    /// comes to its place late when the source's darts there, and leaves it as slowly.
+    pub(crate) fn placed(&mut self, target: &Skeleton, dt: f32, played: &mut [Transform], scratch: &mut Scratch) {
+        let step = if dt > 0.0 { dt / super::ONTO } else { 1.0 };
+        self.weigh(target, played, scratch);
+        for (was, on) in self.eased.iter_mut().zip(&mut self.on) {
+            *was = on.max(*was - step).min(*was + step);
+            *on = *was;
+        }
+        let on = std::mem::take(&mut self.on);
+        self.put(target, played, scratch, &on);
+        self.on = on;
+    }
+
+    /// Where arm `i`'s hand's middle goes, the bones of both placed, and how much it is to be brought there: nothing
+    /// if no part is anywhere near.
+    fn aim(&self, i: usize, sw: &[At], tw: &[At]) -> Option<(Vec3, f32)> {
+        let [hs, ht] = self.heights;
+        let arm = &self.arms[i];
+        let from = sw[arm.source].matrix.transform_point3(arm.middle[0]);
+        // Between where each part says, the nearer the more; brought there as much as the nearest is near.
+        let (mut goal, mut all, mut most) = (Vec3::ZERO, 0.0, 0.0f32);
+        for p in self.parts.iter().filter(|p| p.arm != Some(i)) {
+            let (by, _) = p.sides[0].by(sw, from);
+            let gap = by.gap / hs;
+            // Parts count toward where from farther off than they bring a hand there, so that a hand eased off its
+            // place still has one.
+            let wide = super::smooth(1.0 - (gap - NEAR) / (WIDE - NEAR));
+            if wide <= 0.0 {
+                continue;
+            }
+            let to = By {
+                gap: by.gap * ht / hs,
+                ..by
+            };
+            let share = wide / (gap.max(0.0) + 0.01).powi(2);
+            goal += p.sides[1].point(tw, to) * share;
+            all += share;
+            most = most.max(super::smooth(1.0 - (gap - NEAR) / (FAR - NEAR)));
+        }
+        if all <= 0.0 {
+            return None;
+        }
+        let goal = goal / all;
+        // Only what is nearly there already is brought there: a broad body's hands hang far from its thighs, and
+        // aren't to be pulled in because a slight one's hang by its own.
+        let now = tw[arm.limb.end].matrix.transform_point3(arm.middle[1]);
+        let sure = super::smooth(1.0 - (goal.distance(now) / ht - SURE) / (UNSURE - SURE));
+        Some((goal, most * sure))
+    }
+
+    /// Sets how much each hand is to be placed ([`Self::on`]), as this pose alone shows.
+    pub(crate) fn weigh(&mut self, target: &Skeleton, played: &[Transform], scratch: &mut Scratch) {
+        let Scratch { sw, tw, .. } = scratch;
+        place(target, played, &self.t_path, tw);
+        for i in 0..self.arms.len() {
+            self.on[i] = self.aim(i, sw, tw).map_or(0.0, |(_, w)| w);
+        }
+    }
+
+    /// How much each hand is to be placed, as [`Self::weigh`] set it.
+    pub(crate) fn on(&self) -> &[f32] {
+        &self.on
+    }
+
+    /// Places each hand `on` of the way to where it goes.
+    pub(crate) fn put(&self, target: &Skeleton, played: &mut [Transform], scratch: &mut Scratch, on: &[f32]) {
         let Scratch { sw, tw, .. } = scratch;
         let [hs, ht] = self.heights;
         let mut ready = false;
         for (i, arm) in self.arms.iter().enumerate() {
-            let from = sw[arm.source].matrix.transform_point3(arm.middle[0]);
-            // Each part the source's hand is near, and how near; placed against the target's only once one is.
-            let mut near = self
-                .parts
-                .iter()
-                .filter(|p| p.arm != Some(i))
-                .filter_map(|p| {
-                    let (by, _) = p.sides[0].by(sw, from);
-                    let w = 1.0 - (by.gap / hs - NEAR) / (FAR - NEAR);
-                    (w > 0.0).then(|| (p, by, super::smooth(w.min(1.0))))
-                })
-                .peekable();
-            if near.peek().is_none() {
+            if on[i] <= 0.0 {
                 continue;
             }
             if !ready {
                 place(target, played, &self.t_path, tw);
                 ready = true;
             }
-            // Between where each part near says, the nearer the more, and as much of the way there from where it is
-            // as the nearest is near.
-            let (mut goal, mut all, mut most) = (Vec3::ZERO, 0.0, 0.0f32);
-            for (p, by, w) in near {
-                let to = By {
-                    gap: by.gap * ht / hs,
-                    ..by
-                };
-                let share = w / (by.gap.max(0.0) / hs + 0.01).powi(2);
-                goal += p.sides[1].point(tw, to) * share;
-                all += share;
-                most = most.max(w);
-            }
+            let Some((to, _)) = self.aim(i, sw, tw) else {
+                continue;
+            };
+            let from = sw[arm.source].matrix.transform_point3(arm.middle[0]);
             let end: &At = &tw[arm.limb.end];
             let now = end.matrix.transform_point3(arm.middle[1]);
-            // Only what is nearly there already is brought there: a broad body's hands hang far from its thighs, and
-            // aren't to be pulled in because a slight one's hang by its own.
-            let off = (goal / all).distance(now) / ht;
-            let sure = super::smooth(1.0 - (off - SURE) / (UNSURE - SURE));
-            let most = most * sure;
-            if most <= 0.0 {
-                continue;
-            }
-            let mut goal = now.lerp(goal / all, most);
+            let mut goal = now.lerp(to, on[i]);
             // Between two parts' answers it can come nearer one than the source's is to its own: then out to as far
             // off that part as the source's, the nearer the source's is to it the more.
             for p in self.parts.iter().filter(|p| p.arm != Some(i)) {
                 let (by, _) = p.sides[0].by(sw, from);
-                let w = sure * super::smooth((1.0 - (by.gap / hs - NEAR) / (FAR - NEAR)).clamp(0.0, 1.0));
+                let w = on[i] * super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR));
                 if w <= 0.0 {
                     continue;
                 }

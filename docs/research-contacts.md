@@ -127,3 +127,11 @@ straight down), so the gate can widen; `Live`; hands meeting; the floor.
 So how much a hand is placed has to be eased over time, as the head fix eases a hand on over a quarter of a second
 (ahead of the source's over a whole clip), not switched by what one pose shows. That is the next thing to build:
 charts give where; an eased weight gives how much.
+
+### Eased (2026-11-26, later still)
+
+Charts say where; how much is eased. Over a whole clip a hand is placed no less than a pose a quarter of a second
+before or after has it, less that time; live, it rises and falls no faster than that. Pops with placing on: 0.31%
+whole clip (0.30% without), 0.33% live (0.33%); limbs 3.2° (2.9°) and 3.7° (3.4°). The atlas is as before. A wider
+gate now costs few pops (0.34% at 6% to 14%) but more of the source's arm directions (3.6°), mostly arms hanging by
+thighs: that, not pops, is what keeps the gate narrow now.
