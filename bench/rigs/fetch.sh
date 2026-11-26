@@ -73,4 +73,12 @@ fetch godot-robot.glb "$godot/platformer/player/player.glb" 2c7e11f0d7e84bac8a45
 fetch mannequiny.glb "$godot/ragdoll_physics/characters/mannequiny.glb" 6b0273d9e8eef159aee9cbc0e75752bbe6abbea56fbcb1a8534e6173f80dda3c
 fetch male-base-mesh.glb "$boqsc/Original/male_base_mesh.glb" 206cb651484baf9aaa29a030a38feecbe29575c3e1cbd820a58fa343c2ae14c4
 fetch cmu-mocap.bvh "$cmu/002/02_03.bvh" 6f4d38b92b041221030de2e1058903e0f7a8fa08f9c6c9efabf7df9a128011ac
+# Picked for what the hands do; played on the rigs, not counted among them.
+fetch cmu-crawl.bvh "$cmu/111/111_03.bvh" 9f084cc4cf1203ba6a1c0a24e86205af3400a169ff6bad161ed343570a783482
+fetch cmu-cartwheel.bvh "$cmu/049/49_07.bvh" 2dfd53f94480217bce5f292a24a308323ed53d6ef4a460c595bbc774700e5ada
+fetch cmu-get-up.bvh "$cmu/139/139_16.bvh" ed3b10df446bc12caa2666f625f1fdb190f63b12c0caae9daaddfa7748fb135e
+fetch cmu-jumping-jacks.bvh "$cmu/022/22_16.bvh" a86b80f4c72395d3a7e2623372805732b5bb275ee5113e0fd5cb11188218adc0
+fetch cmu-comb-hair.bvh "$cmu/079/79_84.bvh" e1b84788fc99ff3aa675ee935ed71a5191b4245dffb6cacf186da023d15cade1
+fetch cmu-wash-self.bvh "$cmu/002/02_10.bvh" 793098a88b92c1420a9d7da6c640441e7d7fd8899af6dab81169aecf6e03e9e9
+fetch cmu-thinker.bvh "$cmu/074/74_12.bvh" b4119093cf951ebdd19e15d33a04854cb579f584f214cedb7fe3cdbb340bc38a
 echo "19 rigs in $dir"

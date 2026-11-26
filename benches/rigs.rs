@@ -140,6 +140,7 @@ fn main() {
     }
     let all_labels = labels(&dir().join("labels.txt"));
     let mut rigs = Vec::new();
+    let mut picked = Vec::new();
     for f in &files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
         let model = match Model::load(f) {
@@ -154,7 +155,10 @@ fn main() {
             continue;
         }
         let mut labels = BTreeMap::new();
-        for (joint, bone) in all_labels.get(&name).into_iter().flatten() {
+        // Motion capture picked for its moves has the capture rig's bones, and is kept apart from the rigs.
+        let extra = name.starts_with("cmu-") && name != "cmu-mocap.bvh";
+        let key = if extra { "cmu-mocap.bvh" } else { name.as_str() };
+        for (joint, bone) in all_labels.get(key).into_iter().flatten() {
             match model.skeleton.index_of(bone) {
                 Some(b) => {
                     labels.insert(joint.clone(), b);
@@ -166,7 +170,11 @@ fn main() {
             eprintln!("{name}: no labels, left out");
             continue;
         }
-        rigs.push(Rig { name, model, labels });
+        if extra {
+            picked.push(Rig { name, model, labels });
+        } else {
+            rigs.push(Rig { name, model, labels });
+        }
     }
     if has("--dump") {
         return;
@@ -174,6 +182,37 @@ fn main() {
     // --atlas: only the contact atlas.
     if has("--atlas") {
         atlas(&rigs);
+        return;
+    }
+    // --moves: only the picked motion capture.
+    if has("--moves") {
+        moves(&picked, &rigs);
+        return;
+    }
+    // --low-hands: how often each clip has a wrist near the floor.
+    if has("--low-hands") {
+        for r in &rigs {
+            let (sk, h) = (&r.model.skeleton, height(&r.model.skeleton));
+            let floor = sk
+                .world(&sk.rest())
+                .iter()
+                .map(|p| p.position().y)
+                .fold(f32::MAX, f32::min);
+            for (name, clip) in &r.model.clips {
+                let low = clip
+                    .poses
+                    .iter()
+                    .filter(|p| {
+                        let w = sk.world(p);
+                        ["l_hand", "r_hand"]
+                            .iter()
+                            .filter_map(|j| r.labels.get(*j))
+                            .any(|&b| w[b].position().y - floor < 0.08 * h)
+                    })
+                    .count();
+                println!("{} {name:?}: {low} of {}", r.name, clip.poses.len());
+            }
+        }
         return;
     }
     // --contact: only the fixes on the clips.
@@ -292,6 +331,7 @@ fn main() {
     contact(&rigs);
     touching(&rigs);
     atlas(&rigs);
+    moves(&picked, &rigs);
     let flag = |f: &str| {
         args.iter()
             .position(|a| a == f)
@@ -1157,5 +1197,131 @@ hand by the {}: {}. Each cell: the target's wrist nearest the same labeled bone,
             })
             .collect();
         println!("| {name} | {} |", cells.join(" | "));
+    }
+}
+
+/// Motion capture picked for what the hands do (crawling, a cartwheel, getting up off the floor, jumping jacks, combing
+/// hair, washing, a chin on a fist), played on every rig, at 30 poses a second. Three things, each over the frames
+/// where the source does it, as shares of each one's height: a wrist low and still (within 6% of the height of the
+/// floor, moving under a fifth of the height a second), how far the target's is off that height over its own floor
+/// and how far it slides a frame; a wrist by the head (within 20% of the height of the head's joint), how far the
+/// target's is off that distance from its own; the wrists together (within 10%), how far the target's are off that.
+fn moves(moves: &[Rig], rigs: &[Rig]) {
+    let runs: [(&str, Option<Fixes>); 4] = [
+        ("all (`apply_with`)", Some(Fixes::ALL)),
+        (
+            "all and place",
+            Some(Fixes {
+                place: true,
+                ..Fixes::ALL
+            }),
+        ),
+        ("all, live (`Live`)", None),
+        ("none (`apply`)", Some(Fixes::NONE)),
+    ];
+    let joints = ["l_hand", "r_hand", "l_foot", "r_foot", "head", "hips"];
+    let ready = |r: &Rig| joints.iter().all(|j| r.labels.contains_key(*j));
+    // The floor a clip is played over: the lowest a hand or a foot gets in it.
+    let floor = |r: &Rig, w: &[Vec<dittomo::Placed>]| {
+        w.iter()
+            .flat_map(|w| joints[..4].iter().map(|j| w[r.labels[*j]].position().y))
+            .fold(f32::MAX, f32::min)
+    };
+    println!(
+        "
+Picked motion capture on every rig. Each cell: a low, still wrist's height off and slide a frame; a wrist by the head,
+its distance off; the wrists together, their distance off (all over the height); then the frames each is over"
+    );
+    println!(
+        "| Motion | {} | frames |
+| --- | {}---: |",
+        runs.map(|r| r.0).join(" | "),
+        "---: | ".repeat(runs.len())
+    );
+    for s in moves.iter().filter(|r| ready(r)) {
+        let (ss, hs) = (&s.model.skeleton, height(&s.model.skeleton));
+        let Some((_, clip)) = s.model.clips.first() else {
+            continue;
+        };
+        let step = clip
+            .times
+            .windows(2)
+            .map(|w| w[1] - w[0])
+            .find(|d| *d > 0.0)
+            .map_or(1, |dt| ((1.0 / 30.0) / dt).round().max(1.0) as usize);
+        let clip = Clip {
+            times: clip.times.iter().step_by(step).copied().collect(),
+            poses: clip.poses.iter().step_by(step).cloned().collect(),
+        };
+        let n = clip.poses.len();
+        let sw: Vec<_> = clip.poses.iter().map(|p| ss.world(p)).collect();
+        let fs = floor(s, &sw);
+        // Height off, slide, by the head, together: sums and counts.
+        let mut sums = [[0.0f64; 4]; 4];
+        let mut counts = [0usize; 3];
+        for t in rigs.iter().filter(|r| ready(r)) {
+            let (ts, ht) = (&t.model.skeleton, height(&t.model.skeleton));
+            let map = Mapping::new(ss, ts);
+            let played: Vec<Vec<Vec<dittomo::Placed>>> = runs
+                .iter()
+                .map(|(_, fixes)| {
+                    let c = match fixes {
+                        Some(f) => map.apply_with(ss, ts, &clip, *f).expect("plays"),
+                        None => live(&map, ss, ts, &clip, 0),
+                    };
+                    c.poses.iter().map(|p| ts.world(p)).collect()
+                })
+                .collect();
+            let floors: Vec<f32> = played.iter().map(|w| floor(t, w)).collect();
+            for f in 1..n {
+                let dt = clip.times[f] - clip.times[f - 1];
+                if dt <= 0.0 {
+                    continue;
+                }
+                let at = |w: &[dittomo::Placed], r: &Rig, j: &str| w[r.labels[j]].position();
+                for hand in ["l_hand", "r_hand"] {
+                    let (p, q) = (at(&sw[f], s, hand), at(&sw[f - 1], s, hand));
+                    let low = (p.y - fs) / hs;
+                    if low < 0.06 && p.distance(q) / dt / hs < 0.2 {
+                        counts[0] += 1;
+                        for (m, w) in played.iter().enumerate() {
+                            let (a, b) = (at(&w[f], t, hand), at(&w[f - 1], t, hand));
+                            sums[m][0] += f64::from(((a.y - floors[m]) / ht - low).abs());
+                            sums[m][1] += f64::from(Vec3::new(a.x - b.x, 0.0, a.z - b.z).length() / ht);
+                        }
+                    }
+                    let by = p.distance(at(&sw[f], s, "head")) / hs;
+                    if by < 0.2 {
+                        counts[1] += 1;
+                        for (m, w) in played.iter().enumerate() {
+                            let got = at(&w[f], t, hand).distance(at(&w[f], t, "head")) / ht;
+                            sums[m][2] += f64::from((got - by).abs());
+                        }
+                    }
+                }
+                let gap = at(&sw[f], s, "l_hand").distance(at(&sw[f], s, "r_hand")) / hs;
+                if gap < 0.10 {
+                    counts[2] += 1;
+                    for (m, w) in played.iter().enumerate() {
+                        let got = at(&w[f], t, "l_hand").distance(at(&w[f], t, "r_hand")) / ht;
+                        sums[m][3] += f64::from((got - gap).abs());
+                    }
+                }
+            }
+        }
+        let cells: Vec<String> = (0..runs.len())
+            .map(|m| {
+                let per = |i: usize, c: usize| sums[m][i] / counts[c].max(1) as f64;
+                format!("{:.4}, {:.5}; {:.4}; {:.4}", per(0, 0), per(1, 0), per(2, 1), per(3, 2))
+            })
+            .collect();
+        println!(
+            "| {} | {} | {}, {}, {} |",
+            s.name.trim_start_matches("cmu-").trim_end_matches(".bvh"),
+            cells.join(" | "),
+            counts[0],
+            counts[1],
+            counts[2]
+        );
     }
 }
