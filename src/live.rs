@@ -1,7 +1,7 @@
 //! Retargeting as the poses come, with the contact fixes made frame by frame from the poses so far: a character driven
 //! by motion capture streaming in, a networked player, another animation system's output.
 
-use crate::contact::{self, Ahead, Body, Feet, Floor, Hands, OnHead, Scratch, Touch, Travel};
+use crate::contact::{self, Ahead, Body, Charts, Feet, Floor, Hands, OnHead, Scratch, Touch, Travel};
 use crate::held::{self, Held};
 use crate::shape::Shape;
 use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Transform};
@@ -53,6 +53,7 @@ pub struct Live {
     /// The bones to place for the body, if arms are kept out of it.
     push_out: Option<Vec<usize>>,
     hands: Option<Hands>,
+    charts: Option<Charts>,
     head: Option<OnHead>,
     touch: Option<Touch>,
     /// The source's pose with its travel.
@@ -114,11 +115,12 @@ impl Live {
                 b.fit_head(shape, skin);
             }
         }
-        let (mut hands, mut head, mut touch) = (None, None, None);
+        let (mut hands, mut charts, mut head, mut touch) = (None, None, None, None);
         if let (Some(sb), Some(tb)) = (&s_body, &t_body) {
             hands = fixes.hands.then(|| Hands::new(map, rigs, [sb, tb])).flatten();
             head = fixes.head.then(|| OnHead::new(map, rigs, [sb, tb])).flatten();
             let skinned = [(source, &s, skins[0]), (target, &t, skins[1])];
+            charts = fixes.place.then(|| Charts::new(map, skinned, [sb, tb])).flatten();
             touch = fixes.touch.then(|| Touch::new(map, skinned, [sb, tb])).flatten();
         }
         let push_out = t_body.as_ref().filter(|_| fixes.push_out).map(|b| b.path(target));
@@ -134,6 +136,7 @@ impl Live {
             push_out,
             body: t_body,
             hands,
+            charts,
             head,
             touch,
             walked: source.rest(),
@@ -158,13 +161,14 @@ impl Live {
         let floor = self.floor.as_ref().map_or(empty, Floor::s_path);
         let hands = self.hands.as_ref().map_or(empty, Hands::s_path);
         let head = self.head.as_ref().map_or(empty, OnHead::s_path);
+        let charts = self.charts.as_ref().map_or(empty, Charts::s_path);
         let touch = self.touch.as_ref().map_or(empty, Touch::s_path);
         if self.kept.is_empty() {
-            self.s_now = contact::union(&[travel, feet, floor, hands, head, touch]);
+            self.s_now = contact::union(&[travel, feet, floor, hands, charts, head, touch]);
             self.s_due = Vec::new();
         } else {
             self.s_now = contact::union(&[travel, feet, floor]);
-            self.s_due = contact::union(&[hands, head, touch]);
+            self.s_due = contact::union(&[hands, charts, head, touch]);
         }
     }
 
@@ -314,6 +318,9 @@ impl Live {
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
             h.placed(&self.target, body, out, &mut self.scratch);
         }
+        if let Some(c) = &self.charts {
+            c.placed(&self.target, out, &mut self.scratch);
+        }
         if let Some(h) = &mut self.head {
             h.placed(&self.target, dt, out, &mut self.scratch);
         }
@@ -366,6 +373,9 @@ impl Live {
         }
         if let (Some(h), Some(body)) = (&mut self.hands, &self.body) {
             h.placed(&self.target, body, out, &mut self.scratch);
+        }
+        if let Some(c) = &self.charts {
+            c.placed(&self.target, out, &mut self.scratch);
         }
         if let Some(h) = &mut self.head {
             h.placed(&self.target, dt, out, &mut self.scratch);

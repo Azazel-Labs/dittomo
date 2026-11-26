@@ -39,7 +39,7 @@ pub struct Fixes {
     pub head: bool,
     /// Keep the target's hands where the source's are by its body: by a hip, a thigh, the chest, the other arm, when
     /// playing the pose leaves them nearly there ([`crate::Mapping::apply_touching`] knows the skins; without, the
-    /// bodies are guessed from their bones). Off by default, and not made by [`crate::Live`] yet: being tried.
+    /// bodies are guessed from their bones). Off by default: being tried.
     pub place: bool,
 }
 
