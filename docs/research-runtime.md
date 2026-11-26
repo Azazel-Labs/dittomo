@@ -138,3 +138,50 @@ travel without matrices, contacts as channels of a clip, and one versioned expor
 
 Numbers others publish: 9,547 instanced characters at 34 fps in 2007 (GPU Gems 3); 10 to 15 thousand skinned meshes
 over 150 fps on a GTX 1060 (gpuinstance); Alan Wake 2's GPU skinning aimed at a million bones.
+
+### Built: step 1, bake once and play (`dittomo::bake`)
+
+CPU code only, and no GPU has run it yet. `Baker` takes clips already on one rig and writes one library; `Library`
+reads it back and samples it on the CPU; `bake::wgsl` is the same sampler as WGSL, written beside it function for
+function. naga parses and validates the WGSL in the tests, with a vertex shader that calls all of it. That the two
+give the same numbers rests on reading them side by side until a host runs both.
+
+Little-endian 32-bit words, every offset a count of words from the library's start (`C` clips, `B` bones, `F`
+frames in all, `R` words a record: 7 as floats, 4 as halves):
+
+| Part | Words | Holds |
+| --- | ---: | --- |
+| Header | 8 | magic `DTMO`, version 1, encoding, `B`, `C`, the library's words, the table's and the pivots' offsets |
+| Clip table | 4 × `C` | per clip: first record's offset, frames, frames a second, flags (bit 0: loops) |
+| Pivots | 3 × `B` | per bone: where its joint stands at bind, as floats |
+| Records | `R` × `B` × `F` | per clip, frame and bone: rotation from bind (x, y, z, w), the joint's place (x, y, z) |
+
+`4 × (8 + 4C + 3B + R·B·F)` bytes. Fifty clips of 3 s at 30 Hz on 80 bones: 5,761,792 bytes as halves and
+10,081,792 as floats looping (90 frames each), 5,825,792 and 10,193,792 played once through (91 each).
+
+What changed from the plan above:
+
+- **A record holds where the joint stands, not the skinning translation.** The translation (the world transform
+  times the inverse bind) is the small difference of two long arms, and blending it between frames or clips pulls
+  joints toward the rig's origin: two to five times further off half way between frames on the test clips. The
+  sampler blends the joint's place, then takes the pivot off (`place − rotation × pivot`), which costs three words a
+  bone once and one more read a sample. What `bone` hands back is still the skinning rotation and translation.
+- **No scale.** Scales at bind cancel. Scale a clip animates is dropped: the bone keeps its bind size about its
+  joint, which still stands where the clip puts it. Retargeted clips keep the target's scales.
+- **Halves are weak for places, fine for rotations.** A half places a joint within a 2048th of how far out it
+  stands: 0.0006 of the rig's height at the fingertips in place, 0.0009 three heights from the origin, against a
+  millionth as floats. Sixteen bits spread evenly over each clip's own bounds would be tens of times closer for
+  the same bytes; not done, as halves were the plan. Until then, bake clips that travel far in place or as floats.
+- **Between frames** the sampler turns each bone in the world, the clip under its parent: under a thousandth of
+  the height on a walk at 30 Hz, up to four on a clip with every bone swinging hard. A higher rate buys that back.
+- **A looping clip's last pose is taken to be its first** and isn't stored, and each clip's rate is nudged so its
+  frames fit its length exactly.
+
+What a host does: upload the bytes as they are to a storage buffer and bind it read-only where it told `wgsl` to
+declare `library: array<u32>` (one binding for either encoding; halves are unpacked in WGSL, as `f16` is an
+extension). Give each instance a clip and a time, and for a cross-fade a second clip and time and a weight. Call
+`bone(clip, time, index)` or `blend(clip_a, time_a, clip_b, time_b, weight, index)` for each of a vertex's four
+bones and `skin(position, a, b, c, d, weights)`, or call them once a bone in a compute pass that writes a pose
+buffer, which is the only way in WebGPU's compatibility mode (no storage buffers in the vertex stage) and the
+cheaper one for dense meshes. The WGSL's names are plain (`bone`, `blend`, `skin`, `Bone`, `Header`, `Entry`,
+`library`): a host whose own shader uses one must rename.

@@ -28,12 +28,15 @@
 //! [`Sway`] swings the target's bones that nothing drives (hair, tails, ears, skirts) after the body, pose by pose
 //! ([`sway`]).
 //!
+//! [`bake`] writes clips already on one rig into one flat library a shader plays, with the WGSL that plays it.
+//!
 //! With the `load` feature, [`load::Model`] reads skeletons and clips from glTF, GLB and FBX (and USD with `usd`).
 //! [`load::Model::write_clip`] writes clips back into the target's own file, out as GLB or FBX, and, with no feature
 //! needed, [`bvh::write`] a skeleton and a clip as BVH motion capture.
 #![forbid(unsafe_code)]
 
 mod assign;
+pub mod bake;
 pub mod bvh;
 pub mod contact;
 mod held;

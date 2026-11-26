@@ -30,6 +30,8 @@ serde_json = { version = "1", optional = true }
 [dev-dependencies]
 # Textures for the video example.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Parses and validates the WGSL that `bake` writes.
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }
 
 [lints.rust]
 unsafe_code = "forbid"

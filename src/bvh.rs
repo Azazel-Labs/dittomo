@@ -236,7 +236,7 @@ fn euler(q: Quat, near: Option<Vec3>) -> Vec3 {
 }
 
 /// The pose at time `t`, between the clip's keys either side of it.
-fn sample(clip: &Clip, t: f32) -> Vec<Transform> {
+pub(crate) fn sample(clip: &Clip, t: f32) -> Vec<Transform> {
     let times = &clip.times;
     let i = times.partition_point(|&k| k <= t);
     if i == 0 {
