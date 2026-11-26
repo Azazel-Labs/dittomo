@@ -95,6 +95,11 @@ plan above:
   same stance is taken for one.
 - `Sway::jump` carries the chains with a body set down elsewhere; `Live` has no such call yet, only `reset`.
 
+**Cost, from CI (d9da460, release, a 136-bone target with 60 bones of hair, 30 poses a second so two steps a
+pose):** sway alone 17.1 µs a pose, 11.0 with nothing to keep out of: about 90 ns a bone a step for the spring and
+turning the bones, and half as much again for the body and floor. Three to four times the estimate above. Not
+profiled; the spring's own cost is the larger part, not the colliders.
+
 Stages: find chains; one chain's integrator against the analytic spring and across frame rates; colliders and
 limits; `Live`, whole clips, baking; defaults; VRM and KawaiiPhysics import; `Crowd` lanes; links between sibling
 chains (skirts), telling baked jiggle from intent, resampling a 3-bone chain onto 8.
