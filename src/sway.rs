@@ -24,10 +24,13 @@
 //! part than its bone's head is, but for how much further out it is at rest: a skirt's bone starting on a thigh is
 //! laid along the thigh as it swings up through where the bone starts, not turned straight out of it.
 
-use glam::{Affine3A, Quat, Vec3};
+use glam::{Affine3A, Quat, Vec3, Vec3A};
 
 use crate::shape::Shape;
 use crate::{Clip, Error, Mapping, Skeleton, Surface, Transform, contact, held, transfer};
+
+#[cfg(test)]
+mod before;
 
 /// The longest step the spring is advanced by, in seconds: a longer time between poses is split into equal steps.
 const STEP: f32 = 1.0 / 60.0;
@@ -327,36 +330,25 @@ pub struct Sway {
 
     // By chain bone, the chains one after another.
     bones: Vec<usize>,
-    /// The bone's rest turn under its parent.
+    /// The bone's rest turn under its parent, and how long it is.
     rest: Vec<Quat>,
-    /// Which way its tail is from its head, in its own frame, and how far.
-    axis: Vec<Vec3>,
     length: Vec<f32>,
-    /// How far up the bone points at rest (0 straight down, 1 straight up), and which way down is in its parent's
-    /// frame at rest: with its length, what a [`Spring`] is fitted to.
+    /// How far up the bone points at rest (0 straight down, 1 straight up): with its length, what a [`Spring`] is
+    /// fitted to.
     lift: Vec<f32>,
-    down: Vec<Vec3>,
-    /// The spring's pull for each unit off the goal, and one over it.
+    /// The spring's pull for each unit off the goal, and its damping and the air's together.
     stiff: Vec<f32>,
-    loose: Vec<f32>,
-    /// The spring's damping and the air's together, and the air's alone.
     damp: Vec<f32>,
-    drag: Vec<f32>,
-    gravity: Vec<f32>,
-    /// The cosine and sine of how far it may bend.
-    cos: Vec<f32>,
-    sin: Vec<f32>,
-    /// How the spring's offset and speed are carried over one step of `step` seconds.
-    carry: Vec<[f32; 4]>,
+    /// All a step reads of the bone, side by side.
+    links: Vec<Link>,
     /// Where the bone's tail is, how fast it moves, and where its goal was a step ago.
     at: Vec<Vec3>,
     speed: Vec<Vec3>,
     goal: Vec<Vec3>,
     /// Which way the rest pose's down was under the bone above, a step ago.
-    lean: Vec<Vec3>,
-    /// How high its tail is at rest, and how low it may come.
+    lean: Vec<Vec3A>,
+    /// How high its tail is at rest.
     rest_y: Vec<f32>,
-    level: Vec<f32>,
 
     /// The parts of the body the chains keep out of, and whether they and the floor are kept out of at all.
     rods: Vec<Rod>,
@@ -367,9 +359,10 @@ pub struct Sway {
     apart: Vec<f32>,
     clear: Vec<f32>,
     ahead: Vec<f32>,
-    /// Each rod's ends in the world at the pose before, and at each step of this one, the steps one after another.
+    /// Each rod's ends in the world at the pose before, and the rod at each step of this one, the steps one after
+    /// another.
     was: Vec<[Vec3; 2]>,
-    now: Vec<[Vec3; 2]>,
+    now: Vec<Laid>,
     /// The rods the chain in hand could reach.
     near: Vec<usize>,
     floor: f32,
@@ -379,6 +372,10 @@ pub struct Sway {
     /// Whether a pose has been taken since the start or the last reset, and whether time has yet to pass since.
     live: bool,
     still: bool,
+
+    /// What the step as it was first written reads, for the tests that hold this one to it.
+    #[cfg(test)]
+    before: before::Before,
 }
 
 impl Sway {
@@ -436,24 +433,16 @@ impl Sway {
             root_turn: vec![Quat::IDENTITY; chains.len()],
             bones: Vec::new(),
             rest: Vec::new(),
-            axis: Vec::new(),
             length: Vec::new(),
             lift: Vec::new(),
-            down: Vec::new(),
             stiff: Vec::new(),
-            loose: Vec::new(),
             damp: Vec::new(),
-            drag: Vec::new(),
-            gravity: Vec::new(),
-            cos: Vec::new(),
-            sin: Vec::new(),
-            carry: Vec::new(),
+            links: Vec::new(),
             at: Vec::new(),
             speed: Vec::new(),
             goal: Vec::new(),
             lean: Vec::new(),
             rest_y: Vec::new(),
-            level: Vec::new(),
             rods: Vec::new(),
             body: true,
             ground: true,
@@ -469,6 +458,8 @@ impl Sway {
             live: false,
             still: true,
             chains: Vec::new(),
+            #[cfg(test)]
+            before: before::Before::default(),
         };
         for chain in &mut chains {
             assert!(!chain.bones.is_empty(), "a chain with no bones");
@@ -480,12 +471,23 @@ impl Sway {
                 let (along, length) = (end - pos(b), end.distance(pos(b)));
                 assert!(length > 0.0, "bone {b} has no length");
                 tails.push(end);
+                let rest = target.bones()[b].rest.rotation.normalize();
+                // Which way its tail is from its head, in its own frame, and which way down is in its parent's.
+                let (axis, down) = (rot(b).inverse() * (along / length), rot(up).inverse() * Vec3::NEG_Y);
                 sway.bones.push(b);
-                sway.rest.push(target.bones()[b].rest.rotation.normalize());
-                sway.axis.push(rot(b).inverse() * (along / length));
+                sway.rest.push(rest);
                 sway.length.push(length);
                 sway.lift.push((1.0 + along.y / length) / 2.0);
-                sway.down.push(rot(up).inverse() * Vec3::NEG_Y);
+                sway.links.push(Link {
+                    rest,
+                    toward: (rest * axis).into(),
+                    down: down.into(),
+                    length,
+                    short: 1.0 / length,
+                    ..Link::default()
+                });
+                #[cfg(test)]
+                sway.before.push(axis, down);
                 up = b;
             }
             chain.length = sway.length[sway.length.len() - chain.bones.len()..].iter().sum();
@@ -526,7 +528,7 @@ impl Sway {
         }
         sway.clear.resize(sway.apart.len(), 0.0);
         sway.was.resize(rods, [Vec3::ZERO; 2]);
-        sway.now.resize(rods * STEPS as usize, [Vec3::ZERO; 2]);
+        sway.now.resize(rods * STEPS as usize, Laid::default());
         sway.near.reserve(rods);
         // The bones above the chains that aren't in one, and those carrying the body's parts, to place from each pose.
         let mut needed = vec![false; n];
@@ -547,16 +549,13 @@ impl Sway {
             sway.above_parent.push(parent(b).unwrap_or(n));
         }
         let all = sway.bones.len();
-        for list in [&mut sway.stiff, &mut sway.loose, &mut sway.damp, &mut sway.drag] {
+        for list in [&mut sway.stiff, &mut sway.damp] {
             list.resize(all, 0.0);
         }
-        for list in [&mut sway.gravity, &mut sway.cos, &mut sway.sin, &mut sway.level] {
-            list.resize(all, 0.0);
-        }
-        sway.carry.resize(all, [0.0; 4]);
-        for list in [&mut sway.at, &mut sway.speed, &mut sway.goal, &mut sway.lean] {
+        for list in [&mut sway.at, &mut sway.speed, &mut sway.goal] {
             list.resize(all, Vec3::ZERO);
         }
+        sway.lean.resize(all, Vec3A::ZERO);
         sway.chains = chains;
         for c in 0..sway.chains.len() {
             sway.fit(c);
@@ -600,16 +599,15 @@ impl Sway {
             let stiff = (quick * quick * spring.gravity / self.length[i]).max(1e-6);
             let drag = spring.drag.max(0.0);
             self.stiff[i] = stiff;
-            self.loose[i] = 1.0 / stiff;
             self.damp[i] = 2.0 * blend(spring.damping).max(0.0) * stiff.sqrt() + drag;
-            self.drag[i] = drag;
-            self.gravity[i] = spring.gravity;
-            (self.sin[i], self.cos[i]) = (sin, cos);
+            let link = &mut self.links[i];
+            (link.loose, link.drag, link.gravity) = (1.0 / stiff, drag, spring.gravity);
+            (link.sin, link.cos) = (sin, cos);
             // No nearer the body's parts than the two are thick, nor lower than its own thickness over the floor;
             // but as near and as low as it is at rest.
             let thick = (spring.radius * self.length[i]).clamp(0.0, THICK * self.height);
             let room = ROOM * self.height;
-            self.level[i] = if self.ground {
+            link.level = if self.ground {
                 (self.floor + thick).min(self.rest_y[i] - room)
             } else {
                 f32::NEG_INFINITY
@@ -691,7 +689,7 @@ impl Sway {
             let rotation = local.rotation.normalize();
             self.mats[b] =
                 self.mats[p] * Affine3A::from_scale_rotation_translation(local.scale, rotation, local.translation);
-            self.rots[b] = (self.rots[p] * rotation).normalize();
+            self.rots[b] = unit(self.rots[p] * rotation);
             self.heads[b] = self.mats[b].translation.into();
         }
     }
@@ -830,8 +828,8 @@ impl Sway {
         };
         let h = if moving { dt / steps } else { self.step };
         if moving && h != self.step {
-            for i in 0..self.bones.len() {
-                self.carry[i] = carry(h, self.stiff[i], self.damp[i]);
+            for (i, link) in self.links.iter_mut().enumerate() {
+                link.carry = carry(h, self.stiff[i], self.damp[i]);
             }
             self.step = h;
         }
@@ -846,66 +844,68 @@ impl Sway {
             if !collide {
                 continue;
             }
+            let (from, ends) = (from.map(Vec3A::from), ends.map(Vec3A::from));
             let (mut step, last) = (1.0, steps as usize - 1);
             for at in 0..last {
                 let t = step / steps;
-                self.now[at * rods + k] = [from[0].lerp(ends[0], t), from[1].lerp(ends[1], t)];
+                self.now[at * rods + k] = Laid::new(from[0].lerp(ends[0], t), from[1].lerp(ends[1], t), rod.radius);
                 step += 1.0;
             }
-            self.now[last * rods + k] = ends;
+            self.now[last * rods + k] = Laid::new(ends[0], ends[1], rod.radius);
         }
         for c in 0..self.chains.len() {
             let hangs = self.chains[c].parent;
             let (turn, start) = (self.rots[hangs], self.heads[hangs] + self.rots[hangs] * self.offsets[c]);
             let range = self.starts[c]..self.starts[c + 1];
             if !moving {
-                let (mut head, mut up) = (start, turn);
+                let (mut head, mut up) = (Vec3A::from(start), turn);
                 for i in range {
-                    let b = self.bones[i];
-                    let rested = (up * self.rest[i]).normalize();
-                    let toward = rested * self.axis[i];
-                    let goal = head + self.length[i] * toward;
-                    let turned = if self.live {
+                    let (b, link) = (self.bones[i], self.links[i]);
+                    let rested = unit(up * link.rest);
+                    let toward = up * link.toward;
+                    let goal = head + link.length * toward;
+                    let (turned, at) = if self.live {
                         // Held: toward where its tail was, at its length and within its cone.
-                        let out = self.at[i] - head;
+                        let out = Vec3A::from(self.at[i]) - head;
                         let far = out.length_squared();
-                        let dir = if far > 1e-12 * self.length[i] * self.length[i] {
+                        let dir = if far > 1e-12 * link.length * link.length {
                             out / far.sqrt()
                         } else {
                             toward
                         };
-                        let dir = cone(dir, toward, self.cos[i], self.sin[i]).map_or(dir, |(dir, _)| dir);
-                        self.at[i] = head + self.length[i] * dir;
-                        (arc(toward, dir) * rested).normalize()
+                        let dir = cone(dir, toward, link.cos, link.sin).map_or(dir, |(dir, _)| dir);
+                        (unit(arc(toward, dir) * rested), head + link.length * dir)
                     } else {
-                        (self.at[i], self.speed[i]) = (goal, Vec3::ZERO);
-                        rested
+                        self.speed[i] = Vec3::ZERO;
+                        (rested, goal)
                     };
-                    self.goal[i] = goal;
-                    self.lean[i] = up * self.down[i];
+                    (self.at[i], self.goal[i]) = (at.into(), goal.into());
+                    self.lean[i] = up * link.down;
                     pose[b].rotation = if self.live {
-                        (up.inverse() * turned).normalize()
+                        unit(up.conjugate() * turned)
                     } else {
-                        self.rest[i]
+                        link.rest
                     };
-                    (self.rots[b], self.heads[b]) = (turned, head);
-                    (head, up) = (self.at[i], turned);
+                    (self.rots[b], self.heads[b]) = (turned, head.into());
+                    (head, up) = (at, turned);
                 }
                 (self.root_at[c], self.root_turn[c]) = (start, turn);
                 continue;
             }
+            let links = &self.links[range.clone()];
             if self.still {
                 // The first time on from rest, each tail is taken to have been moving as its goal does now: a
                 // body already walking when it is first seen doesn't whip its chains back.
                 let (mut head, mut up) = (start, turn);
-                for i in range.clone() {
-                    up = (up * self.rest[i]).normalize();
-                    head += self.length[i] * (up * self.axis[i]);
+                for (i, link) in range.clone().zip(links) {
+                    head += link.length * Vec3::from(up * link.toward);
+                    up = unit(up * link.rest);
                     self.speed[i] = (head - self.goal[i]) / dt;
                 }
             }
             // The bone the chain hangs from goes from where it was to where it is, evenly through the steps.
-            let (from_at, from_turn) = (self.root_at[c], self.root_turn[c]);
+            let (from_at, from_turn) = (Vec3A::from(self.root_at[c]), self.root_turn[c]);
+            let to_at = Vec3A::from(start);
             let to_turn = if from_turn.dot(turn) < 0.0 { -turn } else { turn };
             // No rod further from where the chain starts than the chain is long and the two are thick can touch it.
             let within = self.chains[c].length + THICK * self.height;
@@ -913,10 +913,10 @@ impl Sway {
             while k <= steps {
                 let last = k == steps;
                 let (mut head, mut up) = if last {
-                    (start, turn)
+                    (to_at, turn)
                 } else {
                     let t = k / steps;
-                    (from_at.lerp(start, t), from_turn.lerp(to_turn, t).normalize())
+                    (from_at.lerp(to_at, t), from_turn.lerp(to_turn, t).normalize())
                 };
                 let placed = if collide {
                     let at = (k as usize - 1) * rods;
@@ -925,43 +925,50 @@ impl Sway {
                     &[]
                 };
                 self.near.clear();
-                for (r, &[a, b]) in placed.iter().enumerate() {
-                    let reach = within + self.rods[r].radius;
-                    if head.distance_squared(nearest(a, b, head)) < reach * reach {
+                for (r, rod) in placed.iter().enumerate() {
+                    let reach = within + rod.radius;
+                    if head.distance_squared(rod.nearest(head)) < reach * reach {
                         self.near.push(r);
                     }
                 }
+                let near = &self.near[..];
                 // Where this bone's head was a step ago, and how fast it moves now.
                 let mut head_was = std::mem::replace(&mut root_was, head);
                 let mut drift = (head - head_was) * per_h;
-                for i in range.clone() {
+                // Each bone's tail, its speed, its goal and its lean, as the step before left them.
+                let kept = (self.at[range.clone()].iter_mut())
+                    .zip(&mut self.speed[range.clone()])
+                    .zip(&mut self.goal[range.clone()])
+                    .zip(&mut self.lean[range.clone()]);
+                for ((i, link), (((at_kept, speed_kept), goal_kept), lean_kept)) in range.clone().zip(links).zip(kept) {
                     // Where the tail would be with the bone at rest under the bone above, and how fast that moves.
-                    let rested = up * self.rest[i];
-                    let toward = rested * self.axis[i];
-                    let goal = head + self.length[i] * toward;
-                    let pace = (goal - self.goal[i]) * per_h;
+                    let rested = up * link.rest;
+                    let toward = up * link.toward;
+                    let goal = head + link.length * toward;
+                    let goal_was = Vec3A::from(*goal_kept);
+                    let pace = (goal - goal_was) * per_h;
                     // Gravity, less what the rest pose carries, and the air, as how far they hold the tail off its
                     // goal. What the rest pose carries turns with the bone above: half way between where that was
                     // a step ago and is now, as taking it where it is now would be late by half a step.
-                    let lean = up * self.down[i];
-                    let carried = 0.5 * (lean + std::mem::replace(&mut self.lean[i], lean));
-                    let pull = self.gravity[i] * (Vec3::NEG_Y - carried) - self.drag[i] * pace;
-                    let held = pull * self.loose[i];
+                    let lean = up * link.down;
+                    let carried = 0.5 * (lean + std::mem::replace(lean_kept, lean));
+                    let pull = link.gravity * (Vec3A::NEG_Y - carried) - link.drag * pace;
+                    let held = pull * link.loose;
                     // The spring, stepped as it is: how far the tail is off, and how fast that changes.
-                    let (off, rate) = (self.at[i] - self.goal[i] - held, self.speed[i] - pace);
-                    let [a, b, c, d] = self.carry[i];
+                    let was = Vec3A::from(*at_kept);
+                    let (off, rate) = (was - goal_was - held, Vec3A::from(*speed_kept) - pace);
+                    let [a, b, c, d] = link.carry;
                     let free = goal + (a * off + b * rate) + held;
                     let speed = c * off + d * rate + pace;
                     // Back at the bone's length from its head, within the cone about its rest.
                     let out = free - head;
                     let far = out.length_squared();
-                    let mut dir = if far > 1e-12 * self.length[i] * self.length[i] {
+                    let mut dir = if far > 1e-12 * link.length * link.length {
                         out / far.sqrt()
                     } else {
                         toward
                     };
-                    let (cos, sin) = (self.cos[i], self.sin[i]);
-                    let mut edge = cone(dir, toward, cos, sin);
+                    let mut edge = cone(dir, toward, link.cos, link.sin);
                     if let Some((at, _)) = edge {
                         dir = at;
                     }
@@ -970,8 +977,7 @@ impl Sway {
                         &self.clear[i * rods..(i + 1) * rods],
                         &self.ahead[i * rods..(i + 1) * rods],
                     );
-                    let (kept, struck, floored) =
-                        keep_out(head, self.length[i], dir, reach, &self.near, placed, self.level[i]);
+                    let (kept, struck, floored) = keep_out(head, link, dir, reach, near, placed);
                     if struck.is_some() || floored {
                         (dir, edge) = (kept, None);
                     }
@@ -979,15 +985,14 @@ impl Sway {
                     // across the bone: across the bone as it was, carried round to the bone as it is, beside the
                     // head as it moves now. (Dropping what is along the bone as it is now would slow a swing by how
                     // far it turned in the step: more the longer the step, so by the frame rate.)
-                    let was = self.at[i];
-                    let before = (was - head_was) / self.length[i];
+                    let before = (was - head_was) * link.short;
                     let across = speed - drift;
                     let across = across - across.dot(before) * before;
                     let mut speed =
                         across - (across.dot(dir) / (1.0 + before.dot(dir)).max(1e-6)) * (before + dir) + drift;
                     if let Some((_, side)) = edge {
                         // At the cone's edge it stops going outward, beside the goal.
-                        let outward = cos * side - sin * toward;
+                        let outward = link.cos * side - link.sin * toward;
                         speed -= (speed - pace).dot(outward).max(0.0) * outward;
                     }
                     if let Some(away) = struck {
@@ -997,15 +1002,15 @@ impl Sway {
                     if floored {
                         speed.y = speed.y.max(0.0);
                     }
-                    let at = head + self.length[i] * dir;
-                    self.speed[i] = speed;
-                    self.at[i] = at;
-                    self.goal[i] = goal;
-                    let turned = (arc(toward, dir) * rested).normalize();
+                    let at = head + link.length * dir;
+                    (*at_kept, *speed_kept, *goal_kept) = (at.into(), speed.into(), goal.into());
+                    // The arc is a unit turn and so are the two the rest is made of: one step brings their product
+                    // back to one, with no root, so however long the chain its turns stay unit ones.
+                    let turned = unit(arc(toward, dir) * rested);
                     if last {
                         let bone = self.bones[i];
-                        pose[bone].rotation = (up.inverse() * turned).normalize();
-                        (self.rots[bone], self.heads[bone]) = (turned, head);
+                        pose[bone].rotation = unit(up.conjugate() * turned);
+                        (self.rots[bone], self.heads[bone]) = (turned, head.into());
                     }
                     (head, head_was, drift, up) = (at, was, speed, turned);
                 }
@@ -1018,12 +1023,65 @@ impl Sway {
     }
 }
 
+/// All a step reads of a chain bone, side by side: one stretch of memory a bone, the bones of a chain one after
+/// another.
+#[derive(Clone, Copy, Debug, Default)]
+struct Link {
+    /// The bone's rest turn under its parent.
+    rest: Quat,
+    /// Which way its tail is from its head at rest, and which way down is, both in its parent's frame.
+    toward: Vec3A,
+    down: Vec3A,
+    /// How long it is, and one over that.
+    length: f32,
+    short: f32,
+    /// One over the spring's pull for each unit off the goal, the air's damping, and gravity.
+    loose: f32,
+    drag: f32,
+    gravity: f32,
+    /// The cosine and sine of how far it may bend.
+    cos: f32,
+    sin: f32,
+    /// How low its tail may come.
+    level: f32,
+    /// How the spring's offset and speed are carried over one step of `step` seconds.
+    carry: [f32; 4],
+}
+
 /// A part of the body a chain keeps out of: a rod with round ends from a point in one bone's frame to a point in
 /// another's, or a ball if the two are one.
 #[derive(Clone, Copy, Debug)]
 struct Rod {
     ends: [(usize, Vec3); 2],
     radius: f32,
+}
+
+/// A rod where it is at one step: where it starts, how far and which way it goes on from there, one over the square
+/// of how far, and how thick it is. Worked out once a step, so that the nearest point of it takes no division.
+#[derive(Clone, Copy, Debug, Default)]
+struct Laid {
+    from: Vec3A,
+    along: Vec3A,
+    per: f32,
+    radius: f32,
+}
+
+impl Laid {
+    fn new(a: Vec3A, b: Vec3A, radius: f32) -> Self {
+        let along = b - a;
+        Self {
+            from: a,
+            along,
+            per: 1.0 / along.length_squared().max(1e-20),
+            radius,
+        }
+    }
+
+    /// The point of the rod's line nearest `p`.
+    fn nearest(&self, p: Vec3A) -> Vec3A {
+        let t = ((p - self.from).dot(self.along) * self.per).clamp(0.0, 1.0);
+        self.from + t * self.along
+    }
 }
 
 /// The point of the line from `a` to `b` nearest `p`.
@@ -1035,7 +1093,7 @@ fn nearest(a: Vec3, b: Vec3, p: Vec3) -> Vec3 {
 
 /// A bone's direction kept within the cone about `toward`: nothing if it is already, else the direction at the
 /// cone's edge and the way across from `toward` it is at.
-fn cone(dir: Vec3, toward: Vec3, cos: f32, sin: f32) -> Option<(Vec3, Vec3)> {
+fn cone(dir: Vec3A, toward: Vec3A, cos: f32, sin: f32) -> Option<(Vec3A, Vec3A)> {
     let bent = dir.dot(toward);
     if bent >= cos {
         return None;
@@ -1050,23 +1108,26 @@ fn cone(dir: Vec3, toward: Vec3, cos: f32, sin: f32) -> Option<(Vec3, Vec3)> {
     Some((cos * toward + sin * side, side))
 }
 
-/// A bone's direction with its tail out of the rods and over the floor: the bone starts at `head` and is `length`
-/// long, `clear` is how near its tail may come to each rod's line, `near` the rods to look at and `level` how low
-/// it may come. The tail goes round the head, straight away from where it is too near, until it is clear; the floor
-/// comes last, so it wins over a rod. Also the way out of the last rod it was in, and whether the floor held it up.
+/// A bone's direction with its tail out of the rods and over the floor: the bone starts at `head` and is `link`'s
+/// length, `clear` is how near its tail may come to each rod's line, `near` the rods to look at and `link`'s level
+/// how low it may come. The tail goes round the head, straight away from where it is too near, until it is clear;
+/// the floor comes last, so it wins over a rod. Also the way out of the last rod it was in, and whether the floor
+/// held it up.
 ///
 /// A tail is asked no further out from a rod's line than its bone's head is now, but for `ahead`: how much further
 /// out than the head it is at rest. So a bone that starts in a rod or on it (a skirt on a thigh, hair in the head)
 /// is let lie as deep as it starts, and one whose head a rod swings through is let be, not turned straight out.
+///
+/// A rod is looked at tail first: how far the head is from it, which takes a root, only once the tail is too near.
 fn keep_out(
-    head: Vec3,
-    length: f32,
-    mut dir: Vec3,
+    head: Vec3A,
+    link: &Link,
+    mut dir: Vec3A,
     (clear, ahead): (&[f32], &[f32]),
     near: &[usize],
-    rods: &[[Vec3; 2]],
-    level: f32,
-) -> (Vec3, Option<Vec3>, bool) {
+    rods: &[Laid],
+) -> (Vec3A, Option<Vec3A>, bool) {
+    let length = link.length;
     let mut out = None;
     // A few times, as getting out of one may go into another, or further along the same.
     for _ in 0..8 {
@@ -1076,14 +1137,14 @@ fn keep_out(
             if reach <= 0.0 {
                 continue;
             }
-            let [a, b] = rods[k];
+            let rod = &rods[k];
             let tail = head + length * dir;
-            let from = nearest(a, b, tail);
+            let from = rod.nearest(tail);
             let gap = tail.distance_squared(from);
             if gap >= reach * reach {
                 continue;
             }
-            let reach = reach.min(head.distance(nearest(a, b, head)) + ahead[k]);
+            let reach = reach.min(head.distance(rod.nearest(head)) + ahead[k]);
             if gap >= reach * reach {
                 continue;
             }
@@ -1115,17 +1176,17 @@ fn keep_out(
             break;
         }
     }
-    let low = (level - head.y) / length;
+    let low = (link.level - head.y) * link.short;
     if dir.y >= low {
         return (dir, out, false);
     }
     if low >= 1.0 {
-        return (Vec3::Y, out, true);
+        return (Vec3A::Y, out, true);
     }
-    let flat = Vec3::new(dir.x, 0.0, dir.z);
+    let flat = Vec3A::new(dir.x, 0.0, dir.z);
     let wide = flat.length_squared();
-    let flat = if wide > 1e-12 { flat / wide.sqrt() } else { Vec3::X };
-    (low * Vec3::Y + (1.0 - low * low).sqrt() * flat, out, true)
+    let flat = if wide > 1e-12 { flat / wide.sqrt() } else { Vec3A::X };
+    (low * Vec3A::Y + (1.0 - low * low).sqrt() * flat, out, true)
 }
 
 /// The angle between two turns, nearly: right for small ones, never more than 2.
@@ -1135,17 +1196,22 @@ fn apart(a: Quat, b: Quat) -> f32 {
 
 /// The shortest turn taking one direction to another, with no library math. (glam's own gives no turn at all under
 /// a twenty-fifth of a degree, which would hold a bone nearly at rest dead still.)
-fn arc(from: Vec3, to: Vec3) -> Quat {
+fn arc(from: Vec3A, to: Vec3A) -> Quat {
     let (axis, w) = (from.cross(to), 1.0 + from.dot(to));
     let long = w * w + axis.length_squared();
     if long > 1e-12 {
         let by = 1.0 / long.sqrt();
-        Quat::from_xyzw(axis.x * by, axis.y * by, axis.z * by, w * by)
+        Quat::from_vec4((axis * by).extend(w * by))
     } else {
         // Straight back: half a turn about any line across.
-        let across = from.any_orthonormal_vector();
-        Quat::from_xyzw(across.x, across.y, across.z, 0.0)
+        Quat::from_vec4(from.any_orthonormal_vector().extend(0.0))
     }
+}
+
+/// A turn that is all but a unit one, made one: a step of Newton's method toward one over its length, so with no
+/// root and no division. What is left is the square of how far off it was: nothing, for the product of unit turns.
+fn unit(turn: Quat) -> Quat {
+    turn * (1.5 - 0.5 * turn.length_squared())
 }
 
 /// How a damped spring's offset and speed are carried over `h` seconds: the exponential of `h` times
@@ -1564,6 +1630,144 @@ mod tests {
                 "bent {most} radians by a thigh swung {swing}"
             );
         }
+    }
+
+    /// A wave like a sine, a parabola for each half, and a turn about `axis` by about `angle` radians (right for
+    /// small ones): with no library math, so the same to the bit on any machine.
+    fn wave(x: f32) -> f32 {
+        let t = x / std::f32::consts::PI;
+        let t = t - 2.0 * (t / 2.0).floor();
+        if t < 1.0 {
+            4.0 * t * (1.0 - t)
+        } else {
+            -4.0 * (t - 1.0) * (2.0 - t)
+        }
+    }
+
+    fn about(axis: Vec3, angle: f32) -> Quat {
+        Quat::from_vec4((axis * (angle / 2.0)).extend(1.0)).normalize()
+    }
+
+    /// The person's pose `t` seconds into being thrown about much as in `thrown`, `hard` times as far.
+    fn tossed(sk: &Skeleton, t: f32, hard: f32) -> Vec<Transform> {
+        let mut pose = sk.rest();
+        pose[0].translation += hard
+            * Vec3::new(
+                0.4 * wave(7.0 * t),
+                -0.12 * (1.0 - wave(5.0 * t + 1.5)),
+                0.3 * wave(4.0 * t),
+            );
+        pose[0].rotation = about(Vec3::Y, 1.5 * hard * wave(2.0 * t)) * about(Vec3::X, 0.8 * hard * wave(6.0 * t));
+        pose[1].rotation = about(Vec3::X, 0.6 * hard * wave(9.0 * t));
+        pose[4].rotation = about(Vec3::X, 0.9 * hard * wave(11.0 * t));
+        pose
+    }
+
+    /// The most any chain bone's turn differs between two poses, in radians.
+    fn differ(sway: &Sway, a: &[Transform], b: &[Transform]) -> f32 {
+        let off = |&bone: &usize| {
+            let off = a[bone].rotation.inverse() * b[bone].rotation;
+            2.0 * off.xyz().length().atan2(off.w.abs())
+        };
+        sway.bones.iter().map(off).fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn the_step_sways_as_the_one_first_written_did() {
+        // Three seconds of the person thrown about, gently and hard, at one step a pose, two, three and four, with
+        // the body and the floor kept out of and not, and with no cone: the step against the one it was made from
+        // (`before`), which it differs from by rounding alone. Every bone's turn at every pose is the same to a
+        // hundred-thousandth of a radian, both after one pose from the same start and after all of them, each
+        // going its own way (thrown hard, to three of those after all of them).
+        //
+        // But for a tail thrown into two parts of the body at once, the ponytail between the head and the neck.
+        // There the first step is touchy by itself: a tail put out of one part stands right at its edge when that
+        // part is looked at again, so rounding says which of the two it left last, and it is the last it stops
+        // going into. The first step parts from itself as far, run again with its tails moved in their last bit:
+        // counted here beside the poses this step parts from it.
+        let (sk, chains) = person();
+        let wide = Spring {
+            limit: std::f32::consts::PI,
+            ..Spring::per_meter(1.0)
+        };
+        let (mut worst, mut worst_through, mut parted_in_all) = (0.0f32, 0.0f32, [0, 0]);
+        for hard in [0.25f32, 1.0] {
+            for (collide, spring) in [
+                (true, Spring::per_meter(1.0)),
+                (false, Spring::per_meter(1.0)),
+                (true, wide),
+            ] {
+                for rate in [60.0f32, 30.0, 24.0, 15.0] {
+                    let mut sway = Sway::with(&sk, &chains, spring);
+                    sway.collide(collide, collide);
+                    let mut alone = sway.as_before();
+                    let (mut each, mut through, mut bent) = (0.0f32, 0.0f32, 0.0f32);
+                    let mut parted = [0, 0];
+                    let poses = (3.0 * rate) as usize;
+                    for f in 0..=poses {
+                        // Held for a pose half way, as a pause is.
+                        let dt = if f == 0 || f == poses / 2 { 0.0 } else { 1.0 / rate };
+                        let posed = tossed(&sk, f as f32 / rate, hard);
+                        // The first step from where this one stands, and again with every tail's last bit moved.
+                        let (mut first, mut nudged) = (sway.as_before(), sway.as_before());
+                        for (i, at) in nudged.at.iter_mut().enumerate() {
+                            *at *= if (i + f) % 2 == 0 { 1.0 + 1.2e-7 } else { 1.0 - 1.2e-7 };
+                        }
+                        let (mut pose, mut was, mut other) = (posed.clone(), posed.clone(), posed.clone());
+                        sway.pose(dt, &mut pose);
+                        first.pose_before(dt, &mut was);
+                        nudged.pose_before(dt, &mut other);
+                        // Apart in a pose: a bone turned, a tail placed (in meters) or its speed.
+                        let far = |a: &Sway, turned: f32| {
+                            let at = (0..a.at.len()).any(|i| a.at[i].distance(first.at[i]) >= 2e-6);
+                            let speed = (0..a.at.len()).any(|i| a.speed[i].distance(first.speed[i]) >= 2e-4 * rate);
+                            turned >= 1e-5 || at || speed
+                        };
+                        let turned = differ(&sway, &pose, &was);
+                        if far(&sway, turned) {
+                            parted[0] += 1;
+                        } else {
+                            each = each.max(turned);
+                        }
+                        parted[1] += usize::from(far(&nudged, differ(&sway, &other, &was)));
+                        for (i, &b) in sway.bones.iter().enumerate() {
+                            let now = pose[b].rotation;
+                            assert!((now.length() - 1.0).abs() < 1e-6, "bone {b} turned by {now:?}");
+                            bent = bent.max(now.angle_between(sway.rest[i]));
+                        }
+                        alone.pose_before(dt, &mut was);
+                        through = through.max(differ(&sway, &pose, &was));
+                    }
+                    println!(
+                        "thrown {hard}, kept out {collide}, limit {:.2}, {rate} poses a second, bent {bent:.2}: \
+                         {each:.1e} radians off the first step after a pose, {through:.1e} after all of them; \
+                         parted in {} poses of {poses}, the first step from itself in {}",
+                        spring.limit, parted[0], parted[1]
+                    );
+                    assert!(bent > 0.2, "nothing swung: {bent}");
+                    if hard == 1.0 && collide {
+                        assert!(
+                            parted[0] <= poses / 4,
+                            "parted from the first step in {} poses",
+                            parted[0]
+                        );
+                        parted_in_all = [parted_in_all[0] + parted[0], parted_in_all[1] + parted[1]];
+                    } else {
+                        // Thrown hard, rounding has more to work on: three times as much is let by.
+                        let near = if hard < 1.0 { 1e-5 } else { 3e-5 };
+                        assert_eq!(parted[0], 0, "parted from the first step in a pose");
+                        assert!(through < near, "{through} radians off the first step");
+                        worst_through = worst_through.max(through);
+                    }
+                    worst = worst.max(each);
+                }
+            }
+        }
+        println!(
+            "the step against the first: {worst:e} radians apart after a pose, {worst_through:e} after three seconds; \
+             thrown hard into the body, parted in {} poses, the first step from itself in {}",
+            parted_in_all[0], parted_in_all[1]
+        );
     }
 
     #[test]

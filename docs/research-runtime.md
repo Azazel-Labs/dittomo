@@ -152,17 +152,30 @@ function. naga parses and validates the WGSL in the tests, with a vertex shader 
 give the same numbers rests on reading them side by side until a host runs both.
 
 Little-endian 32-bit words, every offset a count of words from the library's start (`C` clips, `B` bones, `F`
-frames in all, `R` words a record: 7 as floats, 4 as halves):
+frames in all, `R` words a record: 7 as floats, 4 as halves, 4 in fixed point):
 
 | Part | Words | Holds |
 | --- | ---: | --- |
-| Header | 8 | magic `DTMO`, version 1, encoding, `B`, `C`, the library's words, the table's and the pivots' offsets |
+| Header | 8 | magic `DTMO`, version 2, encoding (0 floats, 1 halves, 2 fixed point), `B`, `C`, the library's words, the table's and the pivots' offsets |
 | Clip table | 4 × `C` | per clip: first record's offset, frames, frames a second, flags (bit 0: loops) |
 | Pivots | 3 × `B` | per bone: where its joint stands at bind, as floats |
+| Boxes | 6 × `B` × `C` | fixed point only, each clip's right ahead of its records; per bone: the least corner and the size of the box its joint keeps to through the clip, as floats |
 | Records | `R` × `B` × `F` | per clip, frame and bone: rotation from bind (x, y, z, w), the joint's place (x, y, z) |
 
-`4 × (8 + 4C + 3B + R·B·F)` bytes. Fifty clips of 3 s at 30 Hz on 80 bones: 5,761,792 bytes as halves and
-10,081,792 as floats looping (90 frames each), 5,825,792 and 10,193,792 played once through (91 each).
+`4 × (8 + 4C + 3B + R·B·F)` bytes, and `4 × 6·B·C` more in fixed point. Fifty clips of 3 s at 30 Hz on 80 bones:
+5,761,792 bytes as halves, 5,857,792 in fixed point and 10,081,792 as floats looping (90 frames each); 5,825,792,
+5,921,792 and 10,193,792 played once through (91 each). Version 2 added fixed point and nothing else: version 1
+libraries are still read, and are what version 2 is with floats or halves.
+
+How far a skinned point is put from where the clip has it, at the frames, as a share of the rig's height, on the
+test clips (every bone swinging, 90 frames, 76 bones):
+
+| Encoding | Bytes | In place: any bone | fingertips | Walking 4.2 m off: any bone | fingertips |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Floats | 192,480 | 6.6e-7 | 6.0e-7 | 8.0e-7 | 8.0e-7 |
+| Halves | 110,400 | 5.8e-4 | 5.7e-4 | 9.0e-4 | 8.8e-4 |
+| Fixed point | 112,224 | 1.0e-5 | 8.7e-6 | 2.4e-5 | 2.2e-5 |
+| Fixed point, one box a clip (not kept) | 110,424 | 1.8e-5 | 1.7e-5 | 2.6e-5 | 2.5e-5 |
 
 What changed from the plan above:
 
@@ -173,18 +186,31 @@ What changed from the plan above:
   bone once and one more read a sample. What `bone` hands back is still the skinning rotation and translation.
 - **No scale.** Scales at bind cancel. Scale a clip animates is dropped: the bone keeps its bind size about its
   joint, which still stands where the clip puts it. Retargeted clips keep the target's scales.
-- **Halves are weak for places, fine for rotations.** A half places a joint within a 2048th of how far out it
+- **Halves are weak for places, so there is fixed point.** A half places a joint within a 2048th of how far out it
   stands: 0.0006 of the rig's height at the fingertips in place, 0.0009 three heights from the origin, against a
-  millionth as floats. Sixteen bits spread evenly over each clip's own bounds would be tens of times closer for
-  the same bytes; not done, as halves were the plan. Until then, bake clips that travel far in place or as floats.
+  millionth as floats. The third encoding spreads sixteen bits evenly over the box each bone's joint keeps to
+  through each clip (its least corner and its size, six floats a bone a clip, ahead of the clip's records), and the
+  rotation's four numbers evenly from -1 to 1. It is 40 to 65 times closer than halves for 1.7% more bytes on a
+  3 s clip, and no worse far from the origin than near it: what is left is half a 65535th of how far the joint
+  moves, along each axis.
+  - *A box a bone, not a box a clip.* One box for the whole rig saves those 1.7% and puts points 1.8 times further
+    off in place, 1.1 times on the walk, where every box is as long as the walk either way. Error times bytes is
+    lower a box a bone on both. On a clip of a frame or two the boxes cost more than the records (six words a bone
+    against four a frame), and are still the nearer way to place a joint far from the origin.
+  - *Rotations as signed 16-bit counts, not halves.* A half keeps 11 bits of each number, so a stored rotation is
+    up to 0.0007 of a radian off, which alone moves a point a twentieth of the height from its joint by 3.5e-5 of
+    the height: more than fixed-point places leave. A count of a 32767th is up to 0.00006 of a radian off, costs
+    the same 16 bits and is cheaper to unpack. Smallest-three was not needed.
+  - The eighth 16 bits of a record are still zero. After the rotation a record has 64 bits left, room for a place
+    of three 21-bit counts, 32 times finer; nothing asks for it yet.
 - **Between frames** the sampler turns each bone in the world, the clip under its parent: under a thousandth of
   the height on a walk at 30 Hz, up to four on a clip with every bone swinging hard. A higher rate buys that back.
 - **A looping clip's last pose is taken to be its first** and isn't stored, and each clip's rate is nudged so its
   frames fit its length exactly.
 
 What a host does: upload the bytes as they are to a storage buffer and bind it read-only where it told `wgsl` to
-declare `library: array<u32>` (one binding for either encoding; halves are unpacked in WGSL, as `f16` is an
-extension). Give each instance a clip and a time, and for a cross-fade a second clip and time and a weight. Call
+declare `library: array<u32>` (one binding for any encoding; halves are unpacked in WGSL, as `f16` is an
+extension, and so is fixed point). Give each instance a clip and a time, and for a cross-fade a second clip and time and a weight. Call
 `bone(clip, time, index)` or `blend(clip_a, time_a, clip_b, time_b, weight, index)` for each of a vertex's four
 bones and `skin(position, a, b, c, d, weights)`, or call them once a bone in a compute pass that writes a pose
 buffer, which is the only way in WebGPU's compatibility mode (no storage buffers in the vertex stage) and the

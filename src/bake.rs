@@ -13,15 +13,21 @@
 //!
 //! | Part | Words | Holds |
 //! | --- | ---: | --- |
-//! | Header | 8 | [`MAGIC`], [`VERSION`], encoding (0 floats, 1 halves), `B`, `C`, the library's words, the clip table's offset, the pivots' offset |
+//! | Header | 8 | [`MAGIC`], [`VERSION`], encoding (0 floats, 1 halves, 2 fixed point), `B`, `C`, the library's words, the clip table's offset, the pivots' offset |
 //! | Clip table | 4 × `C` | per clip: its first record's offset, its frames, frames a second (a float), flags (bit 0: it loops) |
-//! | Pivots | 3 × `B` | per bone: where its joint stands at bind (x, y, z as floats, in either encoding) |
+//! | Pivots | 3 × `B` | per bone: where its joint stands at bind (x, y, z as floats, in any encoding) |
+//! | Boxes | 6 × `B` × `C` | in fixed point only, each clip's right ahead of its records; per bone: the least corner (x, y, z) and the size (x, y, z) of the box its joint keeps to through the clip, as floats |
 //! | Records | `R` × `B` × `F` | per clip, per frame, per bone: rotation x, y, z, w, then the joint's place x, y, z |
 //!
 //! A record is `R` = 7 words as floats ([`Encoding::F32`]) and 4 as halves ([`Encoding::Half`]): eight 16-bit halves,
-//! the low half of each word first, the eighth zero. A library is `4 × (8 + 4C + 3B + R·B·F)` bytes ([`size`]). Fifty
-//! clips of 3 s at 30 Hz on 80 bones, looping (90 frames each), are 5,761,792 bytes as halves and 10,081,792 as
-//! floats; played once through (91 frames each), 5,825,792 and 10,193,792.
+//! the low half of each word first, the eighth zero. In fixed point ([`Encoding::Fixed`]) it is 4 words too, of
+//! eight 16-bit counts: the rotation's four signed, in 32767ths, and the place's three unsigned, in 65535ths of the
+//! way across its bone's box from the least corner. A library is `4 × (8 + 4C + 3B + R·B·F)` bytes ([`size`]), and
+//! `4 × 6·B·C` more in fixed point. Fifty clips of 3 s at 30 Hz on 80 bones, looping (90 frames each), are 5,761,792
+//! bytes as halves, 5,857,792 in fixed point and 10,081,792 as floats; played once through (91 frames each),
+//! 5,825,792, 5,921,792 and 10,193,792.
+//!
+//! Version 2 added fixed point and changed nothing else: a version 1 library is read as it was.
 //!
 //! # What a record means
 //!
@@ -36,8 +42,12 @@
 //!
 //! Floats give back a retargeted clip's frames to a millionth of the rig's height. A half has 11 bits, so it places
 //! a joint within a 2048th of how far it stands from the origin along each axis: 0.0006 of the height at the
-//! fingertips on a clip played in place, 0.0009 on one that walks three heights away. Bake clips that travel far as
-//! floats, or in place with the travel left to the host. Between frames the sampler moves each joint straight and
+//! fingertips on a clip played in place, 0.0009 on one that walks three heights away. Fixed point places a joint
+//! within half a 65535th of how far it moves through the clip along each axis, wherever the clip goes, and turns a
+//! bone within 0.00006 of a radian where a half turns it within 0.0007: 0.00001 of the height on the clip in place
+//! and 0.00002 on the one that walks, for 24 bytes a bone a clip more than halves. So bake in fixed point, or as
+//! floats where that is not near enough; halves are for clips played near the origin by a host that has no room for
+//! the boxes. Between frames the sampler moves each joint straight and
 //! turns each bone in the world, where the clip turns it under its parent: at 30 frames a second that is under a
 //! thousandth of the height on a walk, and up to four on a clip with every bone swinging hard.
 //!
@@ -62,8 +72,8 @@
 //! # On the GPU
 //!
 //! Upload the bytes as they are to a buffer with storage usage and bind it read-only; [`wgsl`] declares it as
-//! `var<storage, read> library: array<u32>`. One binding serves both encodings: halves are unpacked by a small
-//! function, since WGSL's `f16` is an extension. Each instance then needs only a clip, a time, and for a cross-fade a
+//! `var<storage, read> library: array<u32>`. One binding serves every encoding: halves are unpacked by a small
+//! function, since WGSL's `f16` is an extension, and fixed point by another. Each instance then needs only a clip, a time, and for a cross-fade a
 //! second clip and time and a weight: call `bone` or `blend` per influence in a vertex shader, or once per bone in a
 //! compute pass that writes a pose buffer, and `skin` to place the vertex. WebGPU's compatibility mode allows no
 //! storage buffers in the vertex stage, so there it is the compute pass.
@@ -76,13 +86,15 @@ use crate::{Clip, Mat4, Quat, Skeleton, Transform, Vec3};
 /// A library's first word: `DTMO` as bytes.
 pub const MAGIC: u32 = u32::from_le_bytes(*b"DTMO");
 
-/// The layout's version, a library's second word.
-pub const VERSION: u32 = 1;
+/// The layout's version, a library's second word: what [`Baker`] writes. [`Library`] reads this one and the one
+/// before it, which had no fixed point ([`Encoding::Fixed`]) and was otherwise the same.
+pub const VERSION: u32 = 2;
 
-/// Words in the header, in a clip's row of the clip table, and in a bone's pivot.
+/// Words in the header, in a clip's row of the clip table, in a bone's pivot, and in a bone's box for one clip.
 const HEADER: usize = 8;
 const ENTRY: usize = 4;
 const PIVOT: usize = 3;
+const BOX: usize = 6;
 
 /// The clip table's flag for a clip that loops.
 const LOOPS: u32 = 1;
@@ -97,6 +109,10 @@ pub enum Encoding {
     F32,
     /// 16-bit half floats: four words a record. A joint is placed within a 2048th of how far it stands from the origin.
     Half,
+    /// 16-bit fixed point: four words a record, and six a bone for each clip. A rotation's numbers are spread evenly
+    /// from -1 to 1, and a joint's place evenly over the box that joint keeps to through the clip, so it is placed
+    /// within a 65535th of how far it moves, wherever the clip goes.
+    Fixed,
 }
 
 impl Encoding {
@@ -105,7 +121,16 @@ impl Encoding {
     pub const fn record(self) -> usize {
         match self {
             Self::F32 => 7,
-            Self::Half => 4,
+            Self::Half | Self::Fixed => 4,
+        }
+    }
+
+    /// Words of boxes ahead of each clip's records, for one bone: six in fixed point, else none.
+    #[must_use]
+    pub const fn boxes(self) -> usize {
+        match self {
+            Self::F32 | Self::Half => 0,
+            Self::Fixed => BOX,
         }
     }
 
@@ -114,6 +139,7 @@ impl Encoding {
         match self {
             Self::F32 => 0,
             Self::Half => 1,
+            Self::Fixed => 2,
         }
     }
 }
@@ -135,8 +161,8 @@ pub enum Error {
     Version(u32),
     /// The bytes stop short of what the header or a clip says is there.
     Truncated,
-    /// The header or the clip table makes no sense: an encoding that isn't one, a part outside the library, a clip
-    /// of no frames or a rate that isn't a positive number.
+    /// The header or the clip table makes no sense: an encoding that isn't one or that the library's version
+    /// didn't have, a part outside the library, a clip of no frames or a rate that isn't a positive number.
     Malformed,
 }
 
@@ -150,7 +176,7 @@ impl std::fmt::Display for Error {
             }
             Self::TooBig => write!(f, "the library would be over 4 billion words"),
             Self::NotALibrary => write!(f, "not a baked clip library"),
-            Self::Version(v) => write!(f, "a library of version {v}, this reads version {VERSION}"),
+            Self::Version(v) => write!(f, "a library of version {v}, this reads versions 1 to {VERSION}"),
             Self::Truncated => write!(f, "the library is cut short"),
             Self::Malformed => write!(f, "the library's header or clip table makes no sense"),
         }
@@ -182,10 +208,10 @@ pub fn frames(seconds: f32, rate: f32, looping: bool) -> usize {
 }
 
 /// A library's size in bytes: `4 × (8 + 4 × clips + 3 × bones + record × bones × frames)`, `frames` being every
-/// clip's frames together ([`frames`]).
+/// clip's frames together ([`frames`]), and in fixed point `4 × 6 × bones × clips` more for the boxes.
 #[must_use]
 pub const fn size(encoding: Encoding, bones: usize, clips: usize, frames: usize) -> usize {
-    4 * (HEADER + ENTRY * clips + PIVOT * bones + encoding.record() * bones * frames)
+    4 * (HEADER + ENTRY * clips + PIVOT * bones + encoding.boxes() * bones * clips + encoding.record() * bones * frames)
 }
 
 /// Bakes clips on one skeleton into a library.
@@ -213,6 +239,7 @@ pub struct Baker {
     pivots: Vec<Vec3>,
     /// Each clip's row of the clip table, its first record counted from where the records begin.
     table: Vec<[u32; ENTRY]>,
+    /// Every clip's records, each clip's boxes ahead of its own.
     records: Vec<u32>,
 }
 
@@ -277,6 +304,7 @@ impl Baker {
         let bones = self.skeleton.len();
         let words = (count.checked_mul(bones))
             .and_then(|n| n.checked_mul(self.encoding.record()))
+            .and_then(|n| n.checked_add(self.encoding.boxes() * bones))
             .and_then(|n| n.checked_add(self.records.len()))
             .and_then(|n| n.checked_add(HEADER + ENTRY * (self.table.len() + 1) + PIVOT * bones))
             .ok_or(Error::TooBig)?;
@@ -284,7 +312,9 @@ impl Baker {
             return Err(Error::TooBig);
         }
 
-        let first = self.records.len() as u32;
+        // Every frame's records, a frame after another, and the box each bone's joint keeps to through them.
+        let mut joints = Vec::with_capacity(count * bones);
+        let mut edges = vec![[Vec3::INFINITY, Vec3::NEG_INFINITY]; bones];
         let mut last = vec![Quat::IDENTITY; bones];
         for k in 0..count {
             let pose = crate::bvh::sample(clip, times[0] + k as f32 / rate);
@@ -295,16 +325,45 @@ impl Baker {
                     turn = -turn;
                 }
                 last[b] = turn;
-                self.write(turn, placed.position());
+                let at = placed.position();
+                // A place that isn't a number, or is none that ends, is no corner of a box.
+                let [low, high] = edges[b];
+                edges[b] = [
+                    Vec3::select(at.is_finite_mask(), low.min(at), low),
+                    Vec3::select(at.is_finite_mask(), high.max(at), high),
+                ];
+                joints.push((turn, at));
             }
+        }
+        // A box from its least corner and its size: nothing wide for a joint that never moves, or was never
+        // anywhere.
+        let boxes: Vec<[Vec3; 2]> = (edges.iter())
+            .map(|&[low, high]| {
+                let known = low.cmple(high);
+                let size = (high - low).min(Vec3::MAX);
+                [
+                    Vec3::select(known, low, Vec3::ZERO),
+                    Vec3::select(known, size, Vec3::ZERO),
+                ]
+            })
+            .collect();
+        if self.encoding == Encoding::Fixed {
+            let floats = boxes.iter().flat_map(|[low, size]| [low.to_array(), size.to_array()]);
+            self.records.extend(floats.flatten().map(f32::to_bits));
+        }
+        let first = self.records.len() as u32;
+        for (i, &(turn, at)) in joints.iter().enumerate() {
+            self.write(turn, at, boxes[i % bones]);
         }
         self.table
             .push([first, count as u32, rate.to_bits(), if looping { LOOPS } else { 0 }]);
         Ok(self.table.len() - 1)
     }
 
-    /// One record: a bone's rotation and its joint's place.
-    fn write(&mut self, turn: Quat, at: Vec3) {
+    /// One record: a bone's rotation and its joint's place, which in fixed point is counted across the box from
+    /// `low`, `size` wide.
+    fn write(&mut self, turn: Quat, at: Vec3, [low, size]: [Vec3; 2]) {
+        let word = |[low, high]: [u16; 2]| u32::from(low) | u32::from(high) << 16;
         match self.encoding {
             Encoding::F32 => {
                 let numbers = [turn.x, turn.y, turn.z, turn.w, at.x, at.y, at.z];
@@ -312,8 +371,12 @@ impl Baker {
             }
             Encoding::Half => {
                 let pairs = [[turn.x, turn.y], [turn.z, turn.w], [at.x, at.y], [at.z, 0.0]];
-                let word = |[low, high]: [f32; 2]| u32::from(to_half(low)) | u32::from(to_half(high)) << 16;
-                self.records.extend(pairs.map(word));
+                self.records.extend(pairs.map(|pair| word(pair.map(to_half))));
+            }
+            Encoding::Fixed => {
+                let [x, y, z, w] = turn.to_array().map(to_signed16);
+                let [i, j, k] = [0, 1, 2].map(|axis| to_unorm(at[axis], low[axis], size[axis]));
+                self.records.extend([[x, y], [z, w], [i, j], [k, 0]].map(word));
             }
         }
     }
@@ -373,6 +436,28 @@ fn to_half(v: f32) -> u16 {
     sign | (kept + u32::from(up)) as u16
 }
 
+/// `v` as the nearest of 65535 steps from -1 to 1, as the 16 bits of a signed number: zero stays zero, and what is
+/// past either end becomes that end. What isn't a number becomes zero.
+fn to_signed16(v: f32) -> u16 {
+    (v.clamp(-1.0, 1.0) * 32767.0).round() as i16 as u16
+}
+
+/// `v` as the nearest of 65536 steps across from `low`, `size` on: what is past either end becomes that end. In a
+/// box of no size, and for what isn't a number, the first step.
+fn to_unorm(v: f32, low: f32, size: f32) -> u16 {
+    if size > 0.0 {
+        (((v - low) / size).clamp(0.0, 1.0) * 65535.0).round() as u16
+    } else {
+        0
+    }
+}
+
+/// A fixed-point rotation's number from its 16 bits. As the shader's `signed16`: the one count the baker never writes,
+/// the least, comes out as -1 like the one above it.
+fn signed16(h: u32) -> f32 {
+    (((h << 16) as i32 >> 16) as f32 / 32767.0).max(-1.0)
+}
+
 /// A half float's value from its 16 bits. As the shader's `half`: what the baker never writes, infinities and
 /// not-a-numbers, come out as numbers past the biggest half.
 fn half(h: u32) -> f32 {
@@ -397,7 +482,7 @@ fn nlerp(a: Quat, b: Quat, s: f32) -> Quat {
 pub struct Header {
     pub magic: u32,
     pub version: u32,
-    /// 0 for floats, 1 for halves.
+    /// 0 for floats, 1 for halves, 2 for fixed point.
     pub encoding: u32,
     pub bones: u32,
     pub clips: u32,
@@ -412,7 +497,7 @@ pub struct Header {
 /// A clip's row of the clip table, word for word.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Entry {
-    /// The offset of its first frame's first record.
+    /// The offset of its first frame's first record. In fixed point its boxes end there: six words a bone.
     pub first: u32,
     pub frames: u32,
     /// Frames a second.
@@ -452,8 +537,9 @@ impl<'a> Library<'a> {
     /// past its end are let be, so a library may be read out of a pool.
     ///
     /// # Errors
-    /// [`Error::Truncated`] if the bytes stop short, [`Error::NotALibrary`] or [`Error::Version`] if they start with
-    /// another magic or version, [`Error::Malformed`] if the header or clip table makes no sense.
+    /// [`Error::Truncated`] if the bytes stop short, [`Error::NotALibrary`] if they start with another magic,
+    /// [`Error::Version`] if with a version that is neither [`VERSION`] nor the one before, [`Error::Malformed`] if
+    /// the header or clip table makes no sense.
     pub fn read(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < 4 * HEADER {
             return Err(Error::Truncated);
@@ -475,7 +561,7 @@ impl<'a> Library<'a> {
         if h.magic != MAGIC {
             return Err(Error::NotALibrary);
         }
-        if h.version != VERSION {
+        if h.version == 0 || h.version > VERSION {
             return Err(Error::Version(h.version));
         }
         if bytes.len() / 4 < h.words as usize {
@@ -484,16 +570,22 @@ impl<'a> Library<'a> {
         let (words, bones) = (u64::from(h.words), u64::from(h.bones));
         let within = |at: u32, len: u64| u64::from(at) >= HEADER as u64 && u64::from(at) + len <= words;
         let parts = within(h.table, ENTRY as u64 * u64::from(h.clips)) && within(h.pivots, PIVOT as u64 * bones);
-        if h.encoding > 1 || !parts {
+        // Version 1 had floats and halves alone.
+        if h.encoding > 2 || (h.encoding == 2 && h.version < 2) || !parts {
             return Err(Error::Malformed);
         }
         library.header = h;
-        let record = if h.encoding == 1 { 4 } else { 7 };
+        let (record, boxes) = match h.encoding {
+            0 => (7, 0),
+            1 => (4, 0),
+            _ => (4, BOX as u128 * u128::from(h.bones)),
+        };
         for clip in 0..h.clips {
             let c = library.clip_entry(h.table, clip);
-            // No overflow: three 32-bit counts and a 3-bit one.
+            // No overflow: three 32-bit counts and a 3-bit one. A clip's boxes lie right ahead of its records.
             let len = u128::from(c.frames) * u128::from(h.bones) * record;
-            let fits = u128::from(c.first) >= HEADER as u128 && u128::from(c.first) + len <= u128::from(h.words);
+            let fits =
+                u128::from(c.first) >= HEADER as u128 + boxes && u128::from(c.first) + len <= u128::from(h.words);
             if c.frames == 0 || !(c.rate.is_finite() && c.rate > 0.0) || !fits {
                 return Err(Error::Malformed);
             }
@@ -508,10 +600,10 @@ impl<'a> Library<'a> {
 
     #[must_use]
     pub fn encoding(&self) -> Encoding {
-        if self.header.encoding == 1 {
-            Encoding::Half
-        } else {
-            Encoding::F32
+        match self.header.encoding {
+            0 => Encoding::F32,
+            1 => Encoding::Half,
+            _ => Encoding::Fixed,
         }
     }
 
@@ -546,7 +638,19 @@ impl<'a> Library<'a> {
         let c = self.entry(clip)?;
         let h = self.header;
         (frame < c.frames as usize && bone < self.bones())
-            .then(|| self.record(c.first, frame as u32 * h.bones + bone as u32, h.encoding))
+            .then(|| self.record(c.first, frame as u32, bone as u32, h.bones, h.encoding))
+    }
+
+    /// The box a bone's joint keeps to through a clip, as stored in fixed point: its least corner, then how far it
+    /// goes on from there along each axis. Nothing in the other encodings, which store none.
+    #[must_use]
+    pub fn bounds(&self, clip: usize, bone: usize) -> Option<[Vec3; 2]> {
+        let c = self.entry(clip)?;
+        let h = self.header;
+        (h.encoding == 2 && bone < self.bones()).then(|| {
+            let at = c.first - 6 * (h.bones - bone as u32);
+            [self.floats(at), self.floats(at + 3)]
+        })
     }
 
     // The sampler. Each function below is the shader's of the same name, line for line: change both or neither.
@@ -583,8 +687,8 @@ impl<'a> Library<'a> {
         }
     }
 
-    fn pivot(&self, pivots: u32, bone: u32) -> Vec3 {
-        let at = pivots + 3 * bone;
+    /// Three floats, from the word at `at` on.
+    fn floats(&self, at: u32) -> Vec3 {
         Vec3::new(
             f32::from_bits(self.word(at)),
             f32::from_bits(self.word(at + 1)),
@@ -592,8 +696,30 @@ impl<'a> Library<'a> {
         )
     }
 
-    /// The `index`th record from `first`: a rotation and a joint's place.
-    fn record(&self, first: u32, index: u32, encoding: u32) -> Transform {
+    fn pivot(&self, pivots: u32, bone: u32) -> Vec3 {
+        self.floats(pivots + 3 * bone)
+    }
+
+    /// A bone's record at a frame of the clip whose records start at `first`: a rotation and a joint's place.
+    fn record(&self, first: u32, frame: u32, bone: u32, bones: u32, encoding: u32) -> Transform {
+        let index = frame * bones + bone;
+        if encoding == 2 {
+            let at = first + 4 * index;
+            let (a, b) = (self.word(at), self.word(at + 1));
+            let (c, d) = (self.word(at + 2), self.word(at + 3));
+            // The clip's boxes end where its records start: a least corner and a size for each bone.
+            let edge = first - 6 * (bones - bone);
+            let across = Vec3::new((c & 0xFFFF) as f32, (c >> 16) as f32, (d & 0xFFFF) as f32) / 65535.0;
+            return Transform::new(
+                self.floats(edge) + self.floats(edge + 3) * across,
+                Quat::from_xyzw(
+                    signed16(a & 0xFFFF),
+                    signed16(a >> 16),
+                    signed16(b & 0xFFFF),
+                    signed16(b >> 16),
+                ),
+            );
+        }
         if encoding == 1 {
             let at = first + 4 * index;
             let (a, b) = (self.word(at), self.word(at + 1));
@@ -605,11 +731,7 @@ impl<'a> Library<'a> {
         }
         let at = first + 7 * index;
         Transform::new(
-            Vec3::new(
-                f32::from_bits(self.word(at + 4)),
-                f32::from_bits(self.word(at + 5)),
-                f32::from_bits(self.word(at + 6)),
-            ),
+            self.floats(at + 4),
             Quat::from_xyzw(
                 f32::from_bits(self.word(at)),
                 f32::from_bits(self.word(at + 1)),
@@ -644,8 +766,8 @@ impl<'a> Library<'a> {
         let i = (x as u32).min(last);
         let j = if next == 1 { (i + 1).min(last) } else { (i + 1) % next };
         let s = x - i as f32;
-        let here = self.record(c.first, i * h.bones + b, h.encoding);
-        let there = self.record(c.first, j * h.bones + b, h.encoding);
+        let here = self.record(c.first, i, b, h.bones, h.encoding);
+        let there = self.record(c.first, j, b, h.bones, h.encoding);
         Transform::new(
             here.translation + (there.translation - here.translation) * s,
             nlerp(here.rotation, there.rotation, s),
@@ -706,12 +828,13 @@ pub fn wgsl(group: u32, binding: u32) -> String {
 /// The sampler as WGSL, less the library's declaration ([`wgsl`] adds it). Each function is [`Library`]'s of the same
 /// name, line for line.
 pub const WGSL: &str = r"
-// dittomo's baked clip library, version 1, read from `library: array<u32>`. Offsets count words from its start.
+// dittomo's baked clip library, versions 1 and 2, read from `library: array<u32>`. Offsets count words from its
+// start.
 
 struct Header {
     magic: u32,
     version: u32,
-    // 0 for floats, 1 for halves.
+    // 0 for floats, 1 for halves, 2 for fixed point.
     encoding: u32,
     bones: u32,
     clips: u32,
@@ -723,7 +846,7 @@ struct Header {
 }
 
 struct Entry {
-    // The offset of the clip's first frame's first record.
+    // The offset of the clip's first frame's first record. In fixed point its boxes end there: six words a bone.
     first: u32,
     frames: u32,
     // Frames a second.
@@ -736,6 +859,11 @@ struct Entry {
 struct Bone {
     rotation: vec4<f32>,
     translation: vec3<f32>,
+}
+
+// A fixed-point rotation's number from its 16 bits.
+fn signed16(h: u32) -> f32 {
+    return max(f32(i32(h << 16u) >> 16u) / 32767.0, -1.0);
 }
 
 // A half float's value from its 16 bits.
@@ -778,13 +906,32 @@ fn clip_entry(table: u32, clip: u32) -> Entry {
     return Entry(library[at], library[at + 1u], bitcast<f32>(library[at + 2u]), library[at + 3u]);
 }
 
-fn pivot(pivots: u32, bone: u32) -> vec3<f32> {
-    let at = pivots + 3u * bone;
+// Three floats, from the word at `at` on.
+fn floats(at: u32) -> vec3<f32> {
     return vec3<f32>(bitcast<f32>(library[at]), bitcast<f32>(library[at + 1u]), bitcast<f32>(library[at + 2u]));
 }
 
-// The `index`th record from `first`: a rotation and a joint's place.
-fn record(first: u32, index: u32, encoding: u32) -> Bone {
+fn pivot(pivots: u32, bone: u32) -> vec3<f32> {
+    return floats(pivots + 3u * bone);
+}
+
+// A bone's record at a frame of the clip whose records start at `first`: a rotation and a joint's place.
+fn record(first: u32, frame: u32, bone: u32, bones: u32, encoding: u32) -> Bone {
+    let index = frame * bones + bone;
+    if encoding == 2u {
+        let at = first + 4u * index;
+        let a = library[at];
+        let b = library[at + 1u];
+        let c = library[at + 2u];
+        let d = library[at + 3u];
+        // The clip's boxes end where its records start: a least corner and a size for each bone.
+        let edge = first - 6u * (bones - bone);
+        let across = vec3<f32>(f32(c & 0xFFFFu), f32(c >> 16u), f32(d & 0xFFFFu)) / 65535.0;
+        return Bone(
+            vec4<f32>(signed16(a & 0xFFFFu), signed16(a >> 16u), signed16(b & 0xFFFFu), signed16(b >> 16u)),
+            floats(edge) + floats(edge + 3u) * across,
+        );
+    }
     if encoding == 1u {
         let at = first + 4u * index;
         let a = library[at];
@@ -804,7 +951,7 @@ fn record(first: u32, index: u32, encoding: u32) -> Bone {
             bitcast<f32>(library[at + 2u]),
             bitcast<f32>(library[at + 3u]),
         ),
-        vec3<f32>(bitcast<f32>(library[at + 4u]), bitcast<f32>(library[at + 5u]), bitcast<f32>(library[at + 6u])),
+        floats(at + 4u),
     );
 }
 
@@ -835,8 +982,8 @@ fn joint(clip: u32, time: f32, bone: u32) -> Bone {
         j = (i + 1u) % next;
     }
     let s = x - f32(i);
-    let here = record(c.first, i * h.bones + b, h.encoding);
-    let there = record(c.first, j * h.bones + b, h.encoding);
+    let here = record(c.first, i, b, h.bones, h.encoding);
+    let there = record(c.first, j, b, h.bones, h.encoding);
     return Bone(nlerp(here.rotation, there.rotation, s), here.translation + (there.translation - here.translation) * s);
 }
 

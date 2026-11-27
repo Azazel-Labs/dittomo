@@ -77,6 +77,8 @@ fn fingers(sk: &Skeleton) -> Vec<[usize; 4]> {
 
 const WEIGHTS: [f32; 4] = [0.5, 0.3, 0.15, 0.05];
 
+const ENCODINGS: [Encoding; 3] = [Encoding::F32, Encoding::Half, Encoding::Fixed];
+
 /// How far the library puts points from where the clip does at these times, at worst, over the rig's height: every
 /// joint and points a twentieth of the height off it moved by its bone alone, then each fingertip (its last bone
 /// carried on by its own length) moved by its last bone alone and by its last four.
@@ -136,6 +138,18 @@ fn reach(sk: &Skeleton, clip: &Clip) -> f32 {
     clip.poses.iter().map(far).fold(0.0, f32::max)
 }
 
+/// The farthest any joint moves along an axis over the clip: the widest side of any bone's box.
+fn moved(sk: &Skeleton, clip: &Clip) -> f32 {
+    let mut edges = vec![(Vec3::MAX, Vec3::MIN); sk.len()];
+    for pose in &clip.poses {
+        for (edge, placed) in edges.iter_mut().zip(sk.world(pose)) {
+            *edge = (edge.0.min(placed.position()), edge.1.max(placed.position()));
+        }
+    }
+    let widest = |&(low, high): &(Vec3, Vec3)| (high - low).max_element();
+    edges.iter().map(widest).fold(0.0, f32::max)
+}
+
 #[test]
 fn a_retargeted_clip_comes_back_at_its_frames() {
     let on_frames: Vec<f32> = (0..90).map(|k| k as f32 / 30.0).collect();
@@ -146,9 +160,18 @@ fn a_retargeted_clip_comes_back_at_its_frames() {
         let tall = height(&sk);
         let reach = reach(&sk, &clip) / tall;
         // Floats are as good as the arithmetic. A half has 11 bits, so it places a joint within a 2048th of how far
-        // out it stands along each axis, and turns a bone within about a thousandth of a radian.
+        // out it stands along each axis, and turns a bone within about a thousandth of a radian. Fixed point places
+        // a joint within half a 65535th of how far it moves in the clip along each axis, however far out, and turns
+        // a bone within a twenty-thousandth of a radian.
         let half = reach * 3f32.sqrt() / 2048.0 + 1e-4;
-        for (encoding, bound) in [(Encoding::F32, 2e-6 * reach.max(1.0)), (Encoding::Half, half)] {
+        let moved = moved(&sk, &clip) / tall;
+        let fixed = moved * 3f32.sqrt() / (2.0 * 65535.0) + 1e-5;
+        let bounds = [
+            (Encoding::F32, 2e-6 * reach.max(1.0)),
+            (Encoding::Half, half),
+            (Encoding::Fixed, fixed),
+        ];
+        for (encoding, bound) in bounds {
             let bytes = baked(&sk, &clip, encoding, false);
             let library = Library::read(&bytes).expect("a library");
             assert_eq!(
@@ -160,7 +183,9 @@ fn a_retargeted_clip_comes_back_at_its_frames() {
             assert!((entry.rate - 30.0).abs() < 1e-3 && (entry.seconds() - 89.0 / 30.0).abs() < 1e-4);
             let (all, tip) = errors(&sk, &clip, &library, &on_frames);
             println!(
-                "{encoding:?} at the frames, {reach:.1} heights out: {all:.2e} of the height, fingertips {tip:.2e}"
+                "{encoding:?} at the frames, {reach:.1} heights out, {} bytes: {all:.2e} of the height, fingertips \
+                 {tip:.2e}",
+                bytes.len()
             );
             assert!(
                 all < bound && tip < bound,
@@ -179,10 +204,10 @@ fn a_retargeted_clip_comes_back_at_its_frames() {
 fn between_frames_it_stays_near_the_clip() {
     // The clip turns each bone under its parent between keys; the library moves each joint straight and turns each
     // bone in the world. With every bone swinging 23 degrees each way once a second, 30 frames a second keep the two
-    // within half a hundredth of the height, in either encoding.
+    // within half a hundredth of the height, in any encoding.
     let (sk, clip) = retargeted(false);
     let between: Vec<f32> = (0..89 * 4).map(|k| k as f32 / 120.0).collect();
-    for encoding in [Encoding::F32, Encoding::Half] {
+    for encoding in ENCODINGS {
         let bytes = baked(&sk, &clip, encoding, false);
         let library = Library::read(&bytes).expect("a library");
         let (all, tip) = errors(&sk, &clip, &library, &between);
@@ -249,7 +274,7 @@ fn a_looping_clip_wraps_without_a_pop() {
     let (sk, clip) = spin();
     let hand = sk.index_of("mixamorig:LeftHandIndex4").expect("a fingertip") as u32;
     let tip = sk.world(&sk.rest())[hand as usize].position();
-    for encoding in [Encoding::F32, Encoding::Half] {
+    for encoding in ENCODINGS {
         let bytes = baked(&sk, &clip, encoding, true);
         let library = Library::read(&bytes).expect("a library");
         let entry = library.entry(0).expect("its clip");
@@ -300,7 +325,7 @@ fn rotations_keep_to_one_hemisphere_along_a_clip() {
     let again: Vec<_> = clip.poses[1..].to_vec();
     clip.times.extend((31..=60).map(|f| f as f32 / 30.0));
     clip.poses.extend(again);
-    for encoding in [Encoding::F32, Encoding::Half] {
+    for encoding in ENCODINGS {
         let bytes = baked(&sk, &clip, encoding, false);
         let library = Library::read(&bytes).expect("a library");
         assert_eq!(library.entry(0).unwrap().frames, 61);
@@ -332,7 +357,7 @@ fn the_clip_table_finds_each_of_several_clips() {
         (&still, 30.0, true, 1),
         (&short, 30.0, false, 31),
     ];
-    for encoding in [Encoding::F32, Encoding::Half] {
+    for encoding in ENCODINGS {
         let mut baker = Baker::new(&sk, encoding);
         for (i, &(clip, rate, looping, _)) in clips.iter().enumerate() {
             assert_eq!(baker.add(clip, rate, looping), Ok(i));
@@ -348,6 +373,9 @@ fn the_clip_table_finds_each_of_several_clips() {
         assert_eq!(header.words as usize * 4, bytes.len());
         let mut first = header.pivots as usize + 3 * sk.len();
         for (i, &(clip, rate, looping, frames)) in clips.iter().enumerate() {
+            // In fixed point each clip's boxes come ahead of its records.
+            first += encoding.boxes() * sk.len();
+            assert_eq!(library.bounds(i, 0).is_some(), encoding == Encoding::Fixed);
             let entry = library.entry(i).expect("the clip");
             assert_eq!(
                 (entry.first as usize, entry.frames, entry.loops()),
@@ -505,12 +533,39 @@ fn a_wrong_magic_or_version_is_turned_away() {
         Library::read(&patched(1, bake::VERSION + 1)).err(),
         Some(bake::Error::Version(bake::VERSION + 1))
     );
+    assert_eq!(Library::read(&patched(2, 3)).err(), Some(bake::Error::Malformed));
+    // Halves called fixed point: there are no boxes ahead of the first clip's records.
     assert_eq!(Library::read(&patched(2, 2)).err(), Some(bake::Error::Malformed));
 }
 
 #[test]
-fn cut_short_is_an_error_and_never_a_panic() {
+fn a_library_of_the_version_before_is_still_read() {
+    // Version 1 had floats and halves, laid out as they are now: only the version's word differs.
+    assert_eq!(bake::VERSION, 2);
     for encoding in [Encoding::F32, Encoding::Half] {
+        let bytes = small(encoding);
+        let mut old = bytes.clone();
+        old[4..8].copy_from_slice(&1u32.to_le_bytes());
+        let (now, was) = (Library::read(&bytes).unwrap(), Library::read(&old).expect("version 1"));
+        assert_eq!((was.header().version, was.encoding()), (1, encoding));
+        for clip in 0..2 {
+            for bone in 0..3 {
+                for time in [0.0, 0.04, 0.11] {
+                    assert_eq!(was.bone(clip, time, bone), now.bone(clip, time, bone));
+                }
+            }
+        }
+    }
+    // It had no fixed point: a version 1 library that says so is no library.
+    let mut bytes = small(Encoding::Fixed);
+    assert!(Library::read(&bytes).is_ok());
+    bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+    assert_eq!(Library::read(&bytes).err(), Some(bake::Error::Malformed));
+}
+
+#[test]
+fn cut_short_is_an_error_and_never_a_panic() {
+    for encoding in ENCODINGS {
         let bytes = small(encoding);
         for len in 0..bytes.len() {
             assert_eq!(
@@ -531,7 +586,7 @@ fn cut_short_is_an_error_and_never_a_panic() {
 
 #[test]
 fn a_header_or_table_that_lies_is_an_error_or_harmless() {
-    for encoding in [Encoding::F32, Encoding::Half] {
+    for encoding in ENCODINGS {
         let bytes = small(encoding);
         let words = (bytes.len() / 4) as u32;
         let values = [
@@ -543,6 +598,9 @@ fn a_header_or_table_that_lies_is_an_error_or_harmless() {
             8,
             9,
             16,
+            // Where the first clip's records start in fixed point, and a word short of it: no room for its boxes.
+            42,
+            43,
             words - 1,
             words,
             words + 1,
@@ -569,6 +627,159 @@ fn a_header_or_table_that_lies_is_an_error_or_harmless() {
         }
         assert!(read > 20 && refused > 100, "{read} read, {refused} refused");
     }
+    // A fixed-point clip whose records start too soon for its boxes to lie ahead of them, inside the library.
+    let bytes = small(Encoding::Fixed);
+    let library = Library::read(&bytes).unwrap();
+    assert_eq!(library.entry(0).unwrap().first, 8 + 2 * 4 + 3 * 3 + 6 * 3);
+    for first in [0u32, 8, 25, 26, 42] {
+        let mut b = bytes.clone();
+        b[8 * 4..9 * 4].copy_from_slice(&first.to_le_bytes());
+        match Library::read(&b) {
+            // With room for them it reads the wrong words for boxes, and no more.
+            Ok(library) => {
+                assert!(first >= 8 + 6 * 3, "records from {first}");
+                play(&library);
+            }
+            Err(e) => assert_eq!(
+                (e, first < 8 + 6 * 3),
+                (bake::Error::Malformed, true),
+                "records from {first}"
+            ),
+        }
+    }
+}
+
+#[test]
+fn a_joint_that_never_moves_has_a_box_of_no_size() {
+    // One pose, held: every joint's box is a point. Then a clip in which only the head turns: the hips and the
+    // spine never move, the head's own joint neither, so every box is a point still, and none of it divides by
+    // nothing.
+    let bone = |name: &str, parent| Bone {
+        name: name.into(),
+        parent,
+        rest: Transform::new(Vec3::new(0.25, 1.0, -0.5), Quat::IDENTITY),
+    };
+    let sk = Skeleton::new(vec![bone("hips", None), bone("spine", Some(0)), bone("head", Some(1))]).unwrap();
+    let mut nod = Clip::default();
+    for f in 0..8 {
+        let mut pose = sk.rest();
+        pose[2].rotation = Quat::from_rotation_x(0.1 * f as f32);
+        nod.times.push(f as f32 / 30.0);
+        nod.poses.push(pose);
+    }
+    let held = Clip {
+        times: vec![0.0],
+        poses: vec![sk.rest()],
+    };
+    // And one in which the spine slides along x alone: a box with one side.
+    let mut slide = nod.clone();
+    for (f, pose) in slide.poses.iter_mut().enumerate() {
+        pose[1].translation.x += f as f32;
+    }
+    let mut baker = Baker::new(&sk, Encoding::Fixed);
+    for clip in [&held, &nod, &slide] {
+        baker.add(clip, 30.0, false).unwrap();
+    }
+    let bytes = baker.finish();
+    let library = Library::read(&bytes).expect("a library");
+    let rest = sk.world(&sk.rest());
+    for clip in 0..2 {
+        for b in 0..3 {
+            let at = rest[b].position();
+            assert_eq!(library.bounds(clip, b), Some([at, Vec3::ZERO]), "clip {clip}, bone {b}");
+            for frame in 0..library.entry(clip).unwrap().frames as usize {
+                assert_eq!(library.stored(clip, frame, b).unwrap().translation, at);
+            }
+            for time in [0.0, 0.05, 0.1, 9.0] {
+                let got = library.bone(clip as u32, time, b as u32);
+                assert!(got.translation.is_finite() && got.rotation.is_finite());
+                assert!((got.rotation * at + got.translation).distance(at) < 1e-5);
+            }
+        }
+    }
+    // The spine's box has its one side, and its joint is found along it.
+    assert_eq!(
+        library.bounds(2, 1),
+        Some([rest[1].position(), Vec3::new(7.0, 0.0, 0.0)])
+    );
+    for frame in 0..8 {
+        let at = library.stored(2, frame, 1).unwrap().translation;
+        assert!(at.distance(rest[1].position() + Vec3::X * frame as f32) < 7.0 / 65535.0);
+    }
+    assert_eq!(library.bounds(3, 0), None);
+    assert_eq!(library.bounds(0, 3), None);
+}
+
+#[test]
+fn places_that_are_no_numbers_bake_to_finite_ones() {
+    // A hips' place that is no number in one pose and has no end in another: neither is a corner of any box, and
+    // every record written is finite.
+    let bone = |name: &str, parent| Bone {
+        name: name.into(),
+        parent,
+        rest: Transform::new(Vec3::Y, Quat::IDENTITY),
+    };
+    let sk = Skeleton::new(vec![bone("hips", None), bone("spine", Some(0))]).unwrap();
+    let mut clip = common::walk(&sk, 6);
+    clip.poses[2][0].translation.x = f32::NAN;
+    clip.poses[4][0].translation.z = f32::INFINITY;
+    let mut every = Clip {
+        times: vec![0.0],
+        poses: vec![sk.rest()],
+    };
+    every.poses[0][0].translation = Vec3::NAN;
+    for encoding in ENCODINGS {
+        let mut baker = Baker::new(&sk, encoding);
+        baker.add(&clip, 30.0, false).unwrap();
+        baker.add(&every, 30.0, false).unwrap();
+        let bytes = baker.finish();
+        let library = Library::read(&bytes).expect("a library");
+        play(&library);
+        if encoding != Encoding::Fixed {
+            continue;
+        }
+        for clip in 0..2 {
+            for b in 0..2 {
+                let [low, size] = library.bounds(clip, b).unwrap();
+                assert!(low.is_finite() && size.is_finite() && size.min_element() >= 0.0);
+                for frame in 0..library.entry(clip).unwrap().frames as usize {
+                    let at = library.stored(clip, frame, b).unwrap().translation;
+                    assert!(at.is_finite() && at.cmpge(low).all() && at.cmple(low + size + 1e-3).all());
+                }
+            }
+        }
+        assert_eq!(library.bounds(1, 0), Some([Vec3::ZERO, Vec3::ZERO]), "never anywhere");
+    }
+}
+
+#[test]
+fn fixed_point_turns_a_bone_closer_than_halves_do() {
+    // Each stored rotation against the floats': a half's step is a 2048th of the number, fixed point's a 32767th
+    // of one, whatever the number. Off by a twentieth of a radian's thousandth, a point a twentieth of the height
+    // from its joint is a few millionths of the height out.
+    let (sk, clip) = retargeted(true);
+    let floats = baked(&sk, &clip, Encoding::F32, false);
+    let floats = Library::read(&floats).unwrap();
+    let off = |encoding: Encoding| {
+        let bytes = baked(&sk, &clip, encoding, false);
+        let library = Library::read(&bytes).unwrap();
+        let mut worst = 0f32;
+        for frame in 0..90 {
+            for b in 0..sk.len() {
+                let (want, got) = (
+                    floats.stored(0, frame, b).unwrap(),
+                    library.stored(0, frame, b).unwrap(),
+                );
+                assert!(want.rotation.dot(got.rotation) > 0.0, "the same hemisphere");
+                let off = want.rotation.inverse() * got.rotation.normalize();
+                worst = worst.max(2.0 * off.xyz().length());
+            }
+        }
+        worst
+    };
+    let (half, fixed) = (off(Encoding::Half), off(Encoding::Fixed));
+    println!("a stored rotation is off by {half:.2e} radians at worst as halves, {fixed:.2e} in fixed point");
+    assert!(fixed < 7e-5 && fixed * 5.0 < half, "{fixed} against {half}");
 }
 
 #[test]
@@ -600,7 +811,7 @@ fn what_cant_be_baked_is_an_error() {
 #[test]
 fn a_library_is_as_big_as_the_formula_says() {
     let (sk, walk) = retargeted(true);
-    for encoding in [Encoding::F32, Encoding::Half] {
+    for encoding in ENCODINGS {
         let mut baker = Baker::new(&sk, encoding);
         let mut frames = 0;
         for (clips, (rate, looping)) in [(24.0, true), (30.0, false), (50.0, false)].into_iter().enumerate() {
@@ -617,6 +828,9 @@ fn a_library_is_as_big_as_the_formula_says() {
     assert_eq!(bake::size(Encoding::F32, 80, 50, looped), 10_081_792);
     assert_eq!(bake::size(Encoding::Half, 80, 50, once), 5_825_792);
     assert_eq!(bake::size(Encoding::F32, 80, 50, once), 10_193_792);
+    // Fixed point is halves and fifty clips' boxes: 24 bytes a bone a clip.
+    assert_eq!(bake::size(Encoding::Fixed, 80, 50, looped), 5_857_792);
+    assert_eq!(bake::size(Encoding::Fixed, 80, 50, once), 5_921_792);
 }
 
 #[test]
@@ -699,7 +913,7 @@ fn vertex(
     } = library.header();
     assert_eq!(
         [magic, version, encoding, bones, clips, table, pivots],
-        [bake::MAGIC, 1, 1, 3, 2, 8, 16]
+        [bake::MAGIC, 2, 1, 3, 2, 8, 16]
     );
     let Entry {
         first,
@@ -709,4 +923,29 @@ fn vertex(
     } = library.entry(0).unwrap();
     assert_eq!((first, frames, flags, words), (25, 4, 1, 25 + 4 * 3 * (4 + 5)));
     assert!((rate - 30.0).abs() < 1e-4);
+
+    // Fixed point is read by the same functions: `record` takes it apart, its boxes found from where the clip's
+    // records start, and nothing else knows of it. So what was validated above is its path too.
+    for part in [
+        "if encoding == 2u {",
+        "let edge = first - 6u * (bones - bone);",
+        "fn signed16(h: u32) -> f32 {",
+        "return max(f32(i32(h << 16u) >> 16u) / 32767.0, -1.0);",
+        "/ 65535.0;",
+    ] {
+        assert!(bake::WGSL.contains(part), "the shader lacks `{part}`");
+    }
+    let record = (module.functions.iter())
+        .find(|(_, f)| f.name.as_deref() == Some("record"))
+        .expect("the shader's record");
+    let arguments: Vec<_> = (record.1.arguments.iter()).map(|a| a.name.clone().unwrap()).collect();
+    assert_eq!(arguments, ["first", "frame", "bone", "bones", "encoding"]);
+    let bytes = small(Encoding::Fixed);
+    let library = Library::read(&bytes).unwrap();
+    let header = library.header();
+    assert_eq!((header.version, header.encoding, header.pivots), (2, 2, 16));
+    // Each clip's boxes, six words a bone, then its records.
+    let (looped, once) = (library.entry(0).unwrap(), library.entry(1).unwrap());
+    assert_eq!((looped.first, once.first), (25 + 18, 25 + 18 + 4 * 3 * 4 + 18));
+    assert_eq!(header.words, once.first + 4 * 3 * 5);
 }

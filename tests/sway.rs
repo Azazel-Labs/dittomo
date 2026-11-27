@@ -1484,3 +1484,111 @@ fn prints_how_sway_compares_to_springs_set_up_by_hand() {
         }
     }
 }
+
+/// A wave like a sine, a parabola for each half, and a turn about `axis` by about `angle` radians (right for small
+/// ones): with no library math, so the same to the bit on any machine.
+fn wave(x: f32) -> f32 {
+    let t = x / std::f32::consts::PI;
+    let t = t - 2.0 * (t / 2.0).floor();
+    if t < 1.0 {
+        4.0 * t * (1.0 - t)
+    } else {
+        -4.0 * (t - 1.0) * (2.0 - t)
+    }
+}
+
+fn about(axis: Vec3, angle: f32) -> Quat {
+    Quat::from_vec4((axis * (angle / 2.0)).extend(1.0)).normalize()
+}
+
+/// Three seconds of the tailed rig dancing in place much as in `danced` and squatting, at 30 poses a second, so two
+/// steps a pose, kept out of the body and the floor or not: every chain bone's turn at the end of each second.
+fn each_second(collide: bool) -> Vec<[f32; 4]> {
+    let (sk, mut sway) = swayed();
+    sway.collide(collide, collide);
+    let at = |name: &str| sk.index_of(name).unwrap();
+    let (hips, chest, head) = (at("mixamorig:Hips"), at("mixamorig:Spine1"), at("mixamorig:Head"));
+    let mut out = Vec::new();
+    for f in 0..=90 {
+        let t = f as f32 / 30.0;
+        let mut pose = sk.rest();
+        // And squats, far enough to lay the tail on the floor.
+        let squat = 60.0 * wave(2.1 * t).max(0.0);
+        pose[hips].translation += Vec3::new(10.0 * wave(5.0 * t), 1.5 * wave(10.0 * t) - squat, 0.0);
+        pose[hips].rotation *= about(Vec3::Y, 0.25 * wave(3.1 * t));
+        pose[chest].rotation *= about(Vec3::X, 0.15 * wave(4.4 * t));
+        pose[head].rotation *= about(Vec3::Y, 0.3 * wave(5.7 * t));
+        sway.pose(if f == 0 { 0.0 } else { 1.0 / 30.0 }, &mut pose);
+        if f > 0 && f % 30 == 0 {
+            let bones = sway.chains().iter().flat_map(|c| &c.bones);
+            out.extend(bones.map(|&b| pose[b].rotation.to_array()));
+        }
+    }
+    out
+}
+
+/// What `each_second` gave before the step was made cheaper, kept out of the body and the floor and not: the tail's
+/// four bones and the ponytail's three, at one second, two and three.
+const KEPT_OUT: [[f32; 4]; 21] = [
+    [-0.9343256, 0.021854496, 0.009052428, 0.35563502],
+    [-0.13037242, 0.001658693, 0.013473757, 0.99137217],
+    [-0.07505547, -0.00029213633, -0.0036458708, 0.99717265],
+    [0.03517382, 0.0, -0.042698443, 0.9984687],
+    [-0.9715506, 0.009448733, 0.0025092363, 0.23663044],
+    [-0.16191098, -0.00030300018, -0.0018671972, 0.98680353],
+    [-0.001861195, 0.0, -0.016455336, 0.99986285],
+    [-0.9238673, -0.072027475, -0.029834758, 0.37468824],
+    [-0.1275241, -0.00984551, -0.07997616, 0.9885568],
+    [-0.08269827, -0.0060620336, -0.075655036, 0.9936803],
+    [-0.0005601086, 0.0, -0.059912056, 0.9982035],
+    [-0.96746206, -0.07932707, -0.02106644, 0.23933361],
+    [-0.16415928, -0.011731086, -0.07229015, 0.98371154],
+    [0.006928391, 0.0, -0.06015309, 0.99816513],
+    [-0.913676, -0.01781953, -0.007381088, 0.40598524],
+    [-0.12579638, 0.00030158643, 0.0024498326, 0.99205303],
+    [-0.09127058, 0.002068759, 0.025818419, 0.9954893],
+    [0.005016463, 0.0, 0.05130253, 0.9986706],
+    [-0.95066196, -0.01332772, -0.0035393606, 0.30992228],
+    [-0.1422606, 0.0017299573, 0.010660448, 0.9897703],
+    [0.001827755, -7.450581e-9, 0.044249937, 0.9990189],
+];
+const LET_THROUGH: [[f32; 4]; 21] = [
+    [-0.9343256, 0.021854496, 0.009052428, 0.35563502],
+    [-0.13037242, 0.001658693, 0.013473757, 0.99137217],
+    [-0.07505547, -0.00029213633, -0.0036458708, 0.99717265],
+    [0.004959544, -3.7252903e-9, -0.025106486, 0.9996725],
+    [-0.9715506, 0.009448733, 0.0025092363, 0.23663044],
+    [-0.16191098, -0.00030300018, -0.0018671972, 0.98680353],
+    [-0.001861195, 0.0, -0.016455336, 0.99986285],
+    [-0.9238673, -0.072027475, -0.029834758, 0.37468824],
+    [-0.1275241, -0.00984551, -0.07997616, 0.9885568],
+    [-0.08269827, -0.0060620336, -0.075655036, 0.9936803],
+    [-0.0005601086, 0.0, -0.059912056, 0.9982035],
+    [-0.96746206, -0.07932707, -0.02106644, 0.23933361],
+    [-0.16415928, -0.011731086, -0.07229015, 0.98371154],
+    [0.006928391, 0.0, -0.06015309, 0.99816513],
+    [-0.913676, -0.01781953, -0.007381088, 0.40598524],
+    [-0.12579638, 0.00030158643, 0.0024498326, 0.99205303],
+    [-0.09127058, 0.002068759, 0.025818419, 0.9954893],
+    [0.005016463, 0.0, 0.05130253, 0.9986706],
+    [-0.95066196, -0.01332772, -0.0035393606, 0.30992228],
+    [-0.1422606, 0.0017299573, 0.010660448, 0.9897703],
+    [0.001827755, -7.450581e-9, 0.044249937, 0.9990189],
+];
+
+#[test]
+fn a_dance_sways_as_it_did_before_the_step_was_made_cheaper() {
+    // To a hundred-thousandth of a radian, every bone: the step now differs from the one these were taken from by
+    // rounding alone. The tail is laid on the floor on the way, so the two runs differ.
+    for (collide, was) in [(true, &KEPT_OUT), (false, &LET_THROUGH)] {
+        let now = each_second(collide);
+        assert_eq!(now.len(), was.len());
+        let off = |(a, b): (&[f32; 4], &[f32; 4])| apart(Quat::from_array(*a), Quat::from_array(*b));
+        let worst = now.iter().zip(was).map(off).fold(0.0, f32::max);
+        println!("the dance, kept out {collide}: {worst:e} radians off what it was at most");
+        assert!(worst < 1e-5, "kept out {collide}: {worst} radians off what it was");
+    }
+    let differ = |(a, b): (&[f32; 4], &[f32; 4])| apart(Quat::from_array(*a), Quat::from_array(*b));
+    let floor = KEPT_OUT.iter().zip(&LET_THROUGH).map(differ).fold(0.0, f32::max);
+    assert!(floor > 0.05, "the tail never reached the floor: {floor}");
+}
