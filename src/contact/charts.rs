@@ -43,6 +43,9 @@ const FAST: f32 = 1.6;
 /// How much of an arm's length, toward its full reach, is given up softly.
 const SOFT: f32 = 0.1;
 
+/// How many times over the hands are placed: a hand by the other arm again after the first, as that arm has moved.
+const ROUNDS: usize = 3;
+
 /// How far along a trunk, from between its hips' joints to its head's, its shoulders count as.
 const SHOULDERS: f32 = 0.6;
 
@@ -315,6 +318,11 @@ struct Reach {
 /// head of any size. A hand is held on it while its middle is near the head's surface and it isn't sweeping past;
 /// then no other part keeps it off, and a hand that can't get to its place goes as near as it can over the head, not
 /// short of it. With a head on both bodies this stands in for [`super::OnHead`].
+///
+/// A hand held on the other arm (its shoulder, its biceps, its forearm) is there on purpose too, and is brought to its
+/// place from however far, kept off nothing farther from it than that arm. As placing one arm moves the skin the
+/// other's hand rests on, a hand by the other arm is placed again once that arm has been, a few times over: arms
+/// hugged, each hand on the other, settle together.
 ///
 /// Hands that meet are placed as one, so that each placed by its body doesn't part them: the point between them goes
 /// where placing put it, and the way from one to the other stays what it was.
@@ -714,14 +722,14 @@ impl Charts {
     }
 
     /// Where arm `i`'s hand's middle goes, as [`Self::look`] saw it and the target's bones are placed, how much it is
-    /// to be brought there, and how much it is held on a part it is by on purpose: nothing if no part is anywhere
-    /// near.
-    fn aim(&self, i: usize, tw: &[At]) -> Option<(Vec3, f32, f32)> {
+    /// to be brought there, how much it is held on a part it is by on purpose, and how much on another arm: nothing if
+    /// no part is anywhere near.
+    fn aim(&self, i: usize, tw: &[At]) -> Option<(Vec3, f32, f32, f32)> {
         let [hs, ht] = self.heights;
         let (arm, n) = (&self.arms[i], self.parts.len());
         // Between where each part says, the nearer the more; brought there as much as the nearest is near.
         let (mut goal, mut all, mut most) = (Vec3::ZERO, 0.0, 0.0f32);
-        let (mut top, mut held, mut over) = (0.0f32, 0.0f32, 0.0f32);
+        let (mut top, mut held, mut over, mut gripped) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
         for (p, by) in self.parts.iter().zip(&self.by[i * n..(i + 1) * n]) {
             let Some(by) = *by else { continue };
             let gap = by.gap / hs;
@@ -736,9 +744,12 @@ impl Charts {
             goal += p.sides[1].point(tw, to) * share;
             all += share;
             top = top.max(share);
+            let close = share * super::smooth(1.0 - (gap - HELD) / (LOOSE - HELD));
             if p.meant {
-                held = held.max(share * super::smooth(1.0 - (gap - HELD) / (LOOSE - HELD)));
+                held = held.max(close);
                 over = over.max(share);
+            } else if p.arm.is_some() {
+                gripped = gripped.max(close);
             }
             most = most.max(super::smooth(1.0 - (gap - NEAR) / (FAR - NEAR)));
         }
@@ -747,14 +758,23 @@ impl Charts {
         }
         let goal = goal / all;
         // Held on a part as much as that part counts against the one counting most, and as the hand is slow.
-        let held = held / top * self.slow[i];
+        let (held, gripped) = (held / top * self.slow[i], gripped / top);
         // Only what is nearly there already is brought there: a broad body's hands hang far from its thighs, and
-        // aren't to be pulled in because a slight one's hang by its own. A hand held on a head is there on purpose.
+        // aren't to be pulled in because a slight one's hang by its own. A hand held on a head is there on purpose,
+        // and so is one held on the other arm.
         let now = tw[arm.limb.end].matrix.transform_point3(arm.middle[1]);
         let sure = super::smooth(1.0 - (goal.distance(now) / ht - SURE) / (UNSURE - SURE));
         // A hand sweeping past a head isn't by it at all, the less the more the head counts.
         let past = over / top * (1.0 - self.slow[i]);
-        Some((goal, most * (sure + (1.0 - sure) * held) * (1.0 - past), held))
+        let meant = held.max(gripped);
+        Some((goal, most * (sure + (1.0 - sure) * meant) * (1.0 - past), held, gripped))
+    }
+
+    /// Whether arm `i`'s hand is near a part of another arm, as [`Self::look`] saw it.
+    fn by_arm(&self, i: usize) -> bool {
+        let (n, hs) = (self.parts.len(), self.heights[0]);
+        let near = |(p, by): (&Part, &Option<By>)| p.arm.is_some() && by.is_some_and(|by| by.gap < FAR * hs);
+        self.parts.iter().zip(&self.by[i * n..(i + 1) * n]).any(near)
     }
 
     /// Sets how much each hand is to be placed and how much it is held ([`Self::on`]), as this pose shows, `dt`
@@ -772,7 +792,7 @@ impl Charts {
                 place(target, played, &self.t_path, tw);
                 ready = true;
             }
-            if let Some((_, w, held)) = self.aim(i, tw) {
+            if let Some((_, w, held, _)) = self.aim(i, tw) {
                 (self.on[i], self.on[n + i]) = (w, held);
             }
         }
@@ -797,75 +817,90 @@ impl Charts {
         let [hs, ht] = self.heights;
         let n = self.parts.len();
         let mut ready = false;
-        for i in 0..self.arms.len() {
-            if on[i] <= 0.0 {
-                continue;
-            }
-            if !looked {
-                self.look(i, sw, None);
-            }
-            if !ready {
-                place(target, played, &self.t_path, tw);
-                ready = true;
-                for (was, arm) in self.before.iter_mut().zip(&self.arms) {
-                    *was = tw[arm.limb.end].position();
-                }
-            }
-            let Some((to, ..)) = self.aim(i, tw) else {
-                continue;
-            };
-            let held = on[self.arms.len() + i];
-            let arm = &self.arms[i];
-            let end: &At = &tw[arm.limb.end];
-            let now = end.matrix.transform_point3(arm.middle[1]);
-            let mut goal = now.lerp(to, on[i]);
-            // Between two parts' answers it can come nearer one than the source's is to its own: then out to as far
-            // off that part as the source's, the nearer the source's is to it the more. A hand held on a head is kept
-            // off nothing else: on a smaller head it is nearer the shoulders than the source's.
-            for (p, by) in self.parts.iter().zip(&self.by[i * n..(i + 1) * n]) {
-                let Some(by) = *by else { continue };
-                let free = if p.meant { 1.0 } else { 1.0 - held };
-                let w = on[i] * free * super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR));
-                if w <= 0.0 {
+        // A hand by the other arm is placed again once that arm has been, from where it was before any was: placing
+        // one arm moves the skin the other's hand rests on. Where only one arm is placed, nothing moves under it.
+        let mut placed = 0;
+        for round in 0..ROUNDS {
+            for i in 0..self.arms.len() {
+                if on[i] <= 0.0 {
                     continue;
                 }
-                let want = by.gap * ht / hs;
-                let Some(at) = p.sides[1].within(tw, goal, want) else {
-                    continue;
-                };
-                if at.gap < want {
-                    let out = By { gap: want, ..at };
-                    goal = goal.lerp(p.sides[1].point(tw, out), w);
-                }
-            }
-            // Toward its full length an arm's elbow moves ever faster for the same move of its hand: the last tenth of
-            // its reach is given up softly, never bending an arm straighter than this as it was played.
-            let (a, b, c) = (
-                tw[arm.limb.upper].position(),
-                tw[arm.limb.lower].position(),
-                end.position(),
-            );
-            let mut wrist = c + goal - now;
-            let (length, was, far) = (a.distance(b) + b.distance(c), a.distance(c), a.distance(wrist));
-            let soft = SOFT * length;
-            let head = self.head.filter(|_| held > 0.0);
-            if far > length - soft {
-                let eased = length - soft * (-(far - (length - soft)) / soft).exp();
-                let most = eased.max(far.min(was));
-                let short = a + (wrist - a) * (most / far);
-                // A hand held on a head that can't get to its place goes as near it as it can over the head, not
-                // short of it toward the shoulder: its middle as far from the head's as it was to be.
-                wrist = match head {
-                    Some(k) => {
-                        let center = self.parts[k].sides[1].point(tw, MIDDLE);
-                        let over = within(wrist + now - c, center, (a + now - c, most)) - (now - c);
-                        short.lerp(over, held)
+                if round > 0 {
+                    if placed < 2 || !self.by_arm(i) {
+                        continue;
                     }
-                    None => short,
+                } else {
+                    if !looked {
+                        self.look(i, sw, None);
+                    }
+                    if !ready {
+                        place(target, played, &self.t_path, tw);
+                        ready = true;
+                        for (was, arm) in self.before.iter_mut().zip(&self.arms) {
+                            *was = tw[arm.limb.end].position();
+                        }
+                    }
+                }
+                let Some((to, _, _, gripped)) = self.aim(i, tw) else {
+                    continue;
                 };
+                let held = on[self.arms.len() + i];
+                let arm = &self.arms[i];
+                let end: &At = &tw[arm.limb.end];
+                // Its wrist as it was before it was placed, and its middle then: a hand keeps its turn.
+                let reach = end.matrix.transform_vector3(arm.middle[1]);
+                let c = self.before[i];
+                let now = c + reach;
+                let mut goal = now.lerp(to, on[i]);
+                // Between two parts' answers it can come nearer one than the source's is to its own: then out to as
+                // far off that part as the source's, the nearer the source's is to it the more. A hand held on a head
+                // is kept off nothing else: on a smaller head it is nearer the shoulders than the source's. Nor is one
+                // held on the other arm kept off what is farther from it: a broader chest behind that arm, say.
+                for (p, by) in self.parts.iter().zip(&self.by[i * n..(i + 1) * n]) {
+                    let Some(by) = *by else { continue };
+                    let off = super::smooth((by.gap / hs - HELD) / (LOOSE - HELD));
+                    let free = if p.meant { 1.0 } else { 1.0 - held };
+                    let near = super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR));
+                    let w = on[i] * free * (1.0 - gripped * off) * near;
+                    if w <= 0.0 {
+                        continue;
+                    }
+                    let want = by.gap * ht / hs;
+                    let Some(at) = p.sides[1].within(tw, goal, want) else {
+                        continue;
+                    };
+                    if at.gap < want {
+                        let out = By { gap: want, ..at };
+                        goal = goal.lerp(p.sides[1].point(tw, out), w);
+                    }
+                }
+                // Toward its full length an arm's elbow moves ever faster for the same move of its hand: the last tenth
+                // of its reach is given up softly, never bending an arm straighter than this as it was played.
+                let (a, b) = (tw[arm.limb.upper].position(), tw[arm.limb.lower].position());
+                let mut wrist = c + goal - now;
+                let length = a.distance(b) + b.distance(end.position());
+                let (was, far) = (a.distance(c), a.distance(wrist));
+                let soft = SOFT * length;
+                let head = self.head.filter(|_| held > 0.0);
+                if far > length - soft {
+                    let eased = length - soft * (-(far - (length - soft)) / soft).exp();
+                    let most = eased.max(far.min(was));
+                    let short = a + (wrist - a) * (most / far);
+                    // A hand held on a head that can't get to its place goes as near it as it can over the head, not
+                    // short of it toward the shoulder: its middle as far from the head's as it was to be.
+                    wrist = match head {
+                        Some(k) => {
+                            let center = self.parts[k].sides[1].point(tw, MIDDLE);
+                            let over = within(wrist + reach, center, (a + reach, most)) - reach;
+                            short.lerp(over, held)
+                        }
+                        None => short,
+                    };
+                }
+                reach_in(target, played, tw, &arm.limb, wrist);
+                place(target, played, &arm.below, tw);
+                placed += usize::from(round == 0);
             }
-            reach_in(target, played, tw, &arm.limb, wrist);
-            place(target, played, &arm.below, tw);
         }
         if !ready {
             return;

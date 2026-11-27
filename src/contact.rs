@@ -37,10 +37,10 @@ pub struct Fixes {
     /// Keep the target's hands on its head where the source's are on theirs (covering the ears, clasped on top, a palm
     /// to the forehead): at the same place on the head, scaled to the head's size, turning with it.
     pub head: bool,
-    /// Keep the target's hands where the source's are by its body: by a hip, a thigh, the chest, the other arm, when
-    /// playing the pose leaves them nearly there, and on the head, from however far, where both bodies have one: this
-    /// then stands in for what `head` does ([`crate::Mapping::apply_touching`] knows the skins; without, the bodies
-    /// are guessed from their bones). Off by default: being tried.
+    /// Keep the target's hands where the source's are by its body: by a hip, a thigh, the chest, when playing the pose
+    /// leaves them nearly there; on the other arm, from however far; and on the head, from however far, where both
+    /// bodies have one: this then stands in for what `head` does ([`crate::Mapping::apply_touching`] knows the skins;
+    /// without, the bodies are guessed from their bones). Off by default: being tried.
     pub place: bool,
     /// Swing the target's bones that nothing drives after the body: hair, tails, ears, capes and skirts
     /// ([`crate::Sway`]), last, kept out of the body and over the floor. Off by default: being tried.
@@ -2868,7 +2868,7 @@ struct Reaching {
     source: usize,
     middle: [Vec3; 2],
     hand: [Balls; 2],
-    /// The skin of each rig's other arms, from the elbow down.
+    /// The skin of each rig's other arms, from the shoulder down.
     others: [Balls; 2],
     /// How far the skin of the source's hand and fingers reaches from its middle at rest, at most.
     span: f32,
@@ -2876,12 +2876,40 @@ struct Reaching {
     below: Vec<usize>,
 }
 
+/// A hand by its body's skin, as [`Touch`] has put it: how far the source's is from its own, the way the target's is
+/// out from its own, how much it is held to its gap from it, the least that gap may come to be when the hand is
+/// brought to another arm (the source's, as far as the hand is held to it), and whether the hand was moved.
+#[derive(Clone, Copy)]
+struct ByBody {
+    gap: f32,
+    out: Vec3,
+    held: f32,
+    least: f32,
+    moved: bool,
+}
+
+impl ByBody {
+    /// By no skin of the body at all.
+    const FREE: Self = Self {
+        gap: f32::INFINITY,
+        out: Vec3::ZERO,
+        held: 0.0,
+        least: 0.0,
+        moved: false,
+    };
+}
+
 /// Keeps each target hand as far from the target's skin as the source's hand is from the source's, scaled by height,
 /// while the source's is near its body: a hand resting on a hip rests on the target's hip, over a coat if it wears one.
 /// Far from the body the hand is left where it is, except that it is kept out of the skin; in between, the two blend.
-/// Then the same against the other arms' skin from the elbow down, for a hand nearer that than its body: a hand laid
-/// on the other forearm or hand stays laid on it, however thick the target's is. Reached with two-bone IK, so the hand
-/// keeps its turn.
+/// Then the same against the other arms' skin, for a hand nearer that than its body: a hand laid on the other
+/// shoulder, upper arm, forearm or hand stays laid on it, however thick the target's is. A hand by both skins, as one
+/// on a shoulder is, keeps its gap to both: it is brought to the arm's across the way out from its body, and comes no
+/// nearer its body for it than the source's is to its own.
+///
+/// Each is done twice over where a hand was moved: a hand is brought to its gap the way the skin faces where it is,
+/// and the skin it comes to may face another way; and moving one arm moves the skin the other's hand is on, so arms
+/// hugged, each hand on the other, settle together. Reached with two-bone IK, so the hand keeps its turn.
 pub(crate) struct Touch {
     skins: [Surface; 2],
     arms: Vec<Reaching>,
@@ -2896,8 +2924,10 @@ pub(crate) struct Touch {
     around: [Vec<Around>; 2],
     /// An arm's [`Reaching::others`] placed.
     beside: Vec<Around>,
-    /// How far each source hand is from its body's skin this pose.
-    gaps: Vec<f32>,
+    /// Each hand by its body's skin this pose.
+    by_body: Vec<ByBody>,
+    /// How far each source hand is from the other arms' skin this pose, and how much it is held to that.
+    by_arms: Vec<(f32, f32)>,
     /// Room for [`Surface::clearance`] to work in.
     frames: Vec<(Toward, f32)>,
 }
@@ -2928,17 +2958,17 @@ impl Touch {
             off.into_iter().zip(on).map(|(o, on)| on && !o).collect::<Vec<_>>()
         };
         let keep = [off_arms(source, s_body), off_arms(target, t_body)];
-        // The arms from the elbow down, but for the one with this hand.
-        let lowers = |b: &Body, but: Option<usize>| {
+        // The arms from the shoulder down, but for the one with this hand.
+        let uppers = |b: &Body, but: Option<usize>| {
             let arms = b.arms.iter().filter(|a| Some(a.limb.end) != but);
-            arms.map(|a| a.limb.lower).collect::<Vec<_>>()
+            arms.map(|a| a.limb.upper).collect::<Vec<_>>()
         };
         let on_arms = [
-            under(source, &lowers(s_body, None)),
-            under(target, &lowers(t_body, None)),
+            under(source, &uppers(s_body, None)),
+            under(target, &uppers(t_body, None)),
         ];
         let s_rest = source.world(&source.rest());
-        // Every bone the skin a hand can touch moves with: the body's, and the arms' from the elbow down.
+        // Every bone the skin a hand can touch moves with: the body's, and the arms'.
         let path = |skeleton: &Skeleton, skin: &Surface, k: usize| {
             let on = |b: usize| keep[k][b] || on_arms[k][b];
             let ends = hands.iter().map(|h| if k == 0 { h.1 } else { h.0.end });
@@ -2950,8 +2980,8 @@ impl Touch {
             .filter_map(|(limb, a, [s_on, t_on])| {
                 let moved = under(target, &[limb.upper]);
                 let (s_others, t_others) = (
-                    under(source, &lowers(s_body, Some(*a))),
-                    under(target, &lowers(t_body, Some(limb.end))),
+                    under(source, &uppers(s_body, Some(*a))),
+                    under(target, &uppers(t_body, Some(limb.end))),
                 );
                 let middle = [s_skin.center(*a)?, t_skin.center(limb.end)?];
                 let at_rest = s_rest[*a].matrix.transform_point3(middle[0]);
@@ -2982,7 +3012,8 @@ impl Touch {
             points: Vec::with_capacity(s_skin.len().max(t_skin.len())),
             around: [Vec::new(), Vec::new()],
             beside: Vec::new(),
-            gaps: vec![f32::INFINITY; arms.len()],
+            by_body: vec![ByBody::FREE; arms.len()],
+            by_arms: vec![(0.0, 0.0); arms.len()],
             frames: Vec::new(),
             balls: [s_skin.balls(|b| keep[0][b]), t_skin.balls(|b| keep[1][b])],
             skins: [s_skin.clone(), t_skin.clone()],
@@ -3012,65 +3043,127 @@ impl Touch {
         let [s_around, t_around] = &mut self.around;
         s_balls.place(sw, s_around);
         t_balls.place(tw, t_around);
-        for (arm, by_body) in self.arms.iter().zip(&mut self.gaps) {
-            *by_body = f32::INFINITY;
-            let ([cs, ct], [s_hand, t_hand]) = (arm.middle, &arm.hand);
-            let c = sw[arm.source].matrix.transform_point3(cs);
-            s_skin.posed_near(s_balls, s_around, sw, c, pts);
-            let Some((g, _)) = s_skin.clearance(pts, sw, c, s_hand, &mut self.frames) else {
-                continue;
-            };
-            *by_body = g;
-            let g = g.max(0.0);
-            let x = ((g / s_height - near) / (far - near)).clamp(0.0, 1.0);
-            let w = 1.0 - x * x * (3.0 - 2.0 * x);
-            let end = tw[arm.limb.end];
-            let c = end.matrix.transform_point3(ct);
-            t_skin.posed_near(t_balls, t_around, tw, c, pts);
-            let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand, &mut self.frames) else {
-                continue;
-            };
-            // Never into the skin, however deep in it the hand has come.
-            let want = (now + w * (g * scale - now)).max(0.0);
-            if (want - now).abs() > 1e-4 * t_height {
-                reach_in(target, played, tw, &arm.limb, end.position() + facing * (want - now));
-                place(target, played, &arm.below, tw);
+        // A hand is brought to its gap the way its skin faces where it is, and where it comes to the skin may face
+        // another way or be nearer: so twice over, the second time from where the first left it.
+        for round in 0..TWICE {
+            let mut moved = false;
+            for (arm, by_body) in self.arms.iter().zip(&mut self.by_body) {
+                let ([cs, ct], [s_hand, t_hand]) = (arm.middle, &arm.hand);
+                if round == 0 {
+                    *by_body = ByBody::FREE;
+                    let c = sw[arm.source].matrix.transform_point3(cs);
+                    s_skin.posed_near(s_balls, s_around, sw, c, pts);
+                    let Some((g, _)) = s_skin.clearance(pts, sw, c, s_hand, &mut self.frames) else {
+                        continue;
+                    };
+                    by_body.gap = g;
+                } else if !by_body.moved {
+                    continue;
+                }
+                let g = by_body.gap.max(0.0);
+                let x = ((g / s_height - near) / (far - near)).clamp(0.0, 1.0);
+                let w = 1.0 - x * x * (3.0 - 2.0 * x);
+                let end = tw[arm.limb.end];
+                let c = end.matrix.transform_point3(ct);
+                t_skin.posed_near(t_balls, t_around, tw, c, pts);
+                let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand, &mut self.frames) else {
+                    continue;
+                };
+                // Never into the skin, however deep in it the hand has come.
+                let want = (now + w * (g * scale - now)).max(0.0);
+                (by_body.out, by_body.held, by_body.least) = (facing, w, w * g * scale);
+                by_body.moved = (want - now).abs() > 1e-4 * t_height;
+                if by_body.moved {
+                    reach_in(target, played, tw, &arm.limb, end.position() + facing * (want - now));
+                    place(target, played, &arm.below, tw);
+                    moved = true;
+                }
+            }
+            if !moved {
+                break;
             }
         }
         // Then each hand against the other arms, once every arm is where its body has it. A hand is laid on the skin
-        // it is nearer: on its body though an arm hangs by, on the other hand though that rests on the body.
+        // it is nearer: on its body though an arm hangs by, on the other hand though that rests on the body. Twice
+        // over here too, and as a hand moved is an arm moved, which another hand may be on.
         let beside = &mut self.beside;
-        for (arm, &by_body) in self.arms.iter().zip(&self.gaps) {
-            let ([cs, ct], [s_hand, t_hand], [s_others, t_others]) = (arm.middle, &arm.hand, &arm.others);
-            let c = sw[arm.source].matrix.transform_point3(cs);
-            s_others.place(sw, beside);
-            if Around::nearest(beside, c) > far * s_height + arm.span {
-                continue;
-            }
-            s_skin.posed_near(s_others, beside, sw, c, pts);
-            let Some((g, _)) = s_skin.clearance(pts, sw, c, s_hand, &mut self.frames) else {
-                continue;
-            };
-            let x = ((g.max(0.0) / s_height - near) / (far - near)).clamp(0.0, 1.0);
-            let nearer = smooth(0.5 + (by_body - g) / s_height / (2.0 * NEARER));
-            let w = (1.0 - x * x * (3.0 - 2.0 * x)) * nearer;
-            if w <= 0.0 {
-                continue;
-            }
-            let end = tw[arm.limb.end];
-            let c = end.matrix.transform_point3(ct);
-            t_others.place(tw, beside);
-            t_skin.posed_near(t_others, beside, tw, c, pts);
-            let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand, &mut self.frames) else {
-                continue;
-            };
-            let by = w * (g.max(0.0) * scale - now);
-            if by.abs() > 1e-4 * t_height {
-                reach_in(target, played, tw, &arm.limb, end.position() + facing * by);
+        for round in 0..TWICE {
+            let mut moved = false;
+            for ((arm, &body), by_arms) in self.arms.iter().zip(&self.by_body).zip(&mut self.by_arms) {
+                let ([cs, ct], [s_hand, t_hand], [s_others, t_others]) = (arm.middle, &arm.hand, &arm.others);
+                if round == 0 {
+                    *by_arms = (0.0, 0.0);
+                    let c = sw[arm.source].matrix.transform_point3(cs);
+                    s_others.place(sw, beside);
+                    if Around::nearest(beside, c) > far * s_height + arm.span {
+                        continue;
+                    }
+                    s_skin.posed_near(s_others, beside, sw, c, pts);
+                    let Some((g, _)) = s_skin.clearance(pts, sw, c, s_hand, &mut self.frames) else {
+                        continue;
+                    };
+                    let x = ((g.max(0.0) / s_height - near) / (far - near)).clamp(0.0, 1.0);
+                    let nearer = smooth(0.5 + (body.gap - g) / s_height / (2.0 * NEARER));
+                    *by_arms = (g.max(0.0), (1.0 - x * x * (3.0 - 2.0 * x)) * nearer);
+                }
+                let (g, w) = *by_arms;
+                if w <= 0.0 {
+                    continue;
+                }
+                let end = tw[arm.limb.end];
+                let c = end.matrix.transform_point3(ct);
+                t_others.place(tw, beside);
+                t_skin.posed_near(t_others, beside, tw, c, pts);
+                let Some((now, facing)) = t_skin.clearance(pts, tw, c, t_hand, &mut self.frames) else {
+                    continue;
+                };
+                let by = w * (g * scale - now);
+                if by.abs() <= 1e-4 * t_height {
+                    continue;
+                }
+                // Held to its gap from its body too, it goes across the way out from that: as far out from the arm,
+                // and no nearer its body or farther.
+                let way = facing.lerp(aside(facing, body.out), body.held);
+                reach_in(target, played, tw, &arm.limb, end.position() + way * by);
                 place(target, played, &arm.below, tw);
+                moved = true;
+                if body.out == Vec3::ZERO {
+                    continue;
+                }
+                // Nor may that bring a hand by its body nearer it than the source's is to its own: then out from its
+                // body again, across the way out from the arm.
+                let end = tw[arm.limb.end];
+                let c = end.matrix.transform_point3(ct);
+                t_skin.posed_near(t_balls, t_around, tw, c, pts);
+                if let Some((now, out)) = t_skin.clearance(pts, tw, c, t_hand, &mut self.frames)
+                    && body.least - now > 1e-4 * t_height
+                {
+                    let back = aside(out, facing) * (body.least - now);
+                    reach_in(target, played, tw, &arm.limb, end.position() + back);
+                    place(target, played, &arm.below, tw);
+                }
+            }
+            if !moved {
+                break;
             }
         }
     }
+}
+
+/// How many times over [`Touch`] brings a hand to its gap.
+const TWICE: usize = 2;
+
+/// The way to go to get one step along `out` and none along `other`, both of length one, as far as that takes no more
+/// than two steps: a step along `out`, and aside from it. Where the two run nearly the same way or against each other,
+/// some of the step along `other` is left.
+fn aside(out: Vec3, other: Vec3) -> Vec3 {
+    let c = out.dot(other);
+    let s = (1.0 - c * c).max(0.0).sqrt();
+    if s < 1e-3 {
+        return out;
+    }
+    let most = 3.0f32.sqrt();
+    out + (other - out * c) / s * (-c / s).clamp(-most, most)
 }
 
 /// How much nearer the other arm than its body (over the height) a source hand is wholly by the arm; as much nearer

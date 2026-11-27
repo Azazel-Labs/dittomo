@@ -2484,3 +2484,264 @@ fn hands_clasped_before_the_chest_stay_together_when_placed_by_the_body() {
         }
     }
 }
+
+/// The same rig with its upper arms `upper` times as long, its forearms `fore` times, and its shoulders `wide` times as
+/// far apart; its hands as they were.
+fn built(sk: &Skeleton, upper: f32, fore: f32, wide: f32) -> Skeleton {
+    let mut bones = sk.bones().to_vec();
+    for b in &mut bones {
+        if b.name.ends_with("ForeArm") {
+            b.rest.translation *= upper;
+        } else if b.name.ends_with("Hand") {
+            b.rest.translation *= fore;
+        } else if b.name.ends_with("Shoulder") || b.name.ends_with("Arm") {
+            b.rest.translation.x *= wide;
+        }
+    }
+    Skeleton::new(bones).unwrap()
+}
+
+/// [`skin_with_forearms`], and a rod `r_upper` thick along each upper arm, from the shoulder to the elbow.
+fn skin_with_arms(sk: &Skeleton, r: f32, r_fore: f32, r_upper: f32) -> Vec<(Vec3, Vec3, usize)> {
+    let rest = sk.world(&sk.rest());
+    let bone = |n: &str| sk.index_of(&format!("mixamorig:{n}")).unwrap();
+    let mut points = skin_with_forearms(sk, r, r_fore);
+    for side in ["Left", "Right"] {
+        let upper = bone(&format!("{side}Arm"));
+        let (shoulder, elbow) = (rest[upper].position(), rest[bone(&format!("{side}ForeArm"))].position());
+        let steps = shoulder.distance(elbow).ceil() as usize;
+        for i in 0..=steps {
+            let at = shoulder.lerp(elbow, i as f32 / steps as f32);
+            for k in 0..24 {
+                let a = k as f32 / 24.0 * std::f32::consts::TAU;
+                let n = Vec3::new(0.0, a.cos(), a.sin());
+                points.push((at + n * r_upper, n, upper));
+            }
+        }
+    }
+    points
+}
+
+/// Where the middle of `mover`'s hand is by `held`'s upper arm: how far along it from the shoulder to the elbow, and
+/// how far from its line, over the height.
+fn by_upper_arm(sk: &Skeleton, pose: &[Transform], held: &Limb, mover: &Limb) -> (f32, f32) {
+    let w = sk.world(pose);
+    let (a, b) = (w[held.upper].position(), w[held.lower].position());
+    let p = w[mover.end].matrix.transform_point3(palm(sk, mover.end));
+    let t = (p - a).dot(b - a) / (b - a).length_squared();
+    (t, p.distance(a + (b - a) * t.clamp(0.0, 1.0)) / height(sk))
+}
+
+/// How far `mover`'s hand is from the skin of the arms not its own, over the height: the skin is `points`, as
+/// [`skin_with_arms`] gives them.
+fn off_other_arms(sk: &Skeleton, points: &[(Vec3, Vec3, usize)], pose: &[Transform], mover: &Limb) -> f32 {
+    let on_arms = |b: usize| sk.bones()[b].name.contains("Arm") || sk.bones()[b].name.contains("Hand");
+    let arms = dittomo::Surface::new(sk, points.iter().copied().filter(|p| on_arms(p.2)), 1.0);
+    arms.gap(sk, &sk.world(pose), mover.end, &[mover.upper], 0).unwrap() / height(sk)
+}
+
+/// Lays the middle of `mover`'s hand `far` from the line of `held`'s upper arm, `along` it from the shoulder, out the
+/// way `from` points as nearly as that is across the arm; the hand lies along the arm, flat on it.
+fn lay_on_upper_arm(
+    sk: &Skeleton,
+    pose: &mut [Transform],
+    [held, mover]: [&Limb; 2],
+    along: f32,
+    from: Vec3,
+    far: f32,
+) {
+    let rest = sk.world(&sk.rest());
+    let wrist = rest[mover.end].position();
+    let reach = rest[mover.end].matrix.transform_vector3(palm(sk, mover.end));
+    let w = sk.world(pose);
+    let (a, b) = (w[held.upper].position(), w[held.lower].position());
+    let dir = (b - a).normalize();
+    let out = (from - dir * from.dot(dir)).normalize();
+    let on = a.lerp(b, along) + out * far;
+    // Its fingers point along the arm, the way on from its own shoulder.
+    let tip = (0..sk.len())
+        .filter(|&b| sk.bones()[b].name.ends_with("HandMiddle4"))
+        .map(|b| rest[b].position())
+        .min_by(|p, q| p.distance(wrist).total_cmp(&q.distance(wrist)))
+        .unwrap();
+    let lie = dir * dir.dot(on - w[mover.upper].position()).signum();
+    let turn = dittomo::Quat::from_rotation_arc((tip - wrist).normalize(), lie);
+    contact::reach(sk, pose, mover, on - turn * reach);
+    let above = sk.world(pose)[mover.lower].rotation;
+    pose[mover.end].rotation = (above.inverse() * turn * rest[mover.end].rotation).normalize();
+}
+
+/// Poses with a hand on the other upper arm, and whether both hands are: a hand on the shoulder of an arm hanging
+/// down, a hand on its biceps from the front, and the arms hugged, each hand on the other's upper arm. The skin there
+/// is `r_upper` thick, and a hand's middle is laid `off` from it.
+fn on_upper_arms(sk: &Skeleton, r_upper: f32, off: f32) -> Vec<(&str, Vec<Transform>, bool)> {
+    let arms = contact::arms(sk);
+    let (held, mover) = (&arms[0], &arms[1]);
+    let rest = sk.world(&sk.rest());
+    let x = rest[held.end].position().x.signum();
+    let far = r_upper + 1.5 + off;
+    let hangs = || {
+        let mut pose = sk.rest();
+        let shoulder = rest[held.upper].position();
+        contact::reach(sk, &mut pose, held, shoulder + Vec3::new(x * 3.0, -52.0, 4.0));
+        pose
+    };
+    let mut shoulder = hangs();
+    lay_on_upper_arm(sk, &mut shoulder, [held, mover], 0.15, Vec3::new(x, 1.0, 1.0), far);
+    let mut biceps = hangs();
+    lay_on_upper_arm(sk, &mut biceps, [held, mover], 0.55, Vec3::Z, far);
+    // Each hand moves the other's upper arm: laid in turn until both are in place.
+    let mut hug = sk.rest();
+    for _ in 0..8 {
+        lay_on_upper_arm(sk, &mut hug, [held, mover], 0.6, Vec3::new(x, 0.0, 1.0), far);
+        lay_on_upper_arm(sk, &mut hug, [mover, held], 0.6, Vec3::new(-x, 0.0, 1.0), far);
+    }
+    vec![
+        ("shoulder", shoulder, false),
+        ("biceps", biceps, false),
+        ("hug", hug, true),
+    ]
+}
+
+#[test]
+fn a_hand_on_the_other_upper_arm_stays_on_it_on_arms_and_shoulders_built_otherwise() {
+    let source = common::mixamo();
+    let s_arms = contact::arms(&source);
+    let (r_upper, off) = (4.0, 1.0);
+    let s_points = skin_with_arms(&source, 10.0, 3.0, r_upper);
+    let s_skin = dittomo::Surface::new(&source, s_points.iter().copied(), 1.0);
+    let none = dittomo::Surface::default();
+    let hs = height(&source);
+    // How far off the source's a hand is along the other upper arm at worst, and how far off its gap to it, each
+    // summed over every pose and build: unfixed, placed, and with skins.
+    let mut sums = [[0.0f32; 2]; 3];
+    for (pose_name, pose, both) in on_upper_arms(&source, r_upper, off) {
+        let frames = 15;
+        let clip = Clip {
+            times: (0..frames).map(|f| f as f32 / 30.0).collect(),
+            poses: vec![pose.clone(); frames],
+        };
+        // Which arm is held and which hand is on it.
+        let pairs: &[[usize; 2]] = if both { &[[0, 1], [1, 0]] } else { &[[0, 1]] };
+        let want: Vec<((f32, f32), f32)> = pairs
+            .iter()
+            .map(|&[h, m]| {
+                let by = by_upper_arm(&source, &pose, &s_arms[h], &s_arms[m]);
+                (by, off_other_arms(&source, &s_points, &pose, &s_arms[m]))
+            })
+            .collect();
+        for &((t, far), gap) in &want {
+            let line = far - (r_upper + 1.5) / hs;
+            assert!(
+                (0.1..0.7).contains(&t) && (line - off / hs).abs() < 1e-3 && (0.0..0.012).contains(&gap),
+                "{pose_name}: the source's hand {t} along the upper arm, {line} off it, {gap} off its skin"
+            );
+        }
+        for (name, upper, fore, wide, r, r_fore, r_up) in [
+            ("same", 1.0, 1.0, 1.0, 10.0, 3.0, 4.0),
+            ("long upper arms", 1.3, 1.0, 1.0, 10.0, 3.0, 4.0),
+            ("short upper arms", 0.75, 1.0, 1.0, 10.0, 3.0, 4.0),
+            ("long forearms", 1.0, 1.3, 1.0, 10.0, 3.0, 4.0),
+            ("short forearms", 1.0, 0.75, 1.0, 10.0, 3.0, 4.0),
+            ("wide shoulders", 1.0, 1.0, 1.4, 10.0, 3.0, 4.0),
+            ("narrow shoulders", 1.0, 1.0, 0.7, 10.0, 3.0, 4.0),
+            ("a thick chest and arms", 1.0, 1.0, 1.0, 15.0, 5.0, 7.0),
+            ("all of it", 1.2, 0.85, 1.25, 14.0, 4.0, 6.0),
+        ] {
+            let target = built(&source, upper, fore, wide);
+            let t_arms = contact::arms(&target);
+            let t_points = skin_with_arms(&target, r, r_fore, r_up);
+            let t_skin = dittomo::Surface::new(&target, t_points.iter().copied(), 1.0);
+            let map = Mapping::new(&source, &target);
+            let ht = height(&target);
+            // How far off the source's the hand is along the upper arm and in its distance from that arm's line (less
+            // how thick the skin there is taken to be), and in its gap to the arms' skin: the worse hand's.
+            let seen = |played: &Clip, thick: f32| {
+                let got = &played.poses[frames - 1];
+                let mut worst = [0.0f32; 3];
+                for (&[h, m], &((t, far), gap)) in pairs.iter().zip(&want) {
+                    let by = by_upper_arm(&target, got, &t_arms[h], &t_arms[m]);
+                    let line = (by.1 - (thick + 1.5) / ht) - (far - (r_upper + 1.5) / hs);
+                    let skin = off_other_arms(&target, &t_points, got, &t_arms[m]) - gap;
+                    worst = [
+                        worst[0].max((by.0 - t).abs()),
+                        worst[1].max(line.abs()),
+                        worst[2].max(skin.abs()),
+                    ];
+                }
+                worst
+            };
+            let bones = |fixes| {
+                map.apply_touching(&source, &target, [&none, &none], &clip, fixes)
+                    .unwrap()
+            };
+            let skins = |fixes| {
+                map.apply_touching(&source, &target, [&s_skin, &t_skin], &clip, fixes)
+                    .unwrap()
+            };
+            // Without skins the target's arms are taken to be as thick as the source's.
+            let plain = seen(&bones(Fixes::NONE), r_upper);
+            let all = seen(&bones(Fixes::ALL), r_upper);
+            let placed = seen(&bones(placing()), r_upper);
+            let alive = seen(&live(&map, &source, &target, &clip, placing()), r_upper);
+            let touched = seen(&skins(Fixes::ALL), r_up);
+            let both_ways = seen(&skins(placing()), r_up);
+            eprintln!(
+                "{pose_name}, {name}: along the upper arm and off its line: unfixed {:.2}, {:.4}; all {:.2}, {:.4}; \
+                 placed {:.2}, {:.4} (live {:.2}, {:.4}); the gap to its skin, with skins: unfixed {:.4}, all {:.4}, \
+                 placed {:.4}",
+                plain[0],
+                plain[1],
+                all[0],
+                all[1],
+                placed[0],
+                placed[1],
+                alive[0],
+                alive[1],
+                plain[2],
+                touched[2],
+                both_ways[2]
+            );
+            for (run, got) in [("whole clip", placed), ("live", alive)] {
+                assert!(
+                    got[0] < 0.05 && got[1] < 0.006,
+                    "{pose_name}, {name}, {run}: a hand {} of the upper arm off along it, {} of the height off its line",
+                    got[0],
+                    got[1]
+                );
+            }
+            for (run, got) in [("all", touched), ("all and place", both_ways)] {
+                assert!(
+                    got[2] < 0.004,
+                    "{pose_name}, {name}, {run}: a hand's gap to the other arm {} of the height off the source's",
+                    got[2]
+                );
+            }
+            for (sum, got) in sums.iter_mut().zip([plain, placed, both_ways]) {
+                *sum = [sum[0] + got[0], sum[1] + got[1]];
+            }
+            // A rig played onto itself is left as it was.
+            if name == "same" {
+                for (run, got) in [("placed", placed), ("live", alive)] {
+                    assert!(
+                        got[0] < 0.01 && got[1] < 1e-3,
+                        "{pose_name}, {run}: a rig played onto itself moved its hand {got:?}"
+                    );
+                }
+                assert!(
+                    both_ways[2] < 1e-3,
+                    "{pose_name}, with skins: a rig played onto itself moved its hand {both_ways:?}"
+                );
+            }
+        }
+    }
+    let [plain, placed, both_ways] = sums.map(|s| [s[0] / 27.0, s[1] / 27.0]);
+    eprintln!(
+        "on average: unfixed {:.3}, {:.4}; placed {:.3}, {:.4}; placed, with skins {:.3}, {:.4}",
+        plain[0], plain[1], placed[0], placed[1], both_ways[0], both_ways[1]
+    );
+    assert!(
+        placed[0] < 0.3 * plain[0] && placed[1] < 0.2 * plain[1],
+        "placed {placed:?}, unfixed {plain:?}"
+    );
+}

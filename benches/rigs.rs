@@ -190,6 +190,11 @@ fn main() {
         meeting(&rigs);
         return;
     }
+    // --upper: only the atlas for a hand on the other upper arm.
+    if has("--upper") {
+        upper(&rigs);
+        return;
+    }
     if has("--moves") {
         moves(&picked, &rigs);
         return;
@@ -218,6 +223,11 @@ fn main() {
                 println!("{} {name:?}: {low} of {}", r.name, clip.poses.len());
             }
         }
+        return;
+    }
+    // --touching: only the hands' gaps to the skin over the rigs' own clips.
+    if has("--touching") {
+        touching(&rigs);
         return;
     }
     // --contact: only the fixes on the clips.
@@ -1010,6 +1020,15 @@ const LINES: [(&str, &str, usize); 8] = [
     ("r_shin", "r_foot", 3),
 ];
 
+/// `ATLAS_EVERY=n` plays only every nth pair of an atlas, to try a change out quickly.
+fn every() -> usize {
+    std::env::var("ATLAS_EVERY")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(1)
+}
+
 /// A contact atlas: on each rig with a skin, standing at rest, each hand is put by two-bone IK on points all over the
 /// skin of its body (not its arms), touching and a little off, wherever it reaches; each such pose is then played on
 /// every other rig with a skin, bones only (`apply`, `apply_with`) and knowing the skins (`apply_touching`). Over the
@@ -1093,7 +1112,7 @@ fn atlas(rigs: &[Rig]) {
         Some((radius - c.distance(a + (b - a) * f)) / h)
     };
     let (mut by_head, mut fore_in) = (0usize, [0usize; RUNS.len()]);
-    let (mut pairs, mut poses) = (0usize, [0usize; GROUPS.len()]);
+    let (mut pairs, mut poses, mut tried) = (0usize, [0usize; GROUPS.len()], 0usize);
     let mut same = [[0usize; GROUPS.len()]; RUNS.len()];
     let mut inside = [[0usize; GROUPS.len()]; RUNS.len()];
     let mut slid = [[0.0f32; GROUPS.len()]; RUNS.len()];
@@ -1142,6 +1161,10 @@ fn atlas(rigs: &[Rig]) {
             if let Ok(only) = std::env::var("ATLAS_ONLY")
                 && only != format!("{},{}", s.name, t.name)
             {
+                continue;
+            }
+            tried += 1;
+            if (tried - 1) % every() != 0 {
                 continue;
             }
             pairs += 1;
@@ -1292,7 +1315,7 @@ fn meeting(rigs: &[Rig]) {
         place: true,
         ..Fixes::ALL
     };
-    let (mut pairs, mut poses) = (0usize, 0usize);
+    let (mut pairs, mut poses, mut tried) = (0usize, 0usize, 0usize);
     let mut inside = [0usize; RUNS.len()];
     let mut sums = [[0.0f64; 3]; RUNS.len()];
     let mut off: [Vec<f32>; RUNS.len()] = Default::default();
@@ -1359,6 +1382,10 @@ fn meeting(rigs: &[Rig]) {
             if let Ok(only) = std::env::var("ATLAS_ONLY")
                 && only != format!("{},{}", s.name, t.name)
             {
+                continue;
+            }
+            tried += 1;
+            if (tried - 1) % every() != 0 {
                 continue;
             }
             pairs += 1;
@@ -1442,6 +1469,213 @@ off (the last three over each one's height)
             100.0 * inside[m] as f64 / n,
             sums[m][1] / n
         );
+    }
+}
+
+/// The atlas for a hand on the other upper arm: on each rig with a skin, one arm is hung by its side, or laid across
+/// the chest with its hand before the other shoulder, and the other hand put by two-bone IK on points all over the
+/// skin of that upper arm, touching and a little off; each such pose is then played on every other rig with a skin.
+/// Over the poses with the source's hand within 5% of its height of skin not its own arm's: how far along that upper
+/// arm (from its shoulder to its elbow) the target's wrist is off, how far its hand's gap to that skin is from the
+/// source's, and how often it is in it by over 1% of its height (the last two over each one's height).
+fn upper(rigs: &[Rig]) {
+    const RUNS: [&str; 5] = [
+        "none (`apply`)",
+        "all, bones only (`apply_with`)",
+        "all (`apply_touching`)",
+        "all and place, bones only",
+        "all and place",
+    ];
+    const KINDS: [&str; 2] = ["arm hanging", "arm across the chest"];
+    const SPOTS: usize = 24;
+    const SIDES: [[&str; 3]; 2] = [
+        ["l_upperarm", "l_forearm", "l_hand"],
+        ["r_upperarm", "r_forearm", "r_hand"],
+    ];
+    let ready = |r: &Rig| {
+        !r.model.skin.is_empty()
+            && r.labels.contains_key("hips")
+            && SIDES.iter().flatten().all(|j| r.labels.contains_key(*j))
+            && body(r).is_some()
+    };
+    // How far along the held upper arm the other wrist is.
+    let seen = |w: &[dittomo::Placed], r: &Rig, held: usize| {
+        let at = |j: &str| w[r.labels[j]].position();
+        let (a, b, p) = (at(SIDES[held][0]), at(SIDES[held][1]), at(SIDES[1 - held][2]));
+        (p - a).dot(b - a) / (b - a).length_squared().max(1e-12)
+    };
+    let placing = Fixes {
+        place: true,
+        ..Fixes::ALL
+    };
+    let (mut pairs, mut poses, mut tried) = (0usize, [0usize; KINDS.len()], 0usize);
+    let mut inside = [[0usize; KINDS.len()]; RUNS.len()];
+    let mut slid = [[0.0f64; KINDS.len()]; RUNS.len()];
+    let mut off: [[Vec<f32>; KINDS.len()]; RUNS.len()] = Default::default();
+    for s in rigs.iter().filter(|r| ready(r)) {
+        let (ss, hs) = (&s.model.skeleton, height(&s.model.skeleton));
+        let Some([_, up, forward]) = body(s) else { continue };
+        let rest = ss.rest();
+        let at_rest = ss.world(&rest);
+        let limbs = dittomo::contact::arms(ss);
+        let limb = |side: usize| limbs.iter().find(|l| l.end == s.labels[SIDES[side][2]]);
+        // Each pose with a hand by the other upper arm: the pose, which arm is held and how, the hand's gap, and how
+        // far along the upper arm its wrist is.
+        let mut samples = Vec::new();
+        for (held, kind) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            let (Some(hold), Some(mover)) = (limb(held), limb(1 - held)) else {
+                continue;
+            };
+            let pos = |b: usize| at_rest[b].position();
+            let long = pos(hold.upper).distance(pos(hold.lower)) + pos(hold.lower).distance(pos(hold.end));
+            let (near, other) = (pos(s.labels[SIDES[held][0]]), pos(s.labels[SIDES[1 - held][0]]));
+            let out = (near - other).normalize_or_zero();
+            let mut base = rest.clone();
+            let goal = if kind == 0 {
+                near + (forward * 0.08 + out * 0.08 - up * 0.92) * long
+            } else {
+                other + forward * 0.12 * long
+            };
+            dittomo::contact::reach(ss, &mut base, hold, goal);
+            let based = ss.world(&base);
+            let (arm, fore) = (s.labels[SIDES[held][0]], s.labels[SIDES[held][1]]);
+            let on_upper = |mut b: usize| {
+                loop {
+                    if b == arm || b == fore {
+                        return b == arm;
+                    }
+                    match ss.bones()[b].parent {
+                        Some(p) => b = p,
+                        None => return false,
+                    }
+                }
+            };
+            let spots: Vec<(Vec3, Vec3)> = s
+                .model
+                .skin
+                .points(&based)
+                .into_iter()
+                .filter(|&(_, _, b)| on_upper(b))
+                .map(|(p, n, _)| (p, n))
+                .collect();
+            let step = spots.len().div_ceil(SPOTS).max(1);
+            let away = [s.labels[SIDES[1 - held][0]]];
+            for &(p, n) in spots.iter().step_by(step) {
+                for out in [0.03, 0.06] {
+                    let mut pose = base.clone();
+                    dittomo::contact::reach(ss, &mut pose, mover, p + n * out * hs);
+                    let sw = ss.world(&pose);
+                    let Some(gap) = s.model.skin.gap(ss, &sw, mover.end, &away, s.labels["hips"]) else {
+                        continue;
+                    };
+                    if (-0.01..0.05).contains(&(gap / hs)) {
+                        samples.push((pose, held, kind, gap / hs, seen(&sw, s, held)));
+                    }
+                }
+            }
+        }
+        for t in rigs.iter().filter(|r| ready(r)) {
+            if std::ptr::eq(s, t) != std::env::var_os("ATLAS_SELF").is_some() {
+                continue;
+            }
+            if let Ok(only) = std::env::var("ATLAS_ONLY")
+                && only != format!("{},{}", s.name, t.name)
+            {
+                continue;
+            }
+            tried += 1;
+            if (tried - 1) % every() != 0 {
+                continue;
+            }
+            pairs += 1;
+            let (ts, ht) = (&t.model.skeleton, height(&t.model.skeleton));
+            let map = Mapping::new(ss, ts);
+            let skins = [&s.model.skin, &t.model.skin];
+            let mut tally = [[(0.0f32, 0usize, 0.0f32, 0usize); KINDS.len()]; RUNS.len()];
+            for (pose, held, kind, gs, along) in &samples {
+                let clip = Clip {
+                    times: vec![0.0],
+                    poses: vec![pose.clone()],
+                };
+                let played = [
+                    map.apply(ss, ts, &clip).expect("plays"),
+                    map.apply_with(ss, ts, &clip, Fixes::ALL).expect("plays"),
+                    map.apply_touching(ss, ts, skins, &clip, Fixes::ALL).expect("plays"),
+                    map.apply_with(ss, ts, &clip, placing).expect("plays"),
+                    map.apply_touching(ss, ts, skins, &clip, placing).expect("plays"),
+                ];
+                poses[*kind] += 1;
+                let away = [t.labels[SIDES[1 - held][0]]];
+                for (m, c) in played.iter().enumerate() {
+                    let tw = ts.world(&c.poses[0]);
+                    let hand = t.labels[SIDES[1 - held][2]];
+                    let Some(gt) = t.model.skin.gap(ts, &tw, hand, &away, t.labels["hips"]) else {
+                        continue;
+                    };
+                    let gt = gt / ht;
+                    let a = seen(&tw, t, *held);
+                    off[m][*kind].push((gt - gs).abs());
+                    inside[m][*kind] += usize::from(gt < -0.01);
+                    slid[m][*kind] += f64::from((a - along).abs());
+                    let cell = &mut tally[m][*kind];
+                    *cell = (
+                        cell.0 + (gt - gs).abs(),
+                        cell.1 + usize::from(gt < -0.01),
+                        cell.2 + (a - along).abs(),
+                        cell.3 + 1,
+                    );
+                }
+            }
+            if std::env::var_os("ATLAS_PAIRS").is_some() {
+                let cell = |m: usize| {
+                    tally[m]
+                        .map(|(gap, inside, along, n)| {
+                            let n = n.max(1) as f32;
+                            format!("{:.2} {:.4} {:.0}%", along / n, gap / n, 100.0 * inside as f32 / n)
+                        })
+                        .join(", ")
+                };
+                eprintln!(
+                    "upper {} -> {} ({}): bones {} | place {} || touch {} | place {}",
+                    s.name,
+                    t.name,
+                    samples.len(),
+                    cell(1),
+                    cell(3),
+                    cell(2),
+                    cell(4)
+                );
+            }
+        }
+    }
+    println!(
+        "
+A hand on the other upper arm: {pairs} pairs with skins, one arm hung by its side or laid across the chest and the
+other hand put by IK on the skin of its upper arm: {} poses. Each cell: how far along that upper arm the target's wrist
+is off (as a share of the upper arm); its hand's gap to skin not its own arm's off the source's (mean / p90); in that
+skin (the last two over each one's height)
+| Fixes | {} |
+| --- | {}",
+        poses.map(|n| n.to_string()).join(", "),
+        KINDS.join(" | "),
+        "---: | ".repeat(KINDS.len())
+    );
+    for (m, name) in RUNS.iter().enumerate() {
+        let cells: Vec<String> = (0..KINDS.len())
+            .map(|k| {
+                let mut v = off[m][k].clone();
+                v.sort_by(f32::total_cmp);
+                let mean = v.iter().sum::<f32>() / v.len().max(1) as f32;
+                let n = poses[k].max(1) as f64;
+                format!(
+                    "{:.2}; {mean:.4} / {:.4}; {:.1}%",
+                    slid[m][k] / n,
+                    v.get(v.len() * 9 / 10).copied().unwrap_or(0.0),
+                    100.0 * inside[m][k] as f64 / n
+                )
+            })
+            .collect();
+        println!("| {name} | {} |", cells.join(" | "));
     }
 }
 

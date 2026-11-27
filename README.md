@@ -574,8 +574,9 @@ tails are left out, and fingers hanging low aren't taken for feet.
   its edge (a sleeve left open where the arm is cut off), is out from that edge instead. Where the source's hand is
   near its body, two-bone IK moves the target's hand to the same gap over its own height, keeping its turn, and lets
   go smoothly as the source's hand moves away; a hand anywhere in the body, however deep, is brought out of it.
-  Then the same against the other arm's skin from the elbow down, where the source's hand is nearer that than its
-  body: a hand laid on the other forearm or hand stays laid on it, however thick the target's arms are.
+  Then the same against the other arm's skin from the shoulder down, where the source's hand is nearer that than its
+  body: a hand laid on the other arm or hand stays laid on it, however thick the target's arms are, and one by both
+  arm and body keeps its gap to both. A moved hand is brought to its gap twice, so hugged arms settle together.
 
 ## How it maps
 

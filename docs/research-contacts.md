@@ -426,3 +426,183 @@ lost. Rigs made to differ show one thing:
 Next: the other hand as a part with its own frame (a hand by the other hand, past the forearm's end); hands meeting
 without skins still end in the other arm in over a quarter of the poses; the crawl's hands slide more with placing
 (0.00110 a frame against 0.00076), not looked at.
+
+## The upper arm, and the other hand as a part (2026-11-27)
+
+### Measures first
+
+- **A third atlas** (`-- --upper`): one arm hung by its side, or laid across the chest with its hand before the other
+  shoulder (so each hand is by the other arm), and the other hand put by IK all over the skin of that upper arm; 210
+  pairs, 4172 and 4284 poses. Each cell: how far along that upper arm the wrist is off, the hand's gap to skin not its
+  own arm's off (mean / p90), in that skin.
+- **Rigs made to differ** (`tests/contact.rs`): upper arms 1.3 and 0.75 times as long, forearms the same, shoulders
+  1.4 and 0.7 times as far apart, a chest and arms half as thick again, and all of it at once; a hand laid on the
+  shoulder of an arm hanging down, on its biceps, and the arms hugged, each hand on the other upper arm: 27 poses.
+- `ATLAS_EVERY=n` plays every nth pair of an atlas (a sixth of the pairs is what the "tried" lists below are over);
+  `-- --touching` prints the hands' gaps over the rigs' own clips alone.
+- The picked clips can't measure it: in none is a wrist within 8% of the height of the other upper arm's line.
+
+### What was kept
+
+With skins (`Touch`):
+
+- **The other arm's skin from the shoulder down**, not from the elbow.
+- **A hand by two skins keeps its gap to both.** Brought to the arm's skin, it goes across the way out from its
+  body's, as much as it is held to that (as far out from the arm, no nearer its body or farther, in no more than twice
+  the move); and it comes no nearer its body for it than the source's is to its own, as far as it is held to its
+  body. This is what a hand by the neck, which is by the other shoulder too, needed.
+- **Twice over where a hand was moved**, against its body and against the other arms: a hand is brought to its gap the
+  way the skin faces where it is, and the skin it comes to may face another way or be nearer; and moving one arm moves
+  the skin the other's hand is on, so arms hugged settle together. The second time against the body is what moved
+  the first atlas.
+
+With placing (`Fixes::place`), skins or not:
+
+- **A hand held on the other arm is there on purpose**, as one on a head is: within 1% of the height of that arm's
+  surface wholly, not at all past 4%, as much as that arm counts against the part counting most. It is brought to its
+  place from however far, not only from nearly there.
+- **It is kept off nothing farther from it than that arm**: a broader chest behind the arm would push it off again.
+- **A hand by the other arm is placed again once that arm has been**, three times over, from where it was before any
+  was placed, where two arms are placed.
+
+Before and now (played at f69f001). A hand on the other upper arm (`-- --upper`), the arm hanging:
+
+| Fixes | before | now |
+| --- | ---: | ---: |
+| all, with skins | 0.15; 0.0182 / 0.0433; 28.8% | 0.17; 0.0128 / 0.0340; 16.7% |
+| all and place, bones only | 0.10; 0.0287 / 0.0630; 44.9% | 0.10; 0.0289 / 0.0642; 46.6% |
+| all and place, with skins | 0.14; 0.0159 / 0.0381; 23.6% | 0.15; 0.0118 / 0.0300; 15.2% |
+
+The arm across the chest:
+
+| Fixes | before | now |
+| --- | ---: | ---: |
+| all, with skins | 0.27; 0.0165 / 0.0414; 27.1% | 0.31; 0.0125 / 0.0308; 14.7% |
+| all and place, bones only | 0.20; 0.0275 / 0.0606; 48.9% | 0.19; 0.0272 / 0.0598; 48.7% |
+| all and place, with skins | 0.26; 0.0158 / 0.0390; 25.7% | 0.30; 0.0112 / 0.0269; 13.6% |
+
+Unfixed, 50.6% and 52.5% of the hands end in that skin; with all fixes and no skins, 47.8% and 50.1%. The first atlas:
+
+| Fixes | trunk | head and neck |
+| --- | ---: | ---: |
+| all, with skins, before | 59%, 0.47; 0.0091 / 0.0259; 3.7% | 94%, 1.18; 0.0177 / 0.0420; 10.6% |
+| all, with skins, now | 58%, 0.47; 0.0063 / 0.0194; 1.6% | 92%, 1.24; 0.0108 / 0.0286; 5.8% |
+| all and place, bones only, before | 64%, 0.39; 0.0278 / 0.0609; 18.2% | 92%, 1.07; 0.0403 / 0.0908; 27.7% |
+| all and place, bones only, now | 65%, 0.39; 0.0278 / 0.0607; 18.3% | the same |
+| all and place, with skins, before | 63%, 0.40; 0.0076 / 0.0204; 2.8% | 92%, 1.14; 0.0164 / 0.0395; 6.4% |
+| all and place, with skins, now | 64%, 0.40; 0.0055 / 0.0145; 1.4% | 90%, 1.19; 0.0095 / 0.0256; 3.6% |
+
+| Fixes | thighs | forearm in the head |
+| --- | ---: | ---: |
+| all, with skins, before | 87%, 0.18; 0.0083 / 0.0215; 3.9% | 3.1% |
+| all, with skins, now | 87%, 0.18; 0.0053 / 0.0126; 0.7% | 3.5% |
+| all and place, bones only, before and now | 89%, 0.15; 0.0239 / 0.0518; 22.7% | 7.3% |
+| all and place, with skins, before | 88%, 0.16; 0.0069 / 0.0164; 2.4% | 3.2% |
+| all and place, with skins, now | 88%, 0.16; 0.0045 / 0.0098; 0.6% | 3.3% |
+
+Hands meeting (`-- --meeting`):
+
+| Fixes | before | now |
+| --- | ---: | ---: |
+| all, with skins | 0.20; 0.0118 / 0.0279; 10.1%; 0.0257 | 0.22; 0.0096 / 0.0234; 6.3%; 0.0283 |
+| all and place, bones only | 0.13; 0.0214 / 0.0485; 27.7%; 0.0138 | 0.13; 0.0217 / 0.0498; 28.1%; 0.0131 |
+| all and place, with skins | 0.19; 0.0109 / 0.0256; 9.6%; 0.0256 | 0.21; 0.0093 / 0.0225; 6.5%; 0.0283 |
+
+The rigs' own clips with skins (`-- --touching`): where the source's hand is near its body, the target's gap is
+0.0101 / 0.0232 off (mean / p90) from 0.0116 / 0.0252, and it is in its body where the source's isn't in 0.4% of the
+hand frames from 0.7% (live 0.3% from 0.7%).
+
+Rows with no skins and no placing are the same to the last digit in every table, and so is all of `-- --contact`
+(which plays no skins). Of `-- --moves` one cell moved: cold, a wrist by the head with placing, 0.0419 from 0.0420
+(live 0.0420 from 0.0421).
+
+On the rigs made to differ, over the 27 poses, mean and worst:
+
+| | unfixed | before | now |
+| --- | ---: | ---: | ---: |
+| placed, bones only: along the upper arm off | 0.04, 0.21 | 0.018, 0.12 | 0.005, 0.03 |
+| placed, bones only: off its distance from that arm's line | 0.0178, 0.0465 | 0.0063, 0.0292 | 0.0010, 0.0036 |
+| all, with skins: the gap to the other arms' skin off | 0.0206, 0.0528 | 0.0116, 0.0460 | 0.0005, 0.0032 |
+| all and place, with skins: the same | | 0.0081, 0.0512 | 0.0002, 0.0031 |
+
+What it costs, and what is worse:
+
+- **With skins a hand is further off along the part it is by**: head and neck 1.24 from 1.18 (on the same bone 92%
+  from 94%), the upper arm 0.17 and 0.31 from 0.15 and 0.27, the held forearm 0.22 from 0.20, and the wrists'
+  distance there 0.0283 from 0.0257. Brought to its gap twice, and across, a hand slides further over the skin; only
+  the charts say where along a part it belongs.
+- **A forearm in the head with skins, no placing: 3.5% from 3.1%.**
+- **Bones only, placing: a hand on the hanging upper arm in that skin 46.6% from 44.9%, hands meeting 28.1% from
+  27.7%, trunk 18.3% from 18.2%.** That is the hand held on the other arm brought from however far: without it
+  (played at b69a6de, where before is 45.3% and 27.7%) 45.2% and 27.6%, with it 46.8% and 27.9%; on the rigs made to
+  differ it is half of what holds the hand (see below). The atlas's rigs differ less in how their arms are built
+  than in how thick they are, which bones don't show.
+- **A rig played onto itself with skins** (`ATLAS_SELF=1`; it isn't left as it was where the source's hand reads as
+  in its skin, and is brought out of it): hands meeting, the wrists' distance 0.0121 off from 0.0093 and 0.12 of the
+  forearm along it from 0.09, the gap 0.0049 off from 0.0057 (with placing 0.0122 from 0.0087, 0.11 from 0.08, 0.0047
+  from 0.0051); a hand on the hanging upper arm with placing in that skin 6.7% from 5.0% (across the chest 8.2% from
+  18.0%; no placing 5.7% and 10.5% from 7.4% and 15.7%); a forearm in the head with placing 1.3% from 1.0%. The first
+  atlas's hands are in the body 0.0% to 0.3% from 0.3% to 0.8%.
+- **Time isn't measured**: with skins, up to twice the looks at the skin for a hand that is moved, and one more for a
+  hand brought to another arm while by its body; with placing, up to three placings of a hand by the other arm.
+
+Tried on the way, on a sixth of the pairs (35; with skins, no placing and with: head and neck in the body 11.4% and
+6.0%; a hand on the upper arm in that skin 33.7% / 33.1% and 25.8% / 31.7%; hands meeting 13.7% and 13.0%):
+
+- **The whole arm, nothing else**: the upper arm 30.2% / 30.7% and 25.1% / 30.1%, but head and neck 13.2% and 7.4%,
+  as found before.
+- **And across the way out from the body**: head and neck 12.3% and 6.9%. **And no nearer the body than the source's,
+  not across**: 11.3% and 5.9%. **Both**: 11.1% and 5.6%, the upper arm 26.7% / 25.2% and 22.0% / 25.1%, hands
+  meeting 12.0% and 11.8%. Both kept.
+- **Twice over against the other arms** (with the placing rules on too, which with the above give 26.7% / 25.2% and
+  23.7% / 25.2%, hands meeting 12.0% and 13.1%): the upper arm 22.7% / 20.8% and 19.1% / 20.5%, hands meeting 9.4%
+  and 10.0%. **Three times**: 21.8% / 20.1% and 19.5% / 20.3%. Twice kept. **Twice against the body too**: trunk
+  1.0% from 2.8%, head and neck 3.3% from 11.1%, thighs 1.4% from 4.4%; the upper arm 20.3% / 17.4% and 16.5% /
+  15.0%. Kept.
+- **No nearer the body than it was, however far from the body**: arms hugged on narrow shoulders didn't settle (a
+  hand's gap 0.0060 of the height off, more each time over); held to the source's gap only as far as the hand is by
+  its body, 0.0015. The second kept.
+- **As deep in the other arm as the source's is in its own**, not out of it: a rig played onto itself then keeps a
+  hand laid across an arm where it is (it reads as 0.006 of the height in the arm, as the skin is taken to be flat
+  under the hand, and is pushed 0.005 to 0.011 out), but hands meeting end in the arm 19.8% from 13.5%. Not kept; the
+  rigs made to differ lay the hand along the arm, which reads as out of it.
+- **Placing, each rule alone** (bones only, then with skins, a hand on the hanging upper arm in that skin; 50.4% and
+  25.8% without): held on purpose 51.2% and 27.5%; kept off nothing farther 50.6% and 26.4%; placed again 51.1% and
+  26.7%. On the rigs made to differ as first built, the hands turned as at rest (the worse hand along the arm, and off
+  its line, on average): none 0.020, 0.0091; held on purpose 0.019, 0.0045; and placed again 0.010, 0.0029; all three
+  0.004, 0.0012. As they are now, placed once, twice, three times: 0.008, 0.0026; 0.006, 0.0014; 0.005, 0.0010.
+- **The part a hand is nearest keeping it off last**, so that it has the last word: 0.010, 0.0028 from 0.010, 0.0029.
+  Not kept.
+
+### The other hand as a part (not kept)
+
+A hand as a line in its own frame, from its wrist through its middle and as far again, fitted to the skin of the hand
+and fingers if known:
+
+- **As one more part in placing** (what "placed again by the other arm" was said to need; that is now done, by the
+  rounds above): hands meeting with it and without, over all 210 pairs, bones only 0.13; 0.0217 / 0.0499; 27.9%;
+  0.0128 against 0.13; 0.0217 / 0.0498; 27.9%; 0.0131, with skins 0.22; 0.0094 / 0.0229; 6.9%; 0.0287 against 0.21;
+  0.0093 / 0.0226; 6.7%; 0.0282; cold the same. With two hands each by the other, each placing sends one after the
+  other (0.008 to 0.019 of the height further each time over, on arms 1.4 times as long), as nothing but the body,
+  far off, says where the pair is.
+- **As the way between hands that meet** (where each hand's middle is by the other hand, in that hand's frame, half
+  from each, in place of the source's way turned by the chests): on a sixth of the pairs the wrists' distance 0.0172
+  from 0.0164 bones only, with skins in the arm 13.5% from 13.0% and 0.0309 from 0.0292; a hand laid on the other on
+  arms and hands 1.4 times as long 0.0042 of the height off from 0.0005, as it scales the way along the hand by the
+  hand's length and the test by the height.
+
+Hands clasped on short arms don't part with hands placed again by the other arm (0.0000 of the height off the
+source's way between them, 0.0001 on long ones), as hands that meet are still placed as one after: the hand as a part
+wasn't what that needed. On a rig played onto itself, hands clasped or laid on each other are now 0.0001 of the
+height off, from 0.0000.
+
+**Bones only, a hand still ends in the other arm in 28% of the poses**, 25.1% unfixed: no rule tried moved it, and it
+is how thick the arms are, which bones don't show. A forearm's skin is 0.013 to 0.039 of the height from its bone
+over 14 rigs with skins; guessed from the shoulders it is 0.4 to 2.0 times what the skin shows (within a fifth on 7 of
+the 14). A hand's length tells it worse; a forearm's length a little better (the skin is 0.09 to 0.26 of it from the
+bone, within a fifth of the middle one on 8), which wasn't tried as the guess.
+
+Next: how an upper arm's sides are tied between rigs (round it is told by the bone's own turn, which rest poses of
+another kind may not share; not looked at, and it may be what a hand brought from far to the upper arm loses on real
+rigs); where along a part a hand belongs, with skins, after it is brought to its gap; a clip with arms hugged or a
+hand on a shoulder; what the new steps cost; palm facing.
