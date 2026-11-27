@@ -6,7 +6,7 @@ use std::f32::consts::TAU;
 
 use glam::{Quat, Vec3};
 
-use super::{At, Body, Limb, Scratch, legs_of, paths, place, played, reach_in};
+use super::{At, Body, Limb, Scratch, legs_of, paths, place, played, reach_in, within};
 use crate::shape::Shape;
 use crate::surface::{Frame, Surface};
 use crate::{Mapping, Skeleton, Transform};
@@ -31,6 +31,10 @@ const UNSURE: f32 = 0.10;
 /// by chance.
 const HELD: f32 = 0.01;
 const LOOSE: f32 = 0.04;
+
+/// Two hands with their middles within `LAID` of each other (over the height) are laid on each other; past
+/// [`LOOSE`], they aren't.
+const LAID: f32 = 0.02;
 
 /// A hand moving against a head under `SLOW` heights a second may be held on it; over `FAST`, it is sweeping past.
 const SLOW: f32 = 0.8;
@@ -71,6 +75,13 @@ struct By {
     out: Vec3,
     gap: f32,
 }
+
+/// The middle of a ball.
+const MIDDLE: By = By {
+    along: 0.5,
+    out: Vec3::ZERO,
+    gap: 0.0,
+};
 
 impl Side {
     /// A line through joints, the first passed at `start` in its frame. With a `mark` (a point at rest, and how far
@@ -302,7 +313,11 @@ struct Reach {
 /// Only a hand nearly there already is brought there, but for one held on the head: a head is a ball, fitted to its
 /// skin if that is known, the two heads' sides tied as the trunks' are, so a hand over an ear lands over the ear of a
 /// head of any size. A hand is held on it while its middle is near the head's surface and it isn't sweeping past;
-/// then no other part keeps it off. With a head on both bodies this stands in for [`super::OnHead`].
+/// then no other part keeps it off, and a hand that can't get to its place goes as near as it can over the head, not
+/// short of it. With a head on both bodies this stands in for [`super::OnHead`].
+///
+/// Hands that meet are placed as one, so that each placed by its body doesn't part them: the point between them goes
+/// where placing put it, and the way from one to the other stays what it was.
 pub(crate) struct Charts {
     parts: Vec<Part>,
     arms: Vec<Reach>,
@@ -319,6 +334,12 @@ pub(crate) struct Charts {
     slow: Vec<f32>,
     /// Where each arm's source hand is by each part, as last looked ([`Self::look`]).
     by: Vec<Option<By>>,
+    /// Where each arm's wrist was before any hand was placed, this pose.
+    before: Vec<Vec3>,
+    /// The turn from the source's frame to the target's.
+    turn: Quat,
+    /// The part that is the head, if both bodies have one.
+    head: Option<usize>,
 }
 
 /// One rig's parts by what they are, to pair with the other's: the trunk, the head, each leg's thigh and shin by its
@@ -613,9 +634,12 @@ impl Charts {
         }
         let joints = |i: usize| parts.iter().flat_map(move |p| p.sides[i].joints.iter().copied());
         Some(Self {
+            head: parts.iter().position(|p| p.meant),
             s_path: paths(source, joints(0).chain(arms.iter().map(|a| a.source))),
             t_path: paths(target, joints(1).chain(arms.iter().map(|a| a.limb.end))),
             by: vec![None; arms.len() * parts.len()],
+            before: vec![Vec3::ZERO; arms.len()],
+            turn: map.turn(),
             on: vec![0.0; 2 * arms.len()],
             eased: vec![0.0; 2 * arms.len()],
             last: vec![None; arms.len()],
@@ -783,6 +807,9 @@ impl Charts {
             if !ready {
                 place(target, played, &self.t_path, tw);
                 ready = true;
+                for (was, arm) in self.before.iter_mut().zip(&self.arms) {
+                    *was = tw[arm.limb.end].position();
+                }
             }
             let Some((to, ..)) = self.aim(i, tw) else {
                 continue;
@@ -821,12 +848,58 @@ impl Charts {
             let mut wrist = c + goal - now;
             let (length, was, far) = (a.distance(b) + b.distance(c), a.distance(c), a.distance(wrist));
             let soft = SOFT * length;
+            let head = self.head.filter(|_| held > 0.0);
             if far > length - soft {
                 let eased = length - soft * (-(far - (length - soft)) / soft).exp();
-                wrist = a + (wrist - a) * (eased.max(far.min(was)) / far);
+                let most = eased.max(far.min(was));
+                let short = a + (wrist - a) * (most / far);
+                // A hand held on a head that can't get to its place goes as near it as it can over the head, not
+                // short of it toward the shoulder: its middle as far from the head's as it was to be.
+                wrist = match head {
+                    Some(k) => {
+                        let center = self.parts[k].sides[1].point(tw, MIDDLE);
+                        let over = within(wrist + now - c, center, (a + now - c, most)) - (now - c);
+                        short.lerp(over, held)
+                    }
+                    None => short,
+                };
             }
             reach_in(target, played, tw, &arm.limb, wrist);
             place(target, played, &arm.below, tw);
+        }
+        if !ready {
+            return;
+        }
+        // Hands that meet are placed as one: each by its body alone, they would part again. The point between them
+        // goes where placing put it; the way from one wrist to the other is as it was before, as much as the source's
+        // hands are together. Hands laid on each other keep the source's way from one's middle to the other's, as
+        // far as they are placed: hands of another size laid wrist by wrist aren't on each other.
+        for i in 0..self.arms.len() {
+            for j in i + 1..self.arms.len() {
+                if on[i] <= 0.0 && on[j] <= 0.0 {
+                    continue;
+                }
+                let (p, q) = (&self.arms[i], &self.arms[j]);
+                let apart = sw[p.source].position().distance(sw[q.source].position()) / hs;
+                // Hands held on a head are on the head, not on each other: on a bigger head they part.
+                let free = 1.0 - on[self.arms.len() + i].max(on[self.arms.len() + j]);
+                let w = free * (1.0 - super::smooth((apart - super::TOGETHER) / (super::APART - super::TOGETHER)));
+                if w <= 0.0 {
+                    continue;
+                }
+                let middle = |r: &Reach| sw[r.source].matrix.transform_point3(r.middle[0]);
+                let reach = |r: &Reach| tw[r.limb.end].matrix.transform_vector3(r.middle[1]);
+                let between = middle(q) - middle(p);
+                let laid = on[i].max(on[j]) * (1.0 - super::smooth((between.length() / hs - LAID) / (LOOSE - LAID)));
+                let as_source = self.turn * between * (ht / hs) - (reach(q) - reach(p));
+                let (a, b) = (tw[p.limb.end].position(), tw[q.limb.end].position());
+                let way = (b - a).lerp((self.before[j] - self.before[i]).lerp(as_source, laid), w);
+                let mid = (a + b) / 2.0;
+                reach_in(target, played, tw, &p.limb, mid - way / 2.0);
+                place(target, played, &p.below, tw);
+                reach_in(target, played, tw, &q.limb, mid + way / 2.0);
+                place(target, played, &q.below, tw);
+            }
         }
     }
 }

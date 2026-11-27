@@ -2140,6 +2140,8 @@ fn hands_placed_by_the_body_stay_on_the_same_side_of_heads_big_and_small() {
         ("small head", 0.7, 1.0),
         ("long arms", 1.0, 1.5),
         ("same", 1.0, 1.0),
+        ("big head, short arms", 1.6, 0.75),
+        ("short arms", 1.0, 0.6),
     ] {
         let target = big_head(&source, head, by);
         let map = Mapping::new(&source, &target);
@@ -2169,10 +2171,19 @@ fn hands_placed_by_the_body_stay_on_the_same_side_of_heads_big_and_small() {
             eprintln!(
                 "{name}, {run}: a hand's middle off its place on the head by at most {was:.2} -> {off:.2} rad, off its height over it {was_lift:.3} -> {lift:.3} of the height"
             );
-            assert!(
-                off < 0.3,
-                "{name}, {run}: a hand {off} rad round the head from its place"
-            );
+            // Where the arms reach, a hand is at its place; where they don't, as near as it gets, on the head, not
+            // short of it.
+            if by >= 1.0 {
+                assert!(
+                    off < 0.3,
+                    "{name}, {run}: a hand {off} rad round the head from its place"
+                );
+            } else {
+                assert!(
+                    off < 0.6 * was,
+                    "{name}, {run}: a hand {off} rad round the head from its place, {was} unfixed"
+                );
+            }
             assert!(
                 lift < 0.02,
                 "{name}, {run}: a hand {lift} of the height off its height over the head"
@@ -2387,6 +2398,89 @@ fn placing_hands_by_the_body_leaves_a_rig_played_onto_itself_as_it_was() {
                 off / height(&rig)
             );
             assert!(off < 2e-3 * height(&rig), "{name}, {run}: an arm moved {off} cm");
+        }
+    }
+}
+
+/// Both wrists brought before the chest in half a second, 4 cm apart, and held there: 30 poses a second, two seconds.
+fn clasps(sk: &Skeleton) -> Clip {
+    let frames = 60;
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let poses = (0..frames)
+        .map(|f| {
+            let t = (f as f32 / 15.0).clamp(0.0, 1.0);
+            let u = t * t * (3.0 - 2.0 * t);
+            let mut pose = rest.clone();
+            for arm in contact::arms(sk) {
+                let from = world[arm.end].position();
+                let clasp = Vec3::new(from.x.signum() * 2.0, 128.0, 22.0);
+                contact::reach(sk, &mut pose, &arm, from.lerp(clasp, u));
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+/// The same rig with its upper arms and forearms `by` times as long, its hands as they were.
+fn long_arm_bones(sk: &Skeleton, by: f32) -> Skeleton {
+    let mut bones = sk.bones().to_vec();
+    for b in &mut bones {
+        if b.name.ends_with("ForeArm") || b.name.ends_with("Hand") {
+            b.rest.translation *= by;
+        }
+    }
+    Skeleton::new(bones).unwrap()
+}
+
+#[test]
+fn hands_clasped_before_the_chest_stay_together_when_placed_by_the_body() {
+    let source = common::mixamo();
+    let clip = clasps(&source);
+    // The way from the middle of one hand to the middle of the other, over the height.
+    let way = |sk: &Skeleton, pose: &[Transform]| {
+        let w = sk.world(pose);
+        let a = contact::arms(sk);
+        let at = |arm: &Limb| w[arm.end].matrix.transform_point3(palm(sk, arm.end));
+        (at(&a[1]) - at(&a[0])) / height(sk)
+    };
+    let held: Vec<usize> = (0..clip.poses.len())
+        .filter(|&f| way(&source, &clip.poses[f]).distance(way(&source, &clip.poses[59])) < 1e-4)
+        .collect();
+    assert!(held.len() > 30, "{} frames with the hands clasped", held.len());
+    for (name, by) in [("short", 0.75), ("long", 1.4), ("same", 1.0)] {
+        let target = long_arm_bones(&source, by);
+        let map = Mapping::new(&source, &target);
+        let worst = |c: &Clip| {
+            held.iter()
+                .map(|&f| way(&target, &c.poses[f]).distance(way(&source, &clip.poses[f])))
+                .fold(0.0f32, f32::max)
+        };
+        let plain = worst(&map.apply(&source, &target, &clip).unwrap());
+        let was = worst(&map.apply_with(&source, &target, &clip, Fixes::ALL).unwrap());
+        for (run, played) in [
+            (
+                "whole clip",
+                map.apply_with(&source, &target, &clip, placing()).unwrap(),
+            ),
+            ("live", live(&map, &source, &target, &clip, placing())),
+        ] {
+            let now = worst(&played);
+            eprintln!(
+                "{name} arms, {run}: the way between clasped hands off by at most {plain:.4} unfixed, {was:.4} without placing, {now:.4} with, of the height"
+            );
+            assert!(
+                now < 0.004,
+                "{name} arms, {run}: clasped hands {now} of the height off the source's way between them"
+            );
+            assert!(
+                now <= was + 1e-3,
+                "{name} arms, {run}: {now} off, {was} without placing"
+            );
         }
     }
 }

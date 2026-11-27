@@ -3077,6 +3077,10 @@ impl Touch {
 /// its body, it isn't by the arm at all.
 const NEARER: f32 = 0.01;
 
+/// Within `TOGETHER` of each other (over the height) the source's hands are together; past `APART`, apart.
+const TOGETHER: f32 = 0.06;
+const APART: f32 = 0.15;
+
 /// Brings each two target hands together where the source's meet: a clap, a clasp, hands pressed in prayer. Near, the
 /// way from one hand to the other is the source's, turned into the target's frame and scaled by height; farther off it
 /// blends back to what the target already does, and past a sixth of the height the hands are left alone. The hands
@@ -3130,8 +3134,7 @@ impl Hands {
 
     /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]).
     pub(crate) fn placed(&mut self, target: &Skeleton, t_body: &Body, played: &mut [Transform], scratch: &mut Scratch) {
-        // Within `near` of each other (over the height) the source's hands are together; past `far`, apart.
-        let (near, far) = (0.06, 0.15);
+        let (near, far) = (TOGETHER, APART);
         let Scratch { sw, tw, spheres, .. } = scratch;
         for (k, &(i, j)) in self.pairs.iter().enumerate() {
             let ((li, si), (lj, sj)) = (self.arms[i], self.arms[j]);

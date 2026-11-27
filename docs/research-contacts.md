@@ -332,3 +332,97 @@ look at there.
 
 Next: the upper arm (a hand on the other shoulder, arms hugged), which needs the two skins solved together; the
 wrist along the forearm; placing against hands meeting on the cold clip; what the new step costs.
+
+## Placing against hands meeting, and what the head lost (2026-11-26, night)
+
+### Hands that meet are placed as one (kept)
+
+Why placing parted them, on the cold clip (the wrists' distance off with placing: 0.0163; 0.0115 without):
+
+- **Not the other arm's parts**: left out of placing, 0.0155.
+- **Not a hand kept off parts**: with that off, 0.0174; it helps.
+- **Not the order**: the meeting fix runs first and placing sees its result. Each hand is then placed by its body on
+  its own, against the trunk and the head mostly, and nothing ties the two: one is sure and the other not, one is
+  eased on further than the other, a thicker chest sends each its own way.
+
+So, once every hand is placed, hands that meet are placed as one. The point between the wrists stays where placing
+put it; the way from one wrist to the other goes back to what it was before placing (what the meeting fix made it),
+as much as the source's hands are together (the meeting fix's own weight). Two rules of its own:
+
+- **Hands laid on each other keep the source's way between their middles**, not their wrists: middles within 2% of
+  the height wholly, not at all past 4%. Hands of another size laid wrist by wrist aren't on each other.
+- **Hands held on a head are on the head, not on each other**: on a bigger head they part, and placing them as one
+  undid that (a hand 0.028 of the height off its height over a head 1.6 times as tall, 0.000 with the rule).
+
+The picked clips (`-- --moves`, which now plays placing live too), cold, a wrist by the head and the wrists together:
+
+| Fixes | before | now |
+| --- | ---: | ---: |
+| all | 0.0434; 0.0115 | 0.0434; 0.0115 |
+| all and place | 0.0419; 0.0163 | 0.0420; 0.0101 |
+| all and place, live | not played | 0.0421; 0.0101 |
+
+Every other cell of that table prints the same, and so does all of `-- --contact` (limbs 3.2° and pops 0.30% with
+placing, 3.7° and 0.32% live) and of the first atlas. Hands meeting (`-- --meeting`):
+
+| Fixes | before | now |
+| --- | ---: | ---: |
+| all and place, bones only | 0.15; 0.0213 / 0.0478; 26.5%; 0.0185 | 0.13; 0.0214 / 0.0485; 27.7%; 0.0138 |
+| all and place | 0.20; 0.0112 / 0.0264; 9.8%; 0.0296 | 0.19; 0.0110 / 0.0258; 9.8%; 0.0255 |
+
+Better along the forearm and in the wrists' distance, and worse in one cell: without skins a hand ends in the other
+arm as often as with placing off (27.6%); the point that placing took off there came from parting the hands. On rigs
+made to differ (`tests/contact.rs`: upper arms and forearms 0.75 and 1.4 times as long, the hands as they were) hands
+clasped before the chest are 0.0000 of the height off the source's way between them, from 0.0079 on the short arms;
+a hand laid on the other on arms and hands 1.4 times as long is 0.0005 off, from 0.0044.
+
+Tried on the way (cold: a wrist by the head, the wrists together; then hands meeting, bones only and with skins):
+
+- **The wrists' way as it was, with no rule for hands laid on each other**: 0.0420, 0.0098; 0.13, 0.0214, 27.7%,
+  0.0138 and 0.19, 0.0111, 9.8%, 0.0254. The best numbers, but a hand laid on the other on longer hands is 0.0151 of
+  the height off, as with placing off: the wrists are right and the hands aren't on each other.
+- **The middles' way as the source's, for all hands that meet**: 0.0421, 0.0110; 0.15, 0.0223, 28.5%, 0.0150 and
+  0.22, 0.0120, 11.4%, 0.0305. Exact on rigs made to differ, worse on real ones: a hand's middle guessed from bones
+  isn't the same place on two rigs.
+- **Hands laid on each other from farther off** (middles from 3% to 6% of the height): the wrists 0.0126. Between the
+  wrists' way and the middles', where the two point apart, is shorter than either. From 1% to 4%: 0.0099, the laid
+  hand 0.0055 off; from 2% to 5%: 0.0107 and 0.0002. 2% to 4% kept: 0.0101 and 0.0005.
+- **The wrists' way kept less the more the other arm counts in where a hand goes**: the wrists 0.0128. Not kept.
+- **Then each hand placed again by the other arm alone**: 0.0430, 0.0105: the head's say is lost. By as much as the
+  other arm counts: 0.0421, 0.0112; 0.13, 0.0212, 27.8%, 0.0164 and 0.19, 0.0113, 10.0%, 0.0273; and hands clasped on
+  short arms part by 0.0068 of the height. A forearm's chart turns with the forearm, and a hand past its end, by the
+  other hand, turns about that wrist as the elbows come in. Not kept; the other hand as a part with the hand's own
+  frame is what that needs.
+
+### What the head lost with the old fix
+
+A measure first, in the atlas: over the poses by the head and neck with the source's forearm (the line from elbow to
+wrist) not in its head by over 1% of the height (3913; the head a ball about the skin on its bone), how often the
+target's is in its own:
+
+| Fixes | forearm in the head |
+| --- | ---: |
+| none | 10.3% |
+| all, bones only | 11.8% |
+| all, with skins | 3.1% |
+| all and place, bones only | 7.3% |
+| all and place, with skins | 3.3%, now 3.2% |
+
+So placing without the old fix puts fewer forearms in heads than the old fix does, not more; the atlas shows nothing
+lost. Rigs made to differ show one thing:
+
+- **A hand that can't get to its place slides over the head** (kept): where an arm gives up the last of its reach, a
+  hand held on a head goes round the head to where it does reach, its middle as far from the head's as it was to be,
+  not short of it toward the shoulder. On a head 1.6 times as tall with arms three quarters as long, a hand's middle
+  is 0.000 of the height off its height over the head, from 0.027; on arms six tenths as long, 0.001 (0.041
+  unfixed). The atlas's 3.2% from 3.3% is this.
+- **The elbow swung round to keep the arm out of the head** (the old fix's own code, for a hand held on the head;
+  not kept): the atlas the same with it and without (7.3% and 3.2%). On the head 1.6 times as tall a forearm comes
+  0.28 to 0.35 head radii nearer the head's middle than its wrist is, from 0.40 without, where the old fix gets 0.25
+  to 0.56; on the other rigs nothing. Asked for more than the wrist allows, it swung an arm 33 cm on a rig played
+  onto itself: the search takes any gain, and where the wrist is what is nearest the head there is none but
+  rounding. Capped by the wrist's own distance it was sound, but nothing measured asks for it.
+
+Next: the other hand as a part with its own frame (a hand by the other hand, past the forearm's end); hands meeting
+without skins still end in the other arm in over a quarter of the poses; the crawl's hands slide more with placing
+(0.00110 a frame against 0.00076), not looked at.

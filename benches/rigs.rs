@@ -1066,6 +1066,33 @@ fn atlas(rigs: &[Rig]) {
         place: true,
         ..Fixes::ALL
     };
+    // A head as a ball: about the middle of the skin on its bone, in the bone's frame, as far out as that skin is from
+    // it on average.
+    let ball = |r: &Rig| -> Option<(Vec3, f32)> {
+        let sk = &r.model.skeleton;
+        let (w, head) = (sk.world(&sk.rest()), r.labels["head"]);
+        let on: Vec<Vec3> = r
+            .model
+            .skin
+            .points(&w)
+            .iter()
+            .filter(|p| p.2 == head)
+            .map(|p| p.0)
+            .collect();
+        let c = on.iter().sum::<Vec3>() / on.len().max(1) as f32;
+        let radius = on.iter().map(|p| p.distance(c)).sum::<f32>() / on.len().max(1) as f32;
+        (on.len() >= 8).then(|| (w[head].matrix.inverse().transform_point3(c), radius))
+    };
+    // How deep in that ball the line from the elbow to the wrist of the arm with this hand is, over `h`.
+    let deep = |r: &Rig, w: &[dittomo::Placed], hand: &str, ball: Option<(Vec3, f32)>, h: f32| -> Option<f32> {
+        let fore = r.labels.get(if hand == "l_hand" { "l_forearm" } else { "r_forearm" })?;
+        let (c, radius) = ball?;
+        let (a, b) = (w[*fore].position(), w[r.labels[hand]].position());
+        let c = w[r.labels["head"]].matrix.transform_point3(c);
+        let f = ((c - a).dot(b - a) / (b - a).length_squared().max(1e-12)).clamp(0.0, 1.0);
+        Some((radius - c.distance(a + (b - a) * f)) / h)
+    };
+    let (mut by_head, mut fore_in) = (0usize, [0usize; RUNS.len()]);
     let (mut pairs, mut poses) = (0usize, [0usize; GROUPS.len()]);
     let mut same = [[0usize; GROUPS.len()]; RUNS.len()];
     let mut inside = [[0usize; GROUPS.len()]; RUNS.len()];
@@ -1103,6 +1130,11 @@ fn atlas(rigs: &[Rig]) {
                 }
             }
         }
+        let s_ball = ball(s);
+        let s_deep: Vec<Option<f32>> = samples
+            .iter()
+            .map(|(pose, hand, ..)| deep(s, &ss.world(pose), hand, s_ball, hs))
+            .collect();
         for t in rigs.iter().filter(|r| ready(r)) {
             if std::ptr::eq(s, t) != std::env::var_os("ATLAS_SELF").is_some() {
                 continue;
@@ -1118,7 +1150,8 @@ fn atlas(rigs: &[Rig]) {
             let map = Mapping::new(ss, ts);
             let skins = [&s.model.skin, &t.model.skin];
             let mut tally = [(0usize, 0.0f32, 0usize); RUNS.len()];
-            for (pose, hand, gs, part) in &samples {
+            let t_ball = ball(t);
+            for ((pose, hand, gs, part), ds) in samples.iter().zip(&s_deep) {
                 let clip = Clip {
                     times: vec![0.0],
                     poses: vec![pose.clone()],
@@ -1132,8 +1165,16 @@ fn atlas(rigs: &[Rig]) {
                 ];
                 let g = LINES[part.0].2;
                 poses[g] += 1;
+                // The forearm in the head where the source's isn't.
+                let out = g == 1 && ds.is_some_and(|d| d < 0.01);
+                let mut counted = false;
                 for (m, c) in played.iter().enumerate() {
                     let tw = ts.world(&c.poses[0]);
+                    if let Some(d) = deep(t, &tw, hand, t_ball, ht).filter(|_| out) {
+                        by_head += usize::from(!counted);
+                        counted = true;
+                        fore_in[m] += usize::from(d > 0.01);
+                    }
                     let Some(gt) = t.model.skin.gap(ts, &tw, t.labels[*hand], &t_away, t.labels["hips"]) else {
                         continue;
                     };
@@ -1203,6 +1244,16 @@ hand by the {}: {}. Each cell: the target's wrist nearest the same labeled bone,
             })
             .collect();
         println!("| {name} | {} |", cells.join(" | "));
+    }
+    println!(
+        "
+Of the poses by the head and neck, {by_head} with the source's forearm (the line from elbow to wrist) not in its head
+(a ball about the skin on the head's bone) by over 1% of the height: how often the target's is in its own
+| Fixes | forearm in the head |
+| --- | ---: |"
+    );
+    for (m, name) in RUNS.iter().enumerate() {
+        println!("| {name} | {:.1}% |", 100.0 * fore_in[m] as f64 / by_head.max(1) as f64);
     }
 }
 
@@ -1401,17 +1452,17 @@ off (the last three over each one's height)
 /// and how far it slides a frame; a wrist by the head (within 20% of the height of the head's joint), how far the
 /// target's is off that distance from its own; the wrists together (within 10%), how far the target's are off that.
 fn moves(moves: &[Rig], rigs: &[Rig]) {
-    let runs: [(&str, Option<Fixes>); 4] = [
-        ("all (`apply_with`)", Some(Fixes::ALL)),
-        (
-            "all and place",
-            Some(Fixes {
-                place: true,
-                ..Fixes::ALL
-            }),
-        ),
-        ("all, live (`Live`)", None),
-        ("none (`apply`)", Some(Fixes::NONE)),
+    let placing = Fixes {
+        place: true,
+        ..Fixes::ALL
+    };
+    // The fixes made, and whether a pose at a time.
+    let runs: [(&str, Fixes, bool); 5] = [
+        ("all (`apply_with`)", Fixes::ALL, false),
+        ("all and place", placing, false),
+        ("all, live (`Live`)", Fixes::ALL, true),
+        ("all and place, live", placing, true),
+        ("none (`apply`)", Fixes::NONE, false),
     ];
     let joints = ["l_hand", "r_hand", "l_foot", "r_foot", "head", "hips"];
     let ready = |r: &Rig| joints.iter().all(|j| r.labels.contains_key(*j));
@@ -1451,17 +1502,19 @@ its distance off; the wrists together, their distance off (all over the height);
         let sw: Vec<_> = clip.poses.iter().map(|p| ss.world(p)).collect();
         let fs = floor(s, &sw);
         // Height off, slide, by the head, together: sums and counts.
-        let mut sums = [[0.0f64; 4]; 4];
+        let mut sums = [[0.0f64; 4]; 5];
         let mut counts = [0usize; 3];
         for t in rigs.iter().filter(|r| ready(r)) {
             let (ts, ht) = (&t.model.skeleton, height(&t.model.skeleton));
             let map = Mapping::new(ss, ts);
             let played: Vec<Vec<Vec<dittomo::Placed>>> = runs
                 .iter()
-                .map(|(_, fixes)| {
-                    let c = match fixes {
-                        Some(f) => map.apply_with(ss, ts, &clip, *f).expect("plays"),
-                        None => live(&map, ss, ts, &clip, 0),
+                .map(|&(_, fixes, live)| {
+                    let c = if live {
+                        let empty = Surface::default();
+                        live_touching(&map, [ss, ts], [&empty, &empty], &clip, 0, fixes)
+                    } else {
+                        map.apply_with(ss, ts, &clip, fixes).expect("plays")
                     };
                     c.poses.iter().map(|p| ts.world(p)).collect()
                 })
