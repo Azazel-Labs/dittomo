@@ -938,6 +938,176 @@ fn a_sword_hung_beside_the_hips_is_not_the_body() {
     assert_eq!(play(touch), play(Fixes::NONE));
 }
 
+/// [`skin_points`], and a rod `r_arm` thick along each forearm, from the elbow to the wrist.
+fn skin_with_forearms(sk: &Skeleton, r: f32, r_arm: f32) -> Vec<(Vec3, Vec3, usize)> {
+    let rest = sk.world(&sk.rest());
+    let bone = |n: &str| sk.index_of(&format!("mixamorig:{n}")).unwrap();
+    let mut points = skin_points(sk, r);
+    for side in ["Left", "Right"] {
+        let fore = bone(&format!("{side}ForeArm"));
+        let (elbow, wrist) = (rest[fore].position(), rest[bone(&format!("{side}Hand"))].position());
+        let steps = elbow.distance(wrist).ceil() as usize;
+        for i in 0..=steps {
+            let at = elbow.lerp(wrist, i as f32 / steps as f32);
+            for k in 0..24 {
+                let a = k as f32 / 24.0 * std::f32::consts::TAU;
+                let n = Vec3::new(0.0, a.cos(), a.sin());
+                points.push((at + n * r_arm, n, fore));
+            }
+        }
+    }
+    points
+}
+
+/// How far a hand is from its body's skin (but for the arms'), and from the other forearm's and hand's, over the
+/// height: the skin is `points`, as [`skin_with_forearms`] gives them.
+fn gaps(sk: &Skeleton, points: &[(Vec3, Vec3, usize)], pose: &[Transform], arm: &Limb) -> [f32; 2] {
+    let world = sk.world(pose);
+    let uppers: Vec<usize> = contact::arms(sk).iter().map(|a| a.upper).collect();
+    let all = dittomo::Surface::new(sk, points.iter().copied(), 1.0);
+    let on_arms = |b: usize| sk.bones()[b].name.contains("ForeArm") || sk.bones()[b].name.contains("Hand");
+    let arms = dittomo::Surface::new(sk, points.iter().copied().filter(|p| on_arms(p.2)), 1.0);
+    [
+        all.gap(sk, &world, arm.end, &uppers, 0).unwrap() / height(sk),
+        arms.gap(sk, &world, arm.end, &[arm.upper], 0).unwrap() / height(sk),
+    ]
+}
+
+/// One forearm held before the chest, the other hand's middle laid over the middle of it, `off` from its skin `r_arm`
+/// thick.
+fn lays_a_hand_on_the_forearm(sk: &Skeleton, r_arm: f32, off: f32) -> Vec<Transform> {
+    let world = sk.world(&sk.rest());
+    let arms = contact::arms(sk);
+    let (held, laid) = (&arms[0], &arms[1]);
+    let reach = |arm: &Limb| world[arm.end].matrix.transform_vector3(palm(sk, arm.end));
+    let mut pose = sk.rest();
+    contact::reach(sk, &mut pose, held, Vec3::new(0.0, 125.0, 28.0) - reach(held));
+    let w = sk.world(&pose);
+    let (elbow, wrist) = (w[held.lower].position(), w[held.end].position());
+    let along = (wrist - elbow).normalize();
+    let up = (Vec3::Y - along * along.y).normalize();
+    // The hand's own skin is 1.5 thick about its middle.
+    let on = elbow.lerp(wrist, 0.5) + up * (r_arm + 1.5 + off);
+    contact::reach(sk, &mut pose, laid, on - reach(laid));
+    pose
+}
+
+#[test]
+fn a_hand_laid_on_the_other_forearm_stays_on_it_on_thicker_and_longer_arms() {
+    let source = common::mixamo();
+    let arm = contact::arms(&source)[1];
+    let s_points = skin_with_forearms(&source, 10.0, 3.0);
+    let s_skin = dittomo::Surface::new(&source, s_points.iter().copied(), 1.0);
+    let pose = lays_a_hand_on_the_forearm(&source, 3.0, 1.0);
+    let [by_body, by_arm] = gaps(&source, &s_points, &pose, &arm);
+    assert!(
+        (0.0..0.012).contains(&by_arm) && by_body > 0.05,
+        "the source's hand {by_arm} off the other forearm, {by_body} off its body"
+    );
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![pose],
+    };
+    let touch = Fixes {
+        touch: true,
+        ..Fixes::NONE
+    };
+    for (name, by, r_arm) in [
+        ("thick", 1.0, 6.0),
+        ("long and thick", 1.3, 5.0),
+        ("long and thin", 1.3, 2.0),
+    ] {
+        let target = long_arms(&source, by);
+        let t_arm = contact::arms(&target)[1];
+        let t_points = skin_with_forearms(&target, 10.0, r_arm);
+        let t_skin = dittomo::Surface::new(&target, t_points.iter().copied(), 1.0);
+        let map = Mapping::new(&source, &target);
+        for (run, fixes) in [("touch", touch), ("all", Fixes::ALL), ("all and place", placing())] {
+            let play = |skins, fixes| {
+                let played: Clip = map.apply_touching(&source, &target, skins, &clip, fixes).unwrap();
+                gaps(&target, &t_points, &played.poses[0], &t_arm)[1]
+            };
+            let none = dittomo::Surface::default();
+            let (was, now) = (play([&none, &none], fixes), play([&s_skin, &t_skin], fixes));
+            eprintln!(
+                "{name} arms, {run}: a hand {by_arm:.4} of the height off the other forearm is {was:.4} off it played \
+                 without skins, {now:.4} with"
+            );
+            assert!(
+                (now - by_arm).abs() < 0.002,
+                "{name} arms, {run}: {now} of the height off the forearm, the source's {by_arm}"
+            );
+        }
+    }
+    // Onto itself, nothing moves.
+    let map = Mapping::new(&source, &source);
+    let same = map
+        .apply_touching(&source, &source, [&s_skin, &s_skin], &clip, touch)
+        .unwrap();
+    let off = close(&same, &map.apply(&source, &source, &clip).unwrap());
+    assert!(off < 1e-3, "a rig played onto itself moved {off}");
+}
+
+#[test]
+fn a_hand_on_the_hip_beside_a_hanging_arm_stays_on_the_hip() {
+    let source = common::mixamo();
+    let arms = contact::arms(&source);
+    let (hangs, laid) = (arms[0], arms[1]);
+    let x = at(&source, &source.rest(), hangs.end).x.signum();
+    let world = source.world(&source.rest());
+    let reach = |arm: &Limb| world[arm.end].matrix.transform_vector3(palm(&source, arm.end));
+    // One arm hangs, its forearm down beside the hip; the other hand is laid on the front of that hip, a centimeter
+    // off it, the hanging forearm a few off.
+    let mut pose = source.rest();
+    contact::reach(&source, &mut pose, &hangs, Vec3::new(x * 13.0, 98.0, 12.0));
+    contact::reach(
+        &source,
+        &mut pose,
+        &laid,
+        Vec3::new(x * 3.0, 103.0, 10.0 + 1.5 + 2.0) - reach(&laid),
+    );
+    let s_points = skin_with_forearms(&source, 10.0, 3.0);
+    let s_skin = dittomo::Surface::new(&source, s_points.iter().copied(), 1.0);
+    let [by_body, by_arm] = gaps(&source, &s_points, &pose, &laid);
+    assert!(
+        (0.0..0.012).contains(&by_body) && (by_body + 0.01..0.045).contains(&by_arm),
+        "the source's hand {by_body} off its hip, {by_arm} off the hanging arm"
+    );
+    let clip = Clip {
+        times: vec![0.0],
+        poses: vec![pose],
+    };
+    let touch = Fixes {
+        touch: true,
+        ..Fixes::NONE
+    };
+    for (name, by, r, r_arm) in [
+        ("a thick body, thick arms", 1.0, 16.0, 6.0),
+        ("thick arms", 1.0, 10.0, 6.5),
+        ("long thick arms", 1.3, 13.0, 6.0),
+    ] {
+        let target = long_arms(&source, by);
+        let t_laid = contact::arms(&target)[1];
+        let t_points = skin_with_forearms(&target, r, r_arm);
+        let t_skin = dittomo::Surface::new(&target, t_points.iter().copied(), 1.0);
+        let map = Mapping::new(&source, &target);
+        for (run, fixes) in [("touch", touch), ("all", Fixes::ALL), ("all and place", placing())] {
+            let played = map
+                .apply_touching(&source, &target, [&s_skin, &t_skin], &clip, fixes)
+                .unwrap();
+            let [now, arm_now] = gaps(&target, &t_points, &played.poses[0], &t_laid);
+            eprintln!(
+                "{name}, {run}: a hand {by_body:.4} of the height off the hip and {by_arm:.4} off the arm hanging by \
+                 it lands {now:.4} off the hip, {arm_now:.4} off the arm"
+            );
+            assert!(
+                (now - by_body).abs() < 0.002,
+                "{name}, {run}: {now} of the height off the hip, the source's {by_body}"
+            );
+        }
+    }
+}
+
 /// The same rig with its upper arms, forearms and hands `by` times as long.
 fn long_arms(sk: &Skeleton, by: f32) -> Skeleton {
     let mut bones = sk.bones().to_vec();

@@ -1395,9 +1395,9 @@ off (the last three over each one's height)
 }
 
 /// Motion capture picked for what the hands do (crawling, a cartwheel, getting up off the floor, jumping jacks, combing
-/// hair, washing, a chin on a fist), played on every rig, at 30 poses a second. Three things, each over the frames
-/// where the source does it, as shares of each one's height: a wrist low and still (within 6% of the height of the
-/// floor, moving under a fifth of the height a second), how far the target's is off that height over its own floor
+/// hair, washing, a chin on a fist, being cold), played on every rig, at 30 poses a second. Three things, each over the
+/// frames where the source does it, as shares of each one's height: a wrist low and still (within 6% of the height of
+/// the floor, moving under a fifth of the height a second), how far the target's is off that height over its own floor
 /// and how far it slides a frame; a wrist by the head (within 20% of the height of the head's joint), how far the
 /// target's is off that distance from its own; the wrists together (within 10%), how far the target's are off that.
 fn moves(moves: &[Rig], rigs: &[Rig]) {

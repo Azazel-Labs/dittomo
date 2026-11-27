@@ -81,4 +81,5 @@ fetch cmu-jumping-jacks.bvh "$cmu/022/22_16.bvh" a86b80f4c72395d3a7e262337280573
 fetch cmu-comb-hair.bvh "$cmu/079/79_84.bvh" e1b84788fc99ff3aa675ee935ed71a5191b4245dffb6cacf186da023d15cade1
 fetch cmu-wash-self.bvh "$cmu/002/02_10.bvh" 793098a88b92c1420a9d7da6c640441e7d7fd8899af6dab81169aecf6e03e9e9
 fetch cmu-thinker.bvh "$cmu/074/74_12.bvh" b4119093cf951ebdd19e15d33a04854cb579f584f214cedb7fe3cdbb340bc38a
+fetch cmu-cold.bvh "$cmu/079/79_68.bvh" e0a6259d2301a7073024fb56e18ccc01dc843d61040d347ddae6f2a5c28abe25
 echo "19 rigs in $dir"

@@ -88,6 +88,16 @@ pub(crate) struct Around {
     scale: f32,
 }
 
+impl Around {
+    /// How far `p` is from the nearest of these balls, at least: nothing in them is nearer.
+    pub(crate) fn nearest(around: &[Self], p: Vec3) -> f32 {
+        around
+            .iter()
+            .map(|a| a.center.distance(p) - a.radius)
+            .fold(f32::INFINITY, f32::min)
+    }
+}
+
 /// One bone's points in a ball round them, in its frame, and the smaller balls they are split in.
 struct Bunch {
     bone: usize,

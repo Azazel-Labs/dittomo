@@ -260,3 +260,75 @@ elsewhere:
 
 Next for hands meeting: the touch fix against the other arm, told apart from an arm hanging by the body (the two
 contacts solved together, or an arm by the body counted as the body); palm facing. Crossing order wasn't tried.
+
+## A hand laid on the other arm (2026-11-26, after)
+
+### Touch against the other forearm and hand (kept)
+
+Once every hand is at its gap from its body, the touch fix does the same against the skin of the other arms from the
+elbow down: a hand as near that skin as to touch it keeps the source's gap to the target's. Two rules tell it from a
+hand on a hip an arm hangs by:
+
+- **A hand is laid on the skin it is nearer.** The other arm counts in full where the source's hand is 1% of the
+  height nearer it than its body, not at all where it is as much nearer its body, eased between. So a hand on a hip
+  stays on the hip though an arm hangs by it, and a hand over the other hand should stay on that hand though it
+  rests on the belly (by the rule; no test or atlas has that pose).
+- **From the elbow down only.** The upper arm's skin runs into the trunk's at the shoulder, and a hand by the neck is
+  by it too.
+
+Hands meeting (`-- --meeting`, 210 pairs, 15036 poses): along the held forearm off, gap off (mean), in the other
+arm, the wrists' distance off:
+
+| Fixes | before | now |
+| --- | ---: | ---: |
+| all, with skins | 0.17, 0.0194, 22.8%, 0.0219 | 0.20, 0.0118, 10.2%, 0.0256 |
+| all and place, with skins | 0.18, 0.0181, 21.6%, 0.0257 | 0.20, 0.0112, 9.8%, 0.0296 |
+
+Rows without skins are the same to the last digit. The first atlas with skins is as it was but for one cell (all,
+thighs: on the same bone 87% from 88%, the gap's 90th percentile 0.0215 from 0.0214; trunk in the body 3.7% and 2.8%
+as before): six pairs, all from one source, a pose or two of 110 each. Real clips (`-- --contact`, `-- --moves`, and
+hands on the body in the full run: 0.0117 / 0.0252, 0.7%) print the same; `-- --contact` played with skins, which it
+doesn't do as it stands, gave limbs and pops the same with and without the new step (3.6°, 0.61% whole clip; 4.1°,
+0.64% live).
+
+The cost: the wrist is 0.02 to 0.03 of the forearm further off along it, and the wrists' distance 0.004 of the height
+further off. Likely, not looked into: the atlas puts the wrist on the skin and leaves the hand's middle where it
+falls, at times past the forearm's end, where the skin nearest it faces along the arm; and a thicker forearm should
+part the wrists. On rigs made to differ
+(`tests/contact.rs`: forearms twice as thick, arms 1.3 times as long) a hand laid 0.005 of the height off the other
+forearm lands 0.005 off (in it by 0.012 to off it by 0.020 without skins), and a hand on a hip 0.006 off it with a
+forearm hanging 0.026 off stays 0.006 to 0.007 off the hip. What it costs in time isn't measured.
+
+Tried on the way, on a sixth of the pairs (38 for hands meeting, where the fix off gives 17.6% and 17.3% in the arm;
+35 for the first atlas: trunk in the body 4.1% and 3.6%, head and neck 12.5% and 6.8%):
+
+- **The whole arm, from the shoulder down, an arm by the body counted as the body** (the spot on the arm the hand is
+  by: not at all within 2% of the height of the body's skin, in full past 5%): in the arm 9.0% and 8.3%, but head
+  and neck 13.7% and 8.2%: a hand by the neck is by the other shoulder. Trunk 4.2% and 3.6%. From 3% to 8%: 11.2%
+  and 10.8%.
+- **That, and the target's arm by its body counted as its body too**: trunk 4.4% and 3.7%. Not kept.
+- **That, and the nearer skin taking the hand**: 9.1% and 8.4%; trunk better than with the fix off (3.8% and 3.3%),
+  head and neck no better (13.6% and 8.1%). The upper arm needs the head and the shoulder solved together.
+- **From the elbow down, an arm by the body counted as the body**: 9.1% and 8.5%; head and neck as with the fix off,
+  trunk 4.2% and 3.7%. From 1% to 3%: 7.9% and 8.1%, trunk 4.3% and 3.7%. From 3% to 6%: 9.5% and 9.3%.
+- **That, and the nearer skin taking the hand**: 9.0% and 8.6%, the first atlas the same to the last digit. With
+  only the nearer skin taking the hand: 7.2% and 7.8%, the atlas still the same. So an arm by the body counted as
+  the body is not what keeps a hand on the hip here, and it loses hands laid on a forearm held near the chest. Not
+  kept; the nearer skin taking the hand is.
+- **The hand kept out of the other arm wherever the source's is** (as it is kept out of the body): no different
+  (7.2% and 7.8% either way). Not kept: a hand far from the other arm is not looked at.
+- **Each hand against the other arms right after its own body**, not once every hand is by its body: gap 0.0108 and
+  0.0101, against 0.0102 and 0.0098. Not kept.
+
+What moved the trunk and thighs, then, was hands nearer their body than the other arm, sent by the arm all the same;
+what moved the head was the upper arm. Which poses those were wasn't looked at one by one.
+
+### A clip where hands meet
+
+CMU 79_68 ("cold") joins the picked clips: the wrists are within 10% of the height in 188 of its frames at 30 a
+second. Over every rig (3008 frames), the wrists' distance off: 0.0468 unfixed, 0.0115 with all fixes (whole clip
+and live), 0.0163 with placing too. Placing parts hands the meeting fix brought together; that is the next thing to
+look at there.
+
+Next: the upper arm (a hand on the other shoulder, arms hugged), which needs the two skins solved together; the
+wrist along the forearm; placing against hands meeting on the cold clip; what the new step costs.
