@@ -53,7 +53,8 @@ plan above:
   rate): what is across the bone is kept, carried round with the bone. Gravity's rest share is taken half a step
   back. With both, 144 against 60 poses a second differ by 0.5 to 0.7% of a chain's length on a moderate dance,
   from 4 to 7%. Whipped twice as hard they differ by 7 to 10%: a chain of several bones is touchy itself.
-- A lone bone with no children is never a chain (eyes, jaws, markers), so single-bone ears stay stiff.
+- A lone bone with no children is never a chain (eyes, jaws, markers), so single-bone ears stay stiff. (Since:
+  `sway::danglers` lists them for a caller to pick from; see 2026-11-27 below.)
 - The defaults are set against springs set up by hand. Both VRM bench rigs carry `VRMC_springBone` settings; a
   test steps the format's own update at 60 poses a second beside `Sway` under the same body (an idle, a walk and a
   run from another rig) on the bones both swing, 17 and 57 of them. Bent from rest, in radians, on average and for
@@ -94,6 +95,7 @@ plan above:
   ends meet whatever the chains do. A loop is told from its ends alone: a clip that only starts and ends in the
   same stance is taken for one.
 - `Sway::jump` carries the chains with a body set down elsewhere; `Live` has no such call yet, only `reset`.
+  (Since: `Live::jump`.)
 
 **Cost, from CI (d9da460, release, a 136-bone target with 60 bones of hair, 30 poses a second so two steps a
 pose):** sway alone 17.1 µs a pose, 11.0 with nothing to keep out of: about 90 ns a bone a step for the spring and
@@ -103,6 +105,101 @@ profiled; the spring's own cost is the larger part, not the colliders.
 Stages: find chains; one chain's integrator against the analytic spring and across frame rates; colliders and
 limits; `Live`, whole clips, baking; defaults; VRM and KawaiiPhysics import; `Crowd` lanes; links between sibling
 chains (skirts), telling baked jiggle from intent, resampling a 3-bone chain onto 8.
+
+### Sway, 2026-11-27: chains tied side by side, bones alone, a jump in `Live`, the demo
+
+**Chains side by side are tied** (`Sway::tie`, on by default; `Sway::beside` says which). Two chains are side by
+side if they hang from one bone of the body, the longer is at most 1.5 times the shorter, and their middles are no
+further apart than 0.6 of the shorter's length. A chain is tied to the nearest such chain and to the nearest that
+isn't the same way off, where each picks it back: a ring closes, a row of strips has two ends, and nothing is
+looked up by name. Each tail is tied to the nearest tail of the chain beside it and keeps between 0.5 and 1.25 of
+how far from it it is at rest, each of the two going half the way. The point half way between two tied tails is
+kept out of the legs, where it is clear of them at rest. Chains with none beside them are stepped as before, to
+the bit.
+
+On a made-up skirt (eight folds of three bones round the hips of a 1.8 m person; a walk with thighs swung 0.7
+radians and a run with 1.3, at 30 and 60 poses a second), untied then tied:
+
+| | walk | run |
+|---|---|---|
+| a tail in a leg | 0% → 0% | 0% → 0% |
+| the point half way between two folds in a leg | 5.2 to 5.5% → 0% | 6.6% → 0.00 to 0.07% |
+| a tied pair nearer than a quarter of its rest distance | 0% → 0% | 0% → 0% |
+| a tied pair over half as far again | 1.4% → 0% | 1.5 to 1.6% → 4.2 to 4.3% |
+| most a bone is bent, radians | 0.38 → 0.38 | 0.37 → 1.5 to 1.6 |
+
+Untied, no tail ever touches a leg: the thigh comes out between two folds. Tied, it lifts both (the 1.5 radians),
+and the folds next to those are left behind for a pose or two (the 4%).
+
+On the VRM bench rigs there is no skirt to measure. One has no chains side by side (two locks pick each other,
+but the head lies between them). On the other, ten of 24 chains are tied, all long locks of hair; its coat's three
+flaps a thigh are 0.85 to 0.88 of their length apart, so not side by side. No chain's tail is in a leg in any clip,
+tied or not (the rods already did that). With 0.9 for 0.6 the flaps tie, and the point half way between two of
+them is in the other leg in 0.52% of a samba's poses untied, none tied; but pigtails as far apart as they are long
+would tie too. Of the tied locks' pairs, those over half as far again apart, untied then tied: 10.9% → 2.6% in a
+run, 7.3% → 0% in a walk, 9.0% → 1.2% in a samba.
+
+The yardsticks on that rig (the other's are the same to the last digit): against springs set by hand, the two
+ways' bones are 0.381 radians apart in the walk, from 0.402, and 0.623 in the run, from 0.640; the idle is as it
+was. Through `apply_with`, more poses are past the cone, pulled into the body by a tie: 0.20% in the walk from
+none, 0.38% in the run from 0.27%, 0.07% in the samba from 0.04%; the most a bone bends in the walk is 1.36
+radians, from 0.95.
+
+What was tried and dropped:
+
+- *Neighbors read where they were as the pose began, gone on as they were going*, so chains could be stepped one
+  after another as before. A 9 cm bone swings at 31 radians a second, so a thirtieth of a second of going straight
+  on is off by half its swing: in a run 86 to 90% of tied pairs were over half as far again apart, from 15%. Tied
+  chains are stepped together now, a step at a time: a neighbor already stepped is where it is, one yet to be is
+  where it was a step ago, gone on as it was going.
+- *The point half way kept out of every part, as near as at rest.* Half way between two tails lying on the head is
+  deeper in it the further apart they swing, so it lifted hair off the head standing still: bent 0.10 radians on
+  average in an idle, from 0.005. Out of the legs only now, and only one it is clear of at rest.
+- *Ties through the body, and between tails in a bunch.* Locks either side of the neck were tied through it, and
+  tails 1.4 cm apart on 9 cm bones were held within a band a small bend leaves: an idle bent 0.47 radians for 95
+  in a hundred, from 0.22. Two tails aren't tied with a part of the body half way between them at rest, nor nearer
+  each other than half the longer of their bones (0.23 then).
+- *Each of two tied tails going all the way, not half.* Fewer pairs stretched in the run (3.3% for 5.5%), but the
+  points half way were in a leg more often (1.7% for 0.7%).
+
+Not done: a tail hung inside a skirt is taken for one of its folds; ties between chains hanging from different
+bones (a skirt hung half from each thigh); a cape against the back (the point half way keeps out of legs only).
+
+**Cost: not measured.** The speed bench's rig (fifteen locks of four bones) has no chains side by side (its tails
+are 2 cm apart on 6 cm bones), so its numbers show only whether sharing one bone's step between the two loops
+costs anything; they should be as they were. Nothing in CI times tied chains. A tied bone reads two neighbors and
+measures to each every step, and where a leg is near, measures the two points half way to it.
+
+**A bone hanging alone** (an ear, an antenna, a tail of one bone) is still not swung by itself. `sway::danglers`
+lists the bones `chains` leaves out for that alone, each as a chain of one bone as long as it is far from its
+parent, to pick from and give to `Sway::with`. No rule tells them from eyes and jaws. On the bench rigs played from
+a rig with no face bones, by where the bone stands and where the middle of its skin does, in head radii from the
+head's middle (or the trunk's, for the flaps):
+
+| bone | stands at | its skin's middle at | that far from the bone, of the height |
+|---|---|---|---|
+| a coat flap in front, one behind (to swing) | 0.97 | 1.34 | 0.05 |
+| a fringe (to swing) | 1.14 | 1.12 | 0.045 |
+| a jaw | 0.96 | 1.25 | 0.023 |
+| eyes, three rigs | 0.73 to 0.92 | 0.77 to 0.97 | 0.002 to 0.005 |
+| an eye, the VRM | 0.51 | 0.98 | 0.042 |
+| eyes with no skin, guessed head | 0.69 to 1.13 | | |
+
+A jaw's skin stands further out than a fringe's and one eye's as far off its bone as a flap's. Also listed on
+those rigs, with nothing to tell them by: a robot's vent, control bones under a root, pole targets, a prop.
+
+**`Live::jump`** says the body is set down elsewhere at the next pose: as `reset` for feet, travel and hands, but
+the chains go along (`Sway::jump`). On a walk set down three meters off and turned, the chains are within 0.02
+radians of a body that stayed; untold they whip 1.36 radians.
+
+**The demo** bundles no file. Its sample target now wears a ponytail and a skirt of eight folds the source has no
+bones for (27 bones in nine chains, eight tied), drawn in their own color, with a row saying how many chains are
+left loose. The bench VRMs are 10 MB each under their own licenses and are not bundled; dropped in as the target
+they sway the same way.
+
+**VRM spring settings** are not read. `tests/sway.rs` reads `VRMC_springBone` from the GLB's JSON by hand for the
+yardstick; a `load` reader needs the same from `src/load.rs` (which already has the JSON) and the mapping of
+stiffness, drag and gravity onto `Spring` by matching poles at 60 poses a second, which is not worked out.
 
 ## The GPU
 

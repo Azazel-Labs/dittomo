@@ -14,7 +14,8 @@ const check = (ok, what) => { if (!ok) { console.error(`failed: ${what}: ${text(
 w.sample();
 check(w.map(), "map the sample");
 const report = JSON.parse(text());
-check(report.quality > 0.5, `quality ${report.quality}`);
+// A quarter of the target's bones are a ponytail and a skirt the source has nothing for, which count against it.
+check(report.quality > 0.45, `quality ${report.quality}`);
 check(report.target.legs.length === 2 && report.target.arms.length === 2, "two legs and two arms");
 for (const [clip, fixes] of [[0, 0], [1, 15]]) {
   const t = performance.now();
@@ -27,6 +28,36 @@ for (const [clip, fixes] of [[0, 0], [1, 15]]) {
   const went = z(frames - 1) - z(0);
   check(went > 100, `clip ${clip} with fixes ${fixes} travels (${went.toFixed(1)})`);
   console.log(`clip ${clip}, fixes ${fixes}: ${frames} frames in ${(performance.now() - t).toFixed(1)} ms, traveled ${went.toFixed(0)}`);
+}
+
+// The sample's target wears a ponytail and a skirt of eight folds that the source has no bones for: found
+// as chains, the skirt's tied side by side, stiff without the sway fix and swung with it.
+// (27 of its bones or 28: the ponytail's first is taken for the end of the source's head, or not.)
+check(report.chains.length === 9 && [27, 28].includes(report.chains.flat().length) && report.tied === 8,
+  `9 chains of 27 or 28 bones, 8 side by side (${report.chains.length}, ${report.chains.flat().length}, ${report.tied})`);
+{
+  const n = report.target.bones.length, loose = report.chains.flat();
+  const places = (fixes) => {
+    const frames = w.play(0, fixes);
+    check(frames > 0, `play with fixes ${fixes}`);
+    return [frames, new Float32Array(w.memory.buffer, w.places_of(1), frames * n * 3).slice()];
+  };
+  const [frames, stiff] = places(15), [, swung] = places(15 | 256);
+  let most = 0, others = 0;
+  for (let f = 0; f < frames; f++) {
+    for (let b = 0; b < n; b++) {
+      const o = (f * n + b) * 3;
+      const d = Math.hypot(swung[o] - stiff[o], swung[o + 1] - stiff[o + 1], swung[o + 2] - stiff[o + 2]);
+      check(Number.isFinite(d), "finite places with sway");
+      // A chain's first bone starts where its parent has it either way; the rest go where it swings.
+      if (loose.includes(b)) most = Math.max(most, d); else others = Math.max(others, d);
+    }
+  }
+  check(most > 2 && most < 60, `the loose bones swing (${most.toFixed(1)} cm at most)`);
+  check(others === 0, `only the loose bones move (${others})`);
+  console.log(`sway: ${report.chains.length} chains of ${loose.length} bones, ${report.tied} side by side, moved ` +
+    `${most.toFixed(1)} cm at most from where they are stiff`);
+  check(w.play(1, 15) > 0, "play clip 1 again");
 }
 
 check(!w.export(0), "no download of the sample, which has no file");

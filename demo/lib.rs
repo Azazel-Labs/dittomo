@@ -9,7 +9,7 @@
 use std::cell::RefCell;
 
 use dittomo::load::{self, Model};
-use dittomo::{Clip, Fixes, Mapping, Skeleton, Surface, contact};
+use dittomo::{Bone, Clip, Fixes, Mapping, Quat, Skeleton, Surface, Sway, Transform, Vec3, contact};
 use polysmelt::document::Keep;
 
 #[path = "../benches/common/mod.rs"]
@@ -77,8 +77,57 @@ pub extern "C" fn load(slot: u32, ext_len: usize) -> u32 {
     })
 }
 
-/// Loads the built-in sample: a 65-bone rig laid out as Mixamo's, walking, and a 76-bone game-engine mannequin with
-/// a five-bone spine, twist bones, an A-pose and other bone axes.
+/// The skeleton with a run of bones hung under the bone named `under`, each the child of the one before, at these
+/// places in the world, in centimeters.
+fn hung(skeleton: &Skeleton, under: &str, name: &str, at: &[[f32; 3]]) -> Skeleton {
+    let mut bones = skeleton.bones().to_vec();
+    let mut up = skeleton.index_of(under).expect("the bone to hang from");
+    let world = skeleton.world(&skeleton.rest());
+    let (mut up_at, mut up_turn) = (world[up].position(), world[up].rotation);
+    for (k, &p) in at.iter().enumerate() {
+        let p = Vec3::from(p);
+        bones.push(Bone {
+            name: format!("{name}_{:02}", k + 1),
+            parent: Some(up),
+            rest: Transform::new(up_turn.inverse() * (p - up_at), up_turn.inverse()),
+        });
+        (up, up_at, up_turn) = (bones.len() - 1, p, Quat::IDENTITY);
+    }
+    Skeleton::new(bones).expect("parents first")
+}
+
+/// The mannequin with what the sample's source has no bones for: a ponytail of four bones under the head and a skirt
+/// of eight folds of three bones round the pelvis. 104 bones. (The ponytail's first bone is taken for the end of the
+/// source's head, so three of its bones swing.)
+fn dressed() -> Skeleton {
+    let mut rig = common::mannequin();
+    rig = hung(
+        &rig,
+        "head",
+        "ponytail",
+        &[
+            [0.0, 164.0, -8.0],
+            [0.0, 156.0, -13.0],
+            [0.0, 146.0, -15.0],
+            [0.0, 136.0, -15.0],
+        ],
+    );
+    for fold in 0..8 {
+        let (sin, cos) = ((fold as f32 + 0.5) * std::f32::consts::TAU / 8.0).sin_cos();
+        let at = |k: f32| [(15.0 + 2.5 * k) * sin, 93.0 - 13.0 * k, (15.0 + 2.5 * k) * cos];
+        rig = hung(
+            &rig,
+            "pelvis",
+            &format!("skirt_{}", fold + 1),
+            &[at(0.0), at(1.0), at(2.0)],
+        );
+    }
+    rig
+}
+
+/// Loads the built-in sample: a 65-bone rig laid out as Mixamo's, walking, and a game-engine mannequin with a
+/// five-bone spine, twist bones, an A-pose and other bone axes, wearing a ponytail and a skirt that the source has no
+/// bones for (104 bones: what [`Fixes::sway`] swings).
 #[unsafe(no_mangle)]
 pub extern "C" fn sample() {
     let model = |skeleton: Skeleton, clips: Vec<(Option<String>, Clip)>| Model {
@@ -97,7 +146,7 @@ pub extern "C" fn sample() {
         (Some("every bone swinging".to_owned()), swing),
     ];
     with(|s| {
-        s.models = [Some(model(source, clips)), Some(model(common::mannequin(), Vec::new()))];
+        s.models = [Some(model(source, clips)), Some(model(dressed(), Vec::new()))];
         s.mapping = None;
         s.played = None;
         s.target_file = None;
@@ -105,7 +154,8 @@ pub extern "C" fn sample() {
 }
 
 /// Matches the source to the target, leaving a JSON report as the text: both skeletons, each target bone's source
-/// and score, the quality, the source's clips and the limbs found. 1 if both are loaded.
+/// and score, the quality, the source's clips, the limbs found, and the target's chains that nothing drives, with how
+/// many of them hang side by side. 1 if both are loaded.
 #[unsafe(no_mangle)]
 pub extern "C" fn map() -> u32 {
     with(|s| {
@@ -317,12 +367,28 @@ fn report(source: &Model, target: &Model, mapping: &Mapping) -> String {
             )
         })
         .collect();
+    // What sway would swing: each chain's bones, and how many chains are tied to one beside them.
+    let sway = Sway::new(mapping, &target.skeleton).ok();
+    let chains: Vec<String> = sway
+        .iter()
+        .flat_map(Sway::chains)
+        .map(|c| {
+            let bones: Vec<String> = c.bones.iter().map(usize::to_string).collect();
+            format!("[{}]", bones.join(","))
+        })
+        .collect();
+    let tied = sway
+        .iter()
+        .flat_map(Sway::beside)
+        .filter(|b| b.iter().any(Option::is_some))
+        .count();
     format!(
-        "{{\"quality\":{:.4},\"source\":{},\"target\":{},\"pairs\":[{}],\"clips\":[{}]}}",
+        "{{\"quality\":{:.4},\"source\":{},\"target\":{},\"pairs\":[{}],\"clips\":[{}],\"chains\":[{}],\"tied\":{tied}}}",
         mapping.quality(),
         skeleton(&source.skeleton),
         skeleton(&target.skeleton),
         pairs.join(","),
-        clips.join(",")
+        clips.join(","),
+        chains.join(",")
     )
 }

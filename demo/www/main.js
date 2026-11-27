@@ -27,7 +27,7 @@ async function start() {
 function sample() {
   wasm.sample();
   names[0] = "sample: 65 bones laid out as Mixamo's, walking";
-  names[1] = "sample: 76-bone mannequin, A-pose, twist bones";
+  names[1] = "sample: mannequin, A-pose, twist bones, with a ponytail and a skirt nothing drives";
   targetFile = null;
   remap();
 }
@@ -106,6 +106,10 @@ function stats() {
     ["Bones", `${report.source.bones.length} → ${report.target.bones.length}, ${mapped} matched`],
     ["Quality", `${(report.quality * 100).toFixed(1)}%`],
     ["Limbs found", `${report.target.legs.length} legs, ${report.target.arms.length} arms`],
+    ["Left loose", report.chains.length
+      ? `${report.chains.length} chains of ${report.chains.flat().length} bones, ${report.tied} side by side` +
+        (ui.sway.checked ? ", swung" : ", stiff: tick the last box to swing them")
+      : "nothing"],
     ["Match took", `${report.took.toFixed(1)} ms`],
     ["Play took", `${report.played.toFixed(1)} ms for ${frames} frames, ${(report.played * 1000 / frames).toFixed(0)} µs each`],
   ];
@@ -192,13 +196,15 @@ function draw() {
     }
     // Bones
     const limbs = new Set([...report[w ? "target" : "source"].legs, ...report[w ? "target" : "source"].arms].flat());
+    // The target's chains that nothing drives, in their own color.
+    const loose = new Set(w ? report.chains.flat() : []);
     for (let b = 0; b < n; b++) {
       const p = bones(w)[b].parent;
       if (p == null) continue;
       const on = b === highlight[w] || p === highlight[w];
-      g.strokeStyle = on ? css.getPropertyValue("--accent") : color[w];
-      g.globalAlpha = on || limbs.has(b) ? 1 : 0.6;
-      g.lineWidth = on ? 4 : limbs.has(b) ? 2.5 : 1.5;
+      g.strokeStyle = on ? css.getPropertyValue("--accent") : loose.has(b) ? css.getPropertyValue("--loose") : color[w];
+      g.globalAlpha = on || limbs.has(b) || loose.has(b) ? 1 : 0.6;
+      g.lineWidth = on ? 4 : limbs.has(b) ? 2.5 : loose.has(b) ? 2 : 1.5;
       g.beginPath(); g.moveTo(...project(at(w, frame, p))); g.lineTo(...project(at(w, frame, b))); g.stroke();
     }
     g.globalAlpha = 1;

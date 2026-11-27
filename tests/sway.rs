@@ -1085,6 +1085,118 @@ fn a_jump_takes_the_chains_along() {
     assert!(bend(&sk, &fresh, &first) < 1e-4);
 }
 
+#[test]
+fn live_takes_the_chains_along_when_told_of_a_jump() {
+    let (source, target) = (common::mixamo(), tailed());
+    let map = Mapping::new(&source, &target);
+    let clip = strode(70);
+    let sway = Sway::new(&map, &target).unwrap();
+    let fixes = Fixes {
+        sway: true,
+        ..Fixes::NONE
+    };
+    // The source set down three meters off and turned a quarter round, from the 40th pose on.
+    let far = |f: usize| {
+        let mut pose = clip.poses[f].clone();
+        pose[0].translation = Quat::from_rotation_y(1.5) * pose[0].translation + Vec3::new(300.0, 0.0, -100.0);
+        pose[0].rotation = Quat::from_rotation_y(1.5) * pose[0].rotation;
+        pose
+    };
+    for late in [0, 4] {
+        // One that stays, and three that go: told of the jump, not told, and reset.
+        let live = || Live::new(&map, &source, &target, fixes).unwrap().delayed(late);
+        let (mut stayed, mut told, mut untold, mut reset) = (live(), live(), live(), live());
+        let (mut a, mut b, mut c, mut d) = (target.rest(), target.rest(), target.rest(), target.rest());
+        let (mut worst, mut whipped, mut rested) = (0.0f32, 0.0f32, f32::INFINITY);
+        for f in 0..clip.poses.len() + late {
+            let at = f.min(clip.poses.len() - 1);
+            let dt = if f == 0 { 0.0 } else { 1.0 / 30.0 };
+            if f == 40 {
+                told.jump();
+                reset.reset();
+            }
+            let there = if f >= 40 { far(at) } else { clip.poses[at].clone() };
+            stayed.pose(dt, &clip.poses[at], &mut a).unwrap();
+            told.pose(dt, &there, &mut b).unwrap();
+            untold.pose(dt, &there, &mut c).unwrap();
+            reset.pose(dt, &there, &mut d).unwrap();
+            let off = |pose: &[Transform]| turned(&turns(&sway, &a), &turns(&sway, pose));
+            if f >= 40 {
+                // The poses played late start over at the jump, as at a reset: beside the one that stayed only
+                // once those have come round again.
+                if late == 0 {
+                    worst = worst.max(off(&b));
+                }
+                whipped = whipped.max(off(&c));
+            }
+            if f == 40 {
+                rested = bend(&target, &sway, &d);
+                assert!(
+                    bend(&target, &sway, &b) > 0.05,
+                    "told of a jump, the chains are at rest"
+                );
+            }
+        }
+        println!(
+            "live jump, {late} late: chain bones {worst} radians at most from a body that stayed when told, {whipped} \
+             untold; reset, bent {rested}"
+        );
+        assert!(worst < 0.1, "{worst} radians off a body that stayed, {late} late");
+        assert!(whipped > 0.5, "untold, nothing whipped: {whipped}");
+        assert!(rested < 1e-4, "reset, the chains aren't at rest: {rested}");
+    }
+}
+
+#[test]
+fn a_bone_hanging_alone_is_listed_apart_and_sways_when_asked() {
+    // Two ears of one bone each on the head, beside the tail and the ponytail.
+    let sk = hung(&tailed(), "mixamorig:Head", "EarL", &[[7.0, 175.0, 0.0]]);
+    let sk = hung(&sk, "mixamorig:Head", "EarR", &[[-7.0, 175.0, 0.0]]);
+    let map = Mapping::new(&common::mixamo(), &sk);
+    let found = sway::chains(&map, &sk);
+    assert_eq!(
+        found.len(),
+        2,
+        "{:?}",
+        found.iter().map(|c| named(&sk, c)).collect::<Vec<_>>()
+    );
+    let alone = sway::danglers(&map, &sk);
+    let names: Vec<Vec<String>> = alone.iter().map(|c| named(&sk, c)).collect();
+    assert_eq!(names, [vec!["EarL1"], vec!["EarR1"]]);
+    // Each is as long as it is far from the head's joint, and swings as fast as a bone that long.
+    let head = sk.world(&sk.rest())[sk.index_of("mixamorig:Head").unwrap()].position();
+    for ear in &alone {
+        let far = sk.world(&sk.rest())[ear.bones[0]].position().distance(head);
+        assert!((ear.length - far).abs() < 1e-3 && far > 5.0, "{} for {far}", ear.length);
+    }
+    let all: Vec<Chain> = found.iter().chain(&alone).cloned().collect();
+    let mut sway = Sway::with(&sk, &all, Spring::of(&sk));
+    assert_eq!(sway.chains().len(), 4);
+    let ears: Vec<usize> = alone.iter().map(|c| c.bones[0]).collect();
+    let bent = |pose: &[Transform]| {
+        let off = |&b: &usize| apart(pose[b].rotation, sk.bones()[b].rest.rotation);
+        ears.iter().map(off).fold(0.0, f32::max)
+    };
+    let (mut most, mut pose) = (0.0f32, sk.rest());
+    for f in 0..240 {
+        pose = danced(&sk, f as f32 / 60.0, false);
+        sway.pose(1.0 / 60.0, &mut pose);
+        assert!(ears.iter().all(|&b| pose[b].rotation.is_normalized()));
+        most = most.max(bent(&pose));
+    }
+    // Then still: they come back to rest.
+    for _ in 0..240 {
+        pose = sk.rest();
+        sway.pose(1.0 / 60.0, &mut pose);
+    }
+    println!(
+        "ears: bent {most} radians at most in the dance, {} at rest after",
+        bent(&pose)
+    );
+    assert!(most > 0.02 && most < 1.0, "the ears bent {most}");
+    assert!(bent(&pose) < 1e-3, "the ears end {} off rest", bent(&pose));
+}
+
 /// Prints how real clips sway VRM rigs through [`Mapping::apply_with`]: how far the chain bones bend (on average,
 /// what 95 in a hundred are under, and at most), how many reach their cones or are bent past them by the body, and
 /// how each clip's ends meet. Run with

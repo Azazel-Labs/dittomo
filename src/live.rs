@@ -19,7 +19,8 @@ use crate::{Error, Fixes, Mapping, Player, Skeleton, Surface, Sway, Transform};
 /// lowered at once as far as they need, then eased back up, where the whole clip eases it down ahead. A hand down on
 /// the floor and nearly still (crawling, a push-up) is held there as a foot is, with planted feet ([`Fixes::feet`]).
 /// With [`Fixes::sway`], the bones nothing drives are swung after the body last of all ([`Sway`]), from rest at the
-/// first pose and the first after [`Live::reset`]; a pose with no time passed holds them.
+/// first pose and the first after [`Live::reset`]; a pose with no time passed holds them, and [`Live::jump`] takes them
+/// along with a body set down elsewhere.
 ///
 /// A foot can be held only once it has landed, where the whole clip eases it toward where it will land, so planted
 /// feet slide more. [`Live::delayed`] plays each pose a few poses late, and plants feet with those few in sight as the
@@ -80,6 +81,8 @@ pub struct Live {
     /// after the one before each of the last few came.
     sway: Option<Sway>,
     waits: Vec<f32>,
+    /// Whether the body was set down elsewhere since the last pose ([`Live::jump`]).
+    jumped: bool,
     /// How many poses have come since the start or the last reset.
     seen: usize,
 }
@@ -175,6 +178,7 @@ impl Live {
             kept: Vec::new(),
             sway,
             waits: Vec::new(),
+            jumped: false,
             seen: 0,
         };
         live.paths();
@@ -253,8 +257,27 @@ impl Live {
     }
 
     /// Forgets the poses so far: where feet are planted, how far a clip walked in place has traveled, where hands
-    /// met and where they were on the head. For a cut, or a jump to another clip.
+    /// met and where they were on the head. For a cut, or a jump to another clip. What swings loose starts from rest
+    /// again.
     pub fn reset(&mut self) {
+        self.forget();
+        if let Some(s) = &mut self.sway {
+            s.reset();
+        }
+        self.jumped = false;
+    }
+
+    /// Says the character is set down somewhere else all at once at the next pose, turned or not: a teleport, a
+    /// respawn, a snap to where a server has it. As [`Live::reset`], but what swings loose is taken along with the
+    /// body ([`Sway::jump`]), hanging and moving beside it as it was: a reset puts it back at rest, and with neither
+    /// it is whipped across the gap. That pose's time since the last is not swung through.
+    pub fn jump(&mut self) {
+        self.forget();
+        self.jumped = true;
+    }
+
+    /// Forgets the poses so far, but for what swings loose.
+    fn forget(&mut self) {
         if let Some(t) = &mut self.travel {
             t.reset();
         }
@@ -275,9 +298,6 @@ impl Live {
         }
         if let Some(a) = &mut self.ahead {
             a.reset();
-        }
-        if let Some(s) = &mut self.sway {
-            s.reset();
         }
         self.seen = 0;
     }
@@ -335,8 +355,13 @@ impl Live {
         self.hung = hung;
         // Last, what swings loose, by how long after the pose before the one played came.
         let waited = done?;
+        let jumped = std::mem::take(&mut self.jumped);
         if let Some(s) = &mut self.sway {
-            s.pose(waited, out);
+            if jumped {
+                s.jump(out);
+            } else {
+                s.pose(waited, out);
+            }
         }
         Ok(())
     }
