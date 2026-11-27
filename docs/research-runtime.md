@@ -146,10 +146,31 @@ over 150 fps on a GTX 1060 (gpuinstance); Alan Wake 2's GPU skinning aimed at a 
 
 ### Built: step 1, bake once and play (`dittomo::bake`)
 
-CPU code only, and no GPU has run it yet. `Baker` takes clips already on one rig and writes one library; `Library`
-reads it back and samples it on the CPU; `bake::wgsl` is the same sampler as WGSL, written beside it function for
-function. naga parses and validates the WGSL in the tests, with a vertex shader that calls all of it. That the two
-give the same numbers rests on reading them side by side until a host runs both.
+`Baker` takes clips already on one rig and writes one library; `Library` reads it back and samples it on the CPU;
+`bake::wgsl` is the same sampler as WGSL, written beside it function for function. naga parses and validates the
+WGSL in the tests, with a vertex shader that calls all of it.
+
+The WGSL now runs on real adapters against the CPU reader: `gpu-check/`, a crate of its own on wgpu, bakes four
+retargeted clips on the 76-bone mannequin in each encoding (a walk 4.2 m off played once, a second in place looped,
+a turn once round looped, one pose held), uploads the bytes as they are and has compute shaders call `bone`,
+`blend`, `skin` and `skin_normal` for 39,764, 9,728 and 2,840 queries: every bone at every frame and between
+frames, before 0, past the end, on and either side of the loop's wrap, clips and bones the library doesn't hold.
+Locally on an Intel Arc integrated GPU (driver 32.0.101.9150) through Vulkan, DX12 and OpenGL, and on Microsoft's
+software DX12 adapter, the worst the shader is off the CPU, over all of them (a rotation's or normal's largest
+difference in one number; a place as a share of the rig's height):
+
+| Encoding | `bone` rotation | translation | `blend` rotation | translation | `skin` point | `skin_normal` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Floats | 1.2e-7 | 4.5e-7 | 1.8e-7 | 5.0e-7 | 6.0e-7 | 3.1e-7 |
+| Halves | 1.8e-7 | 4.6e-7 | 1.8e-7 | 4.4e-7 | 5.9e-7 | 4.0e-7 |
+| Fixed point | 1.2e-7 | 7.9e-7 | 1.8e-7 | 6.0e-7 | 5.9e-7 | 7.0e-7 |
+
+The check fails past 1e-5, and a CI job is set to run it on Mesa's lavapipe (Vulkan on the CPU). The first run found
+one disagreement: the Intel driver divides by multiplying by a reciprocal, so `30.0 / 30.0` is 0.99999994 there, and
+a looping clip asked for at exactly its length (or any whole number of them) was not wrapped. It still got the
+first frame's pose, as the last frame blended all the way to the first, but where those two lie in opposite
+hemispheres the rotation came back with every sign turned. Both samplers now take a whole turn left over as the
+start again, and agree.
 
 Little-endian 32-bit words, every offset a count of words from the library's start (`C` clips, `B` bones, `F`
 frames in all, `R` words a record: 7 as floats, 4 as halves, 4 in fixed point):

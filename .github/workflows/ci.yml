@@ -1,8 +1,9 @@
 name: CI
 
-# Formatting, clippy with and without model loading, the tests, the browser demo (deployed to
-# Pages from main), mapping accuracy on real rigs, and on pull requests a benchmark of the base and
-# the change on the same runner that fails if the change got slower.
+# Formatting, clippy with and without model loading, the tests, the baked-clip shader run against
+# the CPU reader on a software Vulkan adapter, the browser demo (deployed to Pages from main),
+# mapping accuracy on real rigs, and on pull requests a benchmark of the base and the change on the
+# same runner that fails if the change got slower.
 #
 # dittomo reads models through polysmelt from crates.io. The bench job still checks polysmelt out
 # beside the base, as bases from before then read it as a path dependency.
@@ -65,6 +66,41 @@ jobs:
         working-directory: dittomo
       - run: cargo test --doc --features fs
         working-directory: dittomo
+
+  # `bake`'s WGSL run in compute shaders and held to the CPU reader, number for number. The runner has
+  # no GPU, so Mesa's lavapipe stands in: Vulkan on the CPU, which runs compute shaders. The check
+  # fails if it finds no adapter (GPU_CHECK_OPTIONAL is left unset).
+  gpu-check:
+    runs-on: ubuntu-latest
+    env:
+      WGPU_BACKEND: vulkan
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: dittomo
+      - run: rustup toolchain install && rustup component add rustfmt clippy
+        working-directory: dittomo
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers vulkan-tools
+      # Which adapters the loader finds, for when the check says there are none.
+      - run: vulkaninfo --summary || true
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dittomo/gpu-check
+      - run: cargo fmt --check
+        working-directory: dittomo/gpu-check
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: dittomo/gpu-check
+      - name: The shader against the CPU reader
+        shell: bash
+        working-directory: dittomo/gpu-check
+        run: |
+          status=0
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cargo run --release | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
   # The browser demo: built for wasm, then driven from node as the page drives it.
   demo:

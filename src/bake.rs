@@ -78,8 +78,9 @@
 //! compute pass that writes a pose buffer, and `skin` to place the vertex. WebGPU's compatibility mode allows no
 //! storage buffers in the vertex stage, so there it is the compute pass.
 //!
-//! The WGSL is parsed and validated by naga in this crate's tests. It has not been run on a GPU here: that it gives
-//! what [`Library`] gives rests on the two being written side by side.
+//! The WGSL is parsed and validated by naga in this crate's tests, and run in compute shaders against [`Library`],
+//! number for number, by the `gpu-check` crate beside this one: the two agree within a millionth on the adapters
+//! tried.
 
 use crate::{Clip, Mat4, Quat, Skeleton, Transform, Vec3};
 
@@ -759,6 +760,10 @@ impl<'a> Library<'a> {
         let mut next = 1;
         if c.flags & 1 != 0 {
             x = (x - (x / n).floor() * n).max(0.0);
+            // A divide that comes out a hair short, as some GPUs' do, leaves a whole turn: that is the start again.
+            if x >= n {
+                x = 0.0;
+            }
             next = c.frames;
         } else {
             x = x.clamp(0.0, last as f32);
@@ -972,6 +977,10 @@ fn joint(clip: u32, time: f32, bone: u32) -> Bone {
     var next = 1u;
     if (c.flags & 1u) != 0u {
         x = max(x - floor(x / n) * n, 0.0);
+        // A divide that comes out a hair short, as some GPUs' do, leaves a whole turn: that is the start again.
+        if x >= n {
+            x = 0.0;
+        }
         next = c.frames;
     } else {
         x = clamp(x, 0.0, f32(last));

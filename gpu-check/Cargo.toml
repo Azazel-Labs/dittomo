@@ -1,0 +1,20 @@
+[package]
+name = "dittomo-gpu-check"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+description = "Runs dittomo's baked-clip WGSL in a compute shader on a real adapter and holds it to the CPU reader"
+license = "MIT-0"
+
+[dependencies]
+dittomo = { path = ".." }
+# Every native backend, and no browser one: the check runs on whatever adapters the machine has.
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "dx12", "metal", "vulkan", "gles"] }
+pollster = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+# Its own workspace, so it builds apart from dittomo.
+[workspace]
