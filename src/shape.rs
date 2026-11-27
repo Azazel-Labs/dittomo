@@ -60,16 +60,24 @@ pub(crate) struct Shape {
     /// to their ends, over the height: the longer of each two.
     pub ln_span: [f32; 2],
     /// For each bone past where a hand begins, where it stands from there, turned as the arm would be held straight out
-    /// to its side, over how far the hand's digits start from it on average.
+    /// to its side, over how far the hand's digits start from it on average: from their knuckles, a bone on, where its
+    /// digits' roots are palm bones, one of them holding two digits. A hand with a thumb to count its fingers from is
+    /// also rolled about the arm, so the index stands ahead of the last finger whichever way the palm faces at rest.
     pub palm: Vec<Option<Vec3>>,
     /// Each bone's `dir` and `inward`, turned past where a hand begins as its arm would be held straight out to its
-    /// side, as for `palm`: they point the same whether the arm hangs down or out at rest.
+    /// side, as for `palm`: they point the same whether the arm hangs down or out at rest. A digit hung from another's
+    /// palm bone, as a thumb from the index finger's, is come to from the wrist.
     pub out: Vec<[Vec3; 2]>,
-    /// For each bone in a hand's digit, which digit: -1 for the thumb, then 0, 1, 2 and on for the others from the
-    /// thumb's side, by how far each starts from it. The thumb is the digit standing clearly furthest from its nearest,
-    /// or of two, the one starting clearly nearer the wrist. Only for a hand with a thumb and another digit, and only
-    /// digits that don't branch, as something held does.
+    /// For each bone in a hand's digit, which digit: -1 for the thumb, then 0, 1, 2 and on for the others across the
+    /// hand from the index, which of the two fingers furthest apart is the one nearer where the thumb ends. The thumb is
+    /// the digit standing clearly furthest from its nearest, or of two, the one starting clearly nearer the wrist. Only
+    /// for a hand with a thumb and another digit, and only digits that don't branch, as something held does; a root
+    /// holding two digits is a palm bone, each of them a digit. From the knuckle on: a palm bone is in no digit.
     pub digit: Vec<Option<f32>>,
+    /// For each bone in a finger counted from a thumb, where it stands as for `palm`, but across the hand from the
+    /// index finger's knuckle rather than the wrist: a mitten's one finger stands at the middle of its hand, where
+    /// another's middle or ring finger does.
+    pub finger: Vec<Option<Vec3>>,
     /// For each bone up from the chest to the head, how many bones up it is (0 for the first) and how many the neck and
     /// head have: those at the middle between the shoulders' roots, from no lower than them (not a bag on the back) to
     /// 1.4 times as high (not a vent on a robot's head, above where any head's root stands), not counting a bone
@@ -154,6 +162,7 @@ impl Shape {
                 palm: Vec::new(),
                 out: Vec::new(),
                 digit: Vec::new(),
+                finger: Vec::new(),
                 names,
             };
         }
@@ -253,6 +262,7 @@ impl Shape {
                 palm: Vec::new(),
                 out: Vec::new(),
                 digit: Vec::new(),
+                finger: Vec::new(),
                 names,
             };
         }
@@ -458,30 +468,31 @@ impl Shape {
         let mut palm = vec![None; n];
         let mut turned = vec![Quat::IDENTITY; n];
         let mut digit = vec![None; n];
+        let mut finger = vec![None; n];
+        // Whether it is a digit's first bone hung from another's palm bone, as a thumb from the index finger's.
+        let mut hung = vec![false; n];
         for h in hands.into_iter().flatten() {
             let Some(p) = parents[h] else { continue };
-            let side = if at[h].x > at[p].x { Vec3::X } else { Vec3::NEG_X };
-            let out = Quat::from_rotation_arc((at[h] - at[p]).normalize_or(side), side);
-            // How far the digits start from it, each from its first joint off the wrist: a mocap hand's digits start
-            // at it, and part a bone on.
-            let from = |mut c: usize| loop {
+            let roots = &digits[h];
+            let wrist = at[h];
+            // How far the digits start from it, each from its first joint off it: a mocap hand's digits start at the
+            // wrist, and part a bone on.
+            let off = |mut c: usize| loop {
                 match &children[c] {
-                    &[d] if at[c].distance(at[h]) <= 1e-6 => c = d,
-                    _ => break at[c].distance(at[h]),
+                    &[d] if at[c].distance(wrist) <= 1e-6 => c = d,
+                    _ => break at[c].distance(wrist),
                 }
             };
-            let size = digits[h].iter().map(|&c| from(c)).sum::<f32>() / digits[h].len().max(1) as f32;
-            if size <= 1e-6 {
+            let span = roots.iter().map(|&c| off(c)).sum::<f32>() / roots.len().max(1) as f32;
+            if span <= 1e-6 {
                 continue;
             }
-            let mut stack = children[h].to_vec();
-            while let Some(c) = stack.pop() {
-                palm[c] = Some(out * (at[c] - at[h]) / size);
-                turned[c] = out;
-                stack.extend(&children[c]);
-            }
-            // Where each digit parts from the others: its first bone, or, for digits starting at one point (a robot's
-            // palms at its wrist), the next. A finger is a chain: what branches is something held, a bow.
+            let arm = wrist - at[p];
+            let side = if arm.x > 0.0 { Vec3::X } else { Vec3::NEG_X };
+            let out = Quat::from_rotation_arc(arm.normalize_or(side), side);
+            // A finger is a chain: what branches is something held, a bow. But a digit's root holding chains of its
+            // own is a palm bone, as one holding the index finger and the thumb: the chain carrying on its way is its
+            // own digit, and each of the others one more.
             let chain = |mut b: usize| loop {
                 match &children[b] {
                     [] => break true,
@@ -489,11 +500,58 @@ impl Shape {
                     _ => break false,
                 }
             };
-            let ds: &Vec<usize> = &digits[h].iter().copied().filter(|&d| chain(d)).collect();
+            let onward = |d: usize| {
+                let on = |c: usize| (at[c] - at[d]).normalize_or_zero().dot(inward[d]);
+                digits[d].iter().copied().max_by(|&x, &y| on(x).total_cmp(&on(y)))
+            };
+            let holds = |d: usize| forks[d] && digits[d].iter().all(|&c| chain(c));
+            let mut ds = Vec::new();
+            for &d in roots {
+                if chain(d) {
+                    ds.push(d);
+                } else if holds(d) {
+                    ds.push(d);
+                    ds.extend(digits[d].iter().copied().filter(|&c| Some(c) != onward(d)));
+                }
+            }
+            for &d in &ds {
+                hung[d] = !roots.contains(&d);
+            }
+            let ds = &ds;
+            // A root of a hand where one holds two digits is a palm bone, and so are roots starting at one point off
+            // the wrist (a robot's palms on the end of its forearm): the finger starts a bone on, at its knuckle.
+            let held = roots.iter().any(|&d| holds(d));
+            let met = |d: usize| roots.iter().any(|&e| e != d && at[e].distance(at[d]) < 0.01 * span);
+            let knuckle = |d: usize| {
+                let next = match &children[d] {
+                    &[c] => Some(c),
+                    _ if holds(d) => onward(d),
+                    _ => None,
+                };
+                let off_wrist = at[d].distance(wrist) >= 0.01 * span;
+                next.filter(|_| roots.contains(&d) && off_wrist && (held || met(d)))
+            };
+            // The hand's own size is how far its digits start from the wrist: in a hand of palm bones holding two
+            // digits, each from its knuckle.
+            let size = if held {
+                ds.iter().map(|&d| off(knuckle(d).unwrap_or(d))).sum::<f32>() / ds.len().max(1) as f32
+            } else {
+                span
+            };
+            if size <= 1e-6 {
+                continue;
+            }
+            let mut stack = children[h].to_vec();
+            while let Some(c) = stack.pop() {
+                palm[c] = Some(out * (at[c] - wrist) / size);
+                turned[c] = out;
+                stack.extend(&children[c]);
+            }
+            // Where each digit parts from the others: its first bone, or, for digits starting at one point, the next.
             let parts: Vec<Vec3> = ds
                 .iter()
                 .map(|&d| {
-                    let shared = ds.iter().any(|&e| e != d && at[e].distance(at[d]) < 0.01 * size);
+                    let shared = ds.iter().any(|&e| e != d && at[e].distance(at[d]) < 0.01 * span);
                     match (shared, &children[d]) {
                         (true, &[c]) => at[c],
                         _ => at[d],
@@ -502,7 +560,7 @@ impl Shape {
                 .collect();
             // The thumb stands apart from the fingers, further from its nearest than any finger is from its own; of
             // two digits, it starts clearly nearer the wrist, or, both starting at it, turns clearly further off the
-            // line of the arm, as fingers carry it on. The index is the one nearest the thumb.
+            // line of the arm, as fingers carry it on.
             let apart: Vec<f32> = (0..ds.len())
                 .map(|i| {
                     (0..ds.len())
@@ -516,31 +574,75 @@ impl Shape {
                 order.sort_by(|&i, &j| apart[j].total_cmp(&apart[i]));
                 (apart[order[0]] > 1.25 * apart[order[1]]).then_some(order[0])
             } else {
-                order.sort_by(|&i, &j| at[ds[i]].distance(at[h]).total_cmp(&at[ds[j]].distance(at[h])));
-                let arm = (at[h] - at[p]).normalize_or_zero();
-                let off = |i: usize| (parts[i] - at[h]).normalize_or_zero().dot(arm).clamp(-1.0, 1.0).acos();
+                order.sort_by(|&i, &j| at[ds[i]].distance(wrist).total_cmp(&at[ds[j]].distance(wrist)));
+                let arm = arm.normalize_or_zero();
+                let turn = |i: usize| (parts[i] - wrist).normalize_or_zero().dot(arm).clamp(-1.0, 1.0).acos();
                 match order[..] {
-                    [i, j] if at[ds[i]].distance(at[h]) < 0.85 * at[ds[j]].distance(at[h]) => Some(i),
-                    [i, j] if at[ds[j]].distance(at[h]) < 0.01 * size => {
-                        let (a, b) = (off(i), off(j));
+                    [i, j] if at[ds[i]].distance(wrist) < 0.85 * at[ds[j]].distance(wrist) => Some(i),
+                    [i, j] if at[ds[j]].distance(wrist) < 0.01 * span => {
+                        let (a, b) = (turn(i), turn(j));
                         (a > b + 0.35).then_some(i).or((b > a + 0.35).then_some(j))
                     }
                     _ => None,
                 }
             };
             if let Some(thumb) = thumb {
+                // The fingers are counted across the hand, from the index: of the two standing furthest apart, the
+                // one nearer where the thumb ends. A thumb may start at the wrist, as far from the little finger's
+                // knuckle as from the index's, but it lies along the index's side of the hand.
+                let mut tip = ds[thumb];
+                while let Some(c) = main[tip] {
+                    tip = c;
+                }
                 let mut rest: Vec<usize> = (0..ds.len()).filter(|&i| i != thumb).collect();
-                rest.sort_by(|&i, &j| {
-                    parts[i]
-                        .distance(parts[thumb])
-                        .total_cmp(&parts[j].distance(parts[thumb]))
-                });
-                let ranked =
-                    std::iter::once((ds[thumb], -1.0)).chain(rest.into_iter().zip(0..).map(|(i, r)| (ds[i], r as f32)));
+                let ends = rest
+                    .iter()
+                    .flat_map(|&i| rest.iter().map(move |&j| (i, j)))
+                    .max_by(|x, y| {
+                        parts[x.0]
+                            .distance(parts[x.1])
+                            .total_cmp(&parts[y.0].distance(parts[y.1]))
+                    });
+                if let Some((i, j)) = ends {
+                    let index = if parts[j].distance(at[tip]) < parts[i].distance(at[tip]) {
+                        j
+                    } else {
+                        i
+                    };
+                    rest.sort_by(|&i, &j| {
+                        parts[i]
+                            .distance(parts[index])
+                            .total_cmp(&parts[j].distance(parts[index]))
+                    });
+                }
+                // The hand is rolled about its arm so that its fingers lie one way across it, the index ahead of the
+                // last: a palm may face down at rest, or ahead, or wherever turning a hanging arm out leaves it.
+                if let (Some(&first), Some(&last)) = (rest.first(), rest.last()) {
+                    let across = out * (parts[first] - parts[last]);
+                    if across.y.hypot(across.z) > 0.1 * size {
+                        let roll = Quat::from_rotation_x(across.y.atan2(across.z));
+                        let mut stack = children[h].to_vec();
+                        while let Some(c) = stack.pop() {
+                            palm[c] = palm[c].map(|p| roll * p);
+                            turned[c] = roll * out;
+                            stack.extend(&children[c]);
+                        }
+                    }
+                }
+                // Each is counted from its knuckle on: a palm bone is in the hand, not in a finger. A digit hung from
+                // another's root comes after it, and so keeps its own count.
+                let mut ranked: Vec<(usize, f32)> = std::iter::once((ds[thumb], -1.0))
+                    .chain(rest.into_iter().zip(0..).map(|(i, r)| (ds[i], r as f32)))
+                    .map(|(d, r)| (knuckle(d).unwrap_or(d), r))
+                    .collect();
+                ranked.sort_by_key(|r| r.0);
+                let index = ranked.iter().find(|r| r.1 == 0.0).and_then(|r| palm[r.0]);
+                let aside = index.map_or(Vec3::ZERO, |p| Vec3::new(0.0, p.y, p.z));
                 for (base, rank) in ranked {
                     let mut stack = vec![base];
                     while let Some(c) = stack.pop() {
                         digit[c] = Some(rank);
+                        finger[c] = palm[c].filter(|_| rank >= 0.0).map(|p| p - aside);
                         stack.extend(&children[c]);
                     }
                 }
@@ -622,8 +724,13 @@ impl Shape {
                 }
             }
         }
+        // A digit starts from the wrist, whichever bone of the hand holds it: a thumb hung from a palm bone may start
+        // nearer the wrist than that bone does.
         let out = (0..n)
-            .map(|i| [turned[i] * dir[i], turned[i] * inward[i]])
+            .map(|i| match palm[i] {
+                Some(p) if hung[i] => [turned[i] * dir[i], p.normalize_or_zero()],
+                _ => [turned[i] * dir[i], turned[i] * inward[i]],
+            })
             .collect::<Vec<[Vec3; 2]>>();
         Self {
             rest,
@@ -650,6 +757,7 @@ impl Shape {
             palm,
             out,
             digit,
+            finger,
             neck,
             spine,
             doubled,
@@ -1032,12 +1140,12 @@ fn mirror_plane(pos: &[Vec3], center: Vec3, height: f32) -> Vec3 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{Bone, Transform};
 
     /// A skeleton from bones named with their parents and world positions, every bone unturned.
-    fn placed(joints: &[(&str, Option<&str>, [f32; 3])]) -> Skeleton {
+    pub(crate) fn placed(joints: &[(&str, Option<&str>, [f32; 3])]) -> Skeleton {
         let at = |n: &str| joints.iter().position(|j| j.0 == n).expect("parent listed");
         let bones = joints.iter().map(|&(name, parent, p)| {
             let from = parent.map_or(Vec3::ZERO, |q| Vec3::from(joints[at(q)].2));
@@ -1048,6 +1156,153 @@ mod tests {
             }
         });
         Skeleton::new(bones.collect()).expect("parents first")
+    }
+
+    /// A figure in a T-pose to its forearms, with `hand` adding each side's hand: it is given the bones so far, the
+    /// side's letter and its sign.
+    fn figure(hand: impl Fn(&mut Vec<(&'static str, Option<&'static str>, [f32; 3])>, &str, f32)) -> Skeleton {
+        let mut j = vec![
+            ("Hips", None, [0.0, 1.0, 0.0]),
+            ("Spine", Some("Hips"), [0.0, 1.2, 0.0]),
+            ("Chest", Some("Spine"), [0.0, 1.4, 0.0]),
+            ("Neck", Some("Chest"), [0.0, 1.55, 0.0]),
+            ("Head", Some("Neck"), [0.0, 1.65, 0.0]),
+        ];
+        for (l, x) in [("L", 1.0f32), ("R", -1.0)] {
+            let n = |s: &str| -> &'static str { format!("{l}{s}").leak() };
+            j.extend([
+                (n("Shoulder"), Some("Chest"), [0.05 * x, 1.45, 0.0]),
+                (n("Arm"), Some(n("Shoulder")), [0.18 * x, 1.45, 0.0]),
+                (n("ForeArm"), Some(n("Arm")), [0.45 * x, 1.45, 0.0]),
+                (n("UpLeg"), Some("Hips"), [0.1 * x, 0.95, 0.0]),
+                (n("Leg"), Some(n("UpLeg")), [0.1 * x, 0.5, 0.0]),
+                (n("Foot"), Some(n("Leg")), [0.1 * x, 0.08, 0.0]),
+                (n("ToeBase"), Some(n("Foot")), [0.1 * x, 0.0, 0.12]),
+            ]);
+            hand(&mut j, l, x);
+        }
+        placed(&j)
+    }
+
+    /// A chain of three bones named `{l}{name}1` to `3` from `parent`, starting at `at` and going on by `step`.
+    fn chain(
+        j: &mut Vec<(&'static str, Option<&'static str>, [f32; 3])>,
+        (l, x): (&str, f32),
+        (name, parent): (&str, &str),
+        at: [f32; 3],
+        step: [f32; 3],
+    ) {
+        let mut parent: &'static str = format!("{l}{parent}").leak();
+        for k in 0..3 {
+            let me: &'static str = format!("{l}{name}{}", k + 1).leak();
+            let f = k as f32;
+            let p = [(at[0] + f * step[0]) * x, at[1] + f * step[1], at[2] + f * step[2]];
+            j.push((me, Some(parent), p));
+            parent = me;
+        }
+    }
+
+    #[test]
+    fn fingers_are_counted_from_the_index_though_the_thumb_starts_nearer_the_little_finger() {
+        // A thumb starting at the middle of the wrist, nearer the little finger's knuckle than the index's, and lying
+        // along the index's side of the hand.
+        let s = figure(|j, l, x| {
+            let n = |s: &str| -> &'static str { format!("{l}{s}").leak() };
+            j.push((n("Hand"), Some(n("ForeArm")), [0.7 * x, 1.45, 0.0]));
+            chain(j, (l, x), ("A", "Hand"), [0.72, 1.44, 0.005], [0.02, -0.01, 0.022]);
+            chain(j, (l, x), ("B", "Hand"), [0.785, 1.45, 0.03], [0.03, 0.0, 0.0]);
+            chain(j, (l, x), ("C", "Hand"), [0.785, 1.45, 0.01], [0.03, 0.0, 0.0]);
+            chain(j, (l, x), ("D", "Hand"), [0.775, 1.45, -0.01], [0.03, 0.0, 0.0]);
+            chain(j, (l, x), ("E", "Hand"), [0.765, 1.45, -0.03], [0.03, 0.0, 0.0]);
+        });
+        let shape = Shape::of(&s);
+        let at = |n: &str| s.index_of(n).expect("named");
+        for l in ["L", "R"] {
+            for (d, rank) in [("A", -1.0), ("B", 0.0), ("C", 1.0), ("D", 2.0), ("E", 3.0)] {
+                for k in 1..=3 {
+                    assert_eq!(shape.digit[at(&format!("{l}{d}{k}"))], Some(rank), "{l}{d}{k}");
+                }
+            }
+            // The index stands off the line of the arm, and is where the fingers are placed from across the hand.
+            let (palm, finger) = (shape.palm[at(&format!("{l}B1"))], shape.finger[at(&format!("{l}B1"))]);
+            assert!(palm.is_some_and(|p| p.z > 0.3), "{palm:?}");
+            assert!(
+                finger.is_some_and(|p| p.y.abs() < 1e-4 && p.z.abs() < 1e-4),
+                "{finger:?}"
+            );
+            assert!(shape.finger[at(&format!("{l}E1"))].is_some_and(|p| p.z < -0.6));
+            assert_eq!(shape.finger[at(&format!("{l}A1"))], None);
+        }
+    }
+
+    #[test]
+    fn a_palm_bone_holding_the_index_and_the_thumb_is_in_no_finger() {
+        // Each finger from a palm bone, the index finger's holding the thumb too, which starts nearer the wrist than
+        // the palm bone does.
+        let s = figure(|j, l, x| {
+            let n = |s: &str| -> &'static str { format!("{l}{s}").leak() };
+            j.push((n("Hand"), Some(n("ForeArm")), [0.7 * x, 1.45, 0.0]));
+            for (k, z) in [(1, 0.03f32), (2, 0.01), (3, -0.01), (4, -0.03)] {
+                let palm = format!("P{k}");
+                j.push((n(&palm), Some(n("Hand")), [0.72 * x, 1.45, z]));
+                chain(j, (l, x), (&format!("F{k}"), &palm), [0.76, 1.45, z], [0.02, 0.0, 0.0]);
+            }
+            chain(j, (l, x), ("T", "P1"), [0.705, 1.43, 0.045], [0.015, -0.005, 0.015]);
+        });
+        let shape = Shape::of(&s);
+        let at = |n: &str| s.index_of(n).expect("named");
+        for l in ["L", "R"] {
+            for k in 1..=4 {
+                assert_eq!(shape.digit[at(&format!("{l}P{k}"))], None, "{l}P{k}");
+                for b in 1..=3 {
+                    let finger = format!("{l}F{k}{b}");
+                    assert_eq!(shape.digit[at(&finger)], Some(k as f32 - 1.0), "{finger}");
+                }
+            }
+            for b in 1..=3 {
+                assert_eq!(shape.digit[at(&format!("{l}T{b}"))], Some(-1.0), "{l}T{b}");
+            }
+            // The hand is sized to its knuckles, not to where its palm bones start.
+            let knuckle = shape.palm[at(&format!("{l}F21"))].expect("in the hand").length();
+            assert!((0.9..1.3).contains(&knuckle), "{knuckle}");
+            // The thumb is come to from the wrist, not back from the palm bone that holds it.
+            let thumb = at(&format!("{l}T1"));
+            let from_wrist = shape.palm[thumb].expect("in the hand").normalize();
+            assert!(shape.out[thumb][1].dot(from_wrist) > 0.999, "{:?}", shape.out[thumb][1]);
+        }
+    }
+
+    #[test]
+    fn palms_meeting_on_a_forearm_are_in_no_finger_and_a_hand_is_rolled_to_its_fingers() {
+        // No hand bone: three palm bones at one point on the end of the forearm, a finger from each, one above the
+        // other with the palm facing ahead, and a thumb above them.
+        let s = figure(|j, l, x| {
+            let n = |s: &str| -> &'static str { format!("{l}{s}").leak() };
+            for (k, y) in [(1, 1.49f32), (2, 1.45), (3, 1.41)] {
+                let (palm, finger) = (format!("P{k}"), format!("F{k}"));
+                j.push((n(&palm), Some(n("ForeArm")), [0.7 * x, 1.45, 0.0]));
+                j.push((n(&finger), Some(n(&palm)), [0.76 * x, y, 0.02]));
+                j.push((n(&format!("{finger}b")), Some(n(&finger)), [0.8 * x, y, 0.04]));
+            }
+            j.push((n("T"), Some(n("ForeArm")), [0.69 * x, 1.5, 0.01]));
+            j.push((n("Tb"), Some(n("T")), [0.69 * x, 1.53, 0.02]));
+        });
+        let shape = Shape::of(&s);
+        let at = |n: &str| s.index_of(n).expect("named");
+        for l in ["L", "R"] {
+            assert_eq!(shape.digit[at(&format!("{l}T"))], Some(-1.0));
+            for k in 1..=3 {
+                assert_eq!(shape.digit[at(&format!("{l}P{k}"))], None, "{l}P{k}");
+                assert_eq!(shape.digit[at(&format!("{l}F{k}"))], Some(k as f32 - 1.0), "{l}F{k}");
+            }
+            // Rolled, the index stands ahead of the last finger and no higher.
+            let (first, last) = (shape.palm[at(&format!("{l}F1"))], shape.palm[at(&format!("{l}F3"))]);
+            let (first, last) = (first.expect("in the hand"), last.expect("in the hand"));
+            assert!(
+                first.z > last.z + 0.1 && (first.y - last.y).abs() < 1e-3,
+                "{first} {last}"
+            );
+        }
     }
 
     #[test]

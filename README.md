@@ -100,20 +100,20 @@ does, so it gets a joint when both rigs' bones get the same profile bone. `cargo
 
 | Matcher | Joints found (7028) |
 | --- | ---: |
-| dittomo | 99.8% |
+| dittomo | 100% |
 | Godot's humanoid auto mapping (`BoneMapper`) | 65.6% |
 | Exact name, ignoring case and namespace (three.js `SkeletonUtils.retarget`, Babylon) | 18.2% |
 
 | Joint | dittomo | Godot | By name | | Joint | dittomo | Godot | By name |
 | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: |
-| hips | 99% | 69% | 19% | | thighs | 100% | 53% | 15% |
+| hips | 100% | 69% | 19% | | thighs | 100% | 53% | 15% |
 | spine | 100% | 71% | 19% | | shins | 100% | 53% | 14% |
 | chest | 100% | 35% | 10% | | feet | 100% | 59% | 17% |
 | neck | 100% | 88% | 27% | | toes | 100% | 65% | 19% |
 | head | 100% | 89% | 33% | | clavicles | 100% | 100% | 24% |
 | upper arms | 100% | 61% | 14% | | forearms | 100% | 61% | 14% |
-| hands | 100% | 76% | 21% | | index fingers | 97% | 64% | 22% |
-| | | | | | thumbs | 99% | 71% | 21% |
+| hands | 100% | 76% | 21% | | index fingers | 100% | 64% | 22% |
+| | | | | | thumbs | 100% | 71% | 21% |
 
 What it got wrong, and what fixed it:
 
@@ -178,6 +178,22 @@ What it got wrong, and what fixed it:
   to 100% and index fingers from 86% to 95%; the misses left are mostly the Bipeds' index fingers. Thumbs, counted
   since, are found 97% of the time; a Biped's starts at its knuckle, where others' second thumb bone does, and dittomo
   pairs it there.
+- **The Warrior's hand** is a thumb and one finger for the other four, standing at the middle of the hand, where
+  another rig's middle or ring finger does. Fingers are counted from the thumb, and a counted finger is placed across
+  its hand from the index finger's knuckle, not from the wrist, so the mitten plays the index. The count had gone wrong
+  on the Soldier, whose thumb starts at the middle of the wrist, nearer the little finger's knuckle than the index's:
+  the index is now, of the two fingers standing furthest apart, the one nearer where the thumb ends, and the rest
+  follow across the hand. Seed-san's fingers each hang from a palm bone, the index finger's holding the thumb too, and
+  its hands had no thumb found: a root holding two digits is a palm bone and each of the two a digit, the hand is
+  sized to its knuckles rather than to where its palm bones start, a palm bone is in no finger (nor are
+  RobotExpressive's three, meeting at its wrist), and a thumb hung from a palm bone is come to from the wrist, not back
+  from that bone. A hand is rolled about its arm so that its index stands ahead of its last finger: RobotExpressive's
+  palms face ahead, its fingers one above the other. A hand's bones are placed in the hand on an arm a hair shorter
+  than its twin too, as RobotExpressive's left is. The Warrior's legs hang from its first spine bone, a step above a
+  pelvis standing where its root does; the archer's hang from such a pelvis. The two bones the legs hang from play
+  each other wherever each stands. Joints found went from 99.8% to 100%, hips from 99% to 100%, index fingers from 97%
+  to 100% and thumbs from 99% to 100%; on the clips, hand to index finger from 4.7° to 3.5° (6.0° to 3.7° on the
+  right) and limbs overall from 1.8° to 1.6°, hand to thumb from 11.1° to 11.2° (11.2° to 11.3°).
 - Godot's mapper looks for words in names and walks down from what it finds, so a rig it can't start on loses everything
   below: BrainStem's unnamed bones get nothing; CesiumMan's hips are taken for its `torso_joint_3`, the chest, and its
   arms and legs aren't found; RiggedFigure has no bone named foot or hand, so only its trunk is; RobotExpressive's feet
@@ -204,8 +220,8 @@ copying each bone's local rotation, and a hand-written script commonly copies ea
 
 | Retarget | Mean | Median | 90th percentile | Within 15° |
 | --- | ---: | ---: | ---: | ---: |
-| dittomo | 1.8° | 0.1° | 4.9° | 97% |
-| dittomo, with the joints it misses set by hand (`Mapping::set`) | 1.7° | 0.1° | 4.7° | 97% |
+| dittomo | 1.6° | 0.1° | 4.4° | 97% |
+| dittomo, with the labeled joints set by hand (`Mapping::set`) | 1.6° | 0.1° | 4.4° | 97% |
 | World turns from rest copied onto the right bones | 17.1° | 9.0° | 47.0° | 61% |
 | Local rotations copied onto the right bones | 79.8° | 85.9° | 148.5° | 14% |
 
@@ -214,8 +230,8 @@ way on both rigs when the bones between are in other ratios. The collarbones are
 copied (6° to 9°), by twist: a source collarbone turning about its own length doesn't move its shoulder, but the same turn moves the
 shoulder of one built at another slope. Keeping only the swing lowers that here, but it was further from SAN's clips
 below (0.72 against 0.66 across skeletons), so dittomo keeps the whole turn. The Warrior's clips are the worst here
-played onto the other rigs, the trunk and collarbones most. Setting by hand the Bipeds' index fingers dittomo misses
-takes the rest. CI fails if the mean passes 3°.
+played onto the other rigs, the trunk and collarbones most. Every labeled joint is found, so setting them by hand
+changes nothing. CI fails if the mean passes 3°.
 
 A bone with no length places nothing: the bone under it that every one of its played bones hangs from, starting where
 it does, plays its turn instead. The CMU take turns each wrist's twist in the hand and its bend in a finger base starting
@@ -577,6 +593,8 @@ Every source bone is compared with every target bone on:
   - counting for less as proportions differ, where it is and how far along the body
   - and, counting for more as they differ, how far along the arm it is, from the chest to where the hand begins: a
     cartoon's arms may be twice a man's for its height, with its shoulder where his elbow would be.
+  - past the wrist, where it stands in its hand, in the hand's own size and with the hand rolled about the arm so its
+    index finger is ahead, and which digit it is in, counted across the hand from the thumb
 
 The body's frame is found from the plane its bones are most nearly mirrored in, turned towards the bones named left or,
 failing names, the way its feet point. Two bones are mirror images when they hang from one bone, as high as each other,

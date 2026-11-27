@@ -353,8 +353,11 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
     // A bone standing where its parent does turns about the same point: a second joint at its parent's (a BVH's
     // zero-offset lower back at the hips, finger base at the hand), not the next one along. The more so the further
     // apart they stand in the hand: a finger base at the wrist is no finger's first bone at its knuckle, however
-    // alike their names, where a doubled pelvis at the root stands just where the other rig's hips do.
-    if s.doubled[a] != t.doubled[b] {
+    // alike their names, where a doubled pelvis at the root stands just where the other rig's hips do. Not of the
+    // two bones the legs hang from, or the arms: what hangs from each says which joint it is, wherever it stands, as
+    // a pelvis at the root against hips a step above theirs, the legs hung from them.
+    let girdle = |sh: &Shape, x: usize| sh.girdles.iter().position(|&g| g == Some(x));
+    if s.doubled[a] != t.doubled[b] && (girdle(s, a).is_none() || girdle(s, a) != girdle(t, b)) {
         v -= 1.2;
         if let (Some(pa), Some(pb)) = (s.palm[a], t.palm[b]) {
             v -= 0.8 * (1.0 - bell(pa.distance(pb), 0.7));
@@ -407,8 +410,10 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
     // Where it stands, over the height; past where the hands begin, from its hand, however the arm hangs at rest: a
     // figure's arms held out, the other's down at its sides, have their hands far apart, and the fingers with them.
     let placed = || {
-        let (pa, pb, high, near) = match (s.palm[a], t.palm[b]) {
-            (Some(pa), Some(pb)) => (pa, pb, 0.25, 0.35),
+        // Two fingers each counted from a thumb, from their hands' index fingers: a hand of one finger or two has
+        // them where a hand of four has its middle and ring fingers.
+        let (pa, pb, high, near) = match (s.palm[a], t.palm[b], s.finger[a], t.finger[b]) {
+            (_, _, Some(pa), Some(pb)) | (Some(pa), Some(pb), _, _) => (pa, pb, 0.25, 0.35),
             _ => (s.at[a], t.at[b], 0.1, 0.08 + 0.35 * s.reach[a].min(t.reach[b])),
         };
         let mut placed = 0.4 * bell(pa.y - pb.y, high) + 0.8 * bell(pa.distance(pb), near);
@@ -441,10 +446,13 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
     let role = s.limb[a]
         .map(|(r, _)| r)
         .filter(|&r| t.limb[b].is_some_and(|(q, _)| q == r));
+    // Not two bones each past where its own hand begins, though one arm is a hair shorter than its twin.
+    let handed = s.palm[a].is_some() && t.palm[b].is_some();
     v += if let Some(r) = role
         && xa.is_finite()
         && xb.is_finite()
         && (xa < 0.999 || xb < 0.999)
+        && !handed
     {
         let alike = bell(s.ln_span[r] - t.ln_span[r], 0.4);
         let far = || match (next(s, a), next(t, b)) {
@@ -470,8 +478,7 @@ fn likeness(s: &Shape, a: usize, t: &Shape, b: usize, named: Option<f32>, joint:
         placed()
     };
     // Whatever the proportions, the arms hang from the chest and the legs from the hips.
-    let role = |sh: &Shape, x: usize| sh.girdles.iter().position(|&g| g == Some(x));
-    match (role(s, a), role(t, b)) {
+    match (girdle(s, a), girdle(t, b)) {
         (Some(x), Some(y)) => v += if x == y { 0.6 } else { -0.6 },
         (Some(_), None) | (None, Some(_)) if s.girdles[0].is_some() && t.girdles[0].is_some() => v -= 0.6,
         _ => {}
@@ -893,7 +900,63 @@ fn fill(ka: &[Vec<usize>], kb: &[Vec<usize>], like: &[f32], out: &mut Vec<(usize
 
 #[cfg(test)]
 mod tests {
-    use super::bell;
+    use super::{Lexicon, Shape, bell, joints, likeness};
+    use crate::shape::tests::placed;
+
+    #[test]
+    fn a_hand_on_the_shorter_arm_is_placed_as_its_twin() {
+        // Two figures, the second with arms nearly twice as long and its left a hair shorter than its right: its left
+        // thumb starts just short of where the longer arm's hand begins, and is as much in its hand as the right one.
+        let figure = |reach: f32, short: f32| {
+            let mut j = vec![
+                ("Hips", None, [0.0, 1.0, 0.0]),
+                ("Spine", Some("Hips"), [0.0, 1.2, 0.0]),
+                ("Chest", Some("Spine"), [0.0, 1.4, 0.0]),
+                ("Neck", Some("Chest"), [0.0, 1.55, 0.0]),
+                ("Head", Some("Neck"), [0.0, 1.65, 0.0]),
+            ];
+            for (l, x) in [("L", 1.0f32), ("R", -1.0)] {
+                let n = |s: &str| -> &'static str { format!("{l}{s}").leak() };
+                let hand = 0.18 + 0.52 * reach - if x > 0.0 { short } else { 0.0 };
+                j.extend([
+                    (n("Shoulder"), Some("Chest"), [0.05 * x, 1.45, 0.0]),
+                    (n("Arm"), Some(n("Shoulder")), [0.18 * x, 1.45, 0.0]),
+                    (n("ForeArm"), Some(n("Arm")), [(0.18 + 0.27 * reach) * x, 1.45, 0.0]),
+                    (n("Hand"), Some(n("ForeArm")), [hand * x, 1.45, 0.0]),
+                    (n("A1"), Some(n("Hand")), [(hand + 0.02) * x, 1.44, 0.02]),
+                    (n("A2"), Some(n("A1")), [(hand + 0.04) * x, 1.43, 0.04]),
+                    (n("B1"), Some(n("Hand")), [(hand + 0.08) * x, 1.45, 0.02]),
+                    (n("B2"), Some(n("B1")), [(hand + 0.11) * x, 1.45, 0.02]),
+                    (n("C1"), Some(n("Hand")), [(hand + 0.08) * x, 1.45, -0.02]),
+                    (n("C2"), Some(n("C1")), [(hand + 0.11) * x, 1.45, -0.02]),
+                    (n("UpLeg"), Some("Hips"), [0.1 * x, 0.95, 0.0]),
+                    (n("Leg"), Some(n("UpLeg")), [0.1 * x, 0.5, 0.0]),
+                    (n("Foot"), Some(n("Leg")), [0.1 * x, 0.08, 0.0]),
+                    (n("ToeBase"), Some(n("Foot")), [0.1 * x, 0.0, 0.12]),
+                ]);
+            }
+            placed(&j)
+        };
+        let (from, to) = (figure(1.0, 0.0), figure(1.8, 0.01));
+        let (s, t) = (Shape::of(&from), Shape::of(&to));
+        let (js, jt) = (joints(&from, &s), joints(&to, &t));
+        let words = Lexicon::new(&s.names, &t.names);
+        let like = |a: &str, b: &str| {
+            let (a, b) = (from.index_of(a).expect("named"), to.index_of(b).expect("named"));
+            let named = words.likeness(a, &s.names[a], b, &t.names[b]);
+            likeness(&s, a, &t, b, named, (js[a], jt[b]))
+        };
+        for (a, b) in [("A1", "A1"), ("A2", "A1"), ("B1", "B1")] {
+            let (left, right) = (
+                like(&format!("L{a}"), &format!("L{b}")),
+                like(&format!("R{a}"), &format!("R{b}")),
+            );
+            assert!(
+                (left - right).abs() < 0.03,
+                "{a} to {b}: {left} on the left, {right} on the right"
+            );
+        }
+    }
 
     #[test]
     fn a_bell_is_as_good_as_the_full_exp() {

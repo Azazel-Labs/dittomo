@@ -3421,3 +3421,168 @@ fn a_wide_robots_shoulder_plays_a_slim_figures_shoulder_not_its_elbow() {
         }
     }
 }
+
+/// A figure in a T-pose with a thumb and four fingers of three bones each, named as Mixamo names them. The thumb starts
+/// at the middle of the wrist, nearer the little finger's knuckle than the index's.
+fn five_fingered() -> Skeleton {
+    let mut j: Joints = vec![
+        joint("Hips", None, [0.0, 1.0, 0.0]),
+        joint("Spine", Some("Hips"), [0.0, 1.15, 0.0]),
+        joint("Spine1", Some("Spine"), [0.0, 1.35, 0.0]),
+        joint("Neck", Some("Spine1"), [0.0, 1.5, 0.0]),
+        joint("Head", Some("Neck"), [0.0, 1.6, 0.02]),
+    ];
+    for (side, x) in [("Left", 1.0f32), ("Right", -1.0)] {
+        let n = |s: &str| format!("{side}{s}");
+        j.push(joint(n("Shoulder"), Some("Spine1"), [0.06 * x, 1.45, 0.0]));
+        j.push(joint(n("Arm"), Some(&n("Shoulder")), [0.18 * x, 1.45, 0.0]));
+        j.push(joint(n("ForeArm"), Some(&n("Arm")), [0.46 * x, 1.45, 0.0]));
+        j.push(joint(n("Hand"), Some(&n("ForeArm")), [0.72 * x, 1.45, 0.0]));
+        let fingers = [
+            ("Index", 0.805f32, 0.03f32),
+            ("Middle", 0.805, 0.01),
+            ("Ring", 0.795, -0.01),
+            ("Pinky", 0.785, -0.03),
+        ];
+        for k in 1..=3 {
+            let f = (k - 1) as f32;
+            let prev = |d: &str| {
+                if k == 1 {
+                    n("Hand")
+                } else {
+                    n(&format!("Hand{d}{}", k - 1))
+                }
+            };
+            let thumb = [(0.74 + 0.02 * f) * x, 1.44 - 0.01 * f, 0.005 + 0.022 * f];
+            j.push(joint(n(&format!("HandThumb{k}")), Some(&prev("Thumb")), thumb));
+            for (d, out, z) in fingers {
+                j.push(joint(
+                    n(&format!("Hand{d}{k}")),
+                    Some(&prev(d)),
+                    [(out + 0.03 * f) * x, 1.45, z],
+                ));
+            }
+        }
+        j.push(joint(n("UpLeg"), Some("Hips"), [0.09 * x, 0.95, 0.0]));
+        j.push(joint(n("Leg"), Some(&n("UpLeg")), [0.09 * x, 0.52, 0.0]));
+        j.push(joint(n("Foot"), Some(&n("Leg")), [0.09 * x, 0.08, -0.02]));
+        j.push(joint(n("ToeBase"), Some(&n("Foot")), [0.09 * x, 0.0, 0.08]));
+    }
+    placed(&j)
+}
+
+#[test]
+fn a_mitten_plays_the_index_finger_though_it_stands_at_the_middle_of_its_hand() {
+    // A hand of a thumb and one finger for the other four, its bones numbered as a 3ds Max Biped's are: the finger
+    // stands between where the source's middle and ring fingers do, and is counted first from the thumb.
+    let from = five_fingered();
+    let mut j: Joints = vec![
+        joint("Pelvis", None, [0.0, 1.0, 0.0]),
+        joint("Spine", Some("Pelvis"), [0.0, 1.15, 0.0]),
+        joint("Spine1", Some("Spine"), [0.0, 1.35, 0.0]),
+        joint("Neck", Some("Spine1"), [0.0, 1.5, 0.0]),
+        joint("Head", Some("Neck"), [0.0, 1.6, 0.02]),
+    ];
+    for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
+        let n = |s: &str| format!("{side} {s}");
+        j.push(joint(n("Clavicle"), Some("Spine1"), [0.06 * x, 1.45, 0.0]));
+        j.push(joint(n("UpperArm"), Some(&n("Clavicle")), [0.18 * x, 1.45, 0.0]));
+        j.push(joint(n("Forearm"), Some(&n("UpperArm")), [0.46 * x, 1.45, 0.0]));
+        j.push(joint(n("Hand"), Some(&n("Forearm")), [0.72 * x, 1.45, 0.0]));
+        j.push(joint(n("Finger0"), Some(&n("Hand")), [0.75 * x, 1.44, 0.03]));
+        j.push(joint(n("Finger01"), Some(&n("Finger0")), [0.77 * x, 1.43, 0.05]));
+        j.push(joint(n("Finger1"), Some(&n("Hand")), [0.8 * x, 1.45, 0.0]));
+        j.push(joint(n("Finger11"), Some(&n("Finger1")), [0.83 * x, 1.45, 0.0]));
+        j.push(joint(n("Finger12"), Some(&n("Finger11")), [0.86 * x, 1.45, 0.0]));
+        j.push(joint(n("Thigh"), Some("Pelvis"), [0.09 * x, 0.95, 0.0]));
+        j.push(joint(n("Calf"), Some(&n("Thigh")), [0.09 * x, 0.52, 0.0]));
+        j.push(joint(n("Foot"), Some(&n("Calf")), [0.09 * x, 0.08, -0.02]));
+        j.push(joint(n("Toe0"), Some(&n("Foot")), [0.09 * x, 0.0, 0.08]));
+    }
+    let to = placed(&j);
+    let map = Mapping::new(&from, &to);
+    assert_plays(
+        &from,
+        &to,
+        &map,
+        &[
+            ("LeftHandIndex1", "L Finger1"),
+            ("LeftHandIndex2", "L Finger11"),
+            ("LeftHandIndex3", "L Finger12"),
+            ("RightHandIndex1", "R Finger1"),
+            ("RightHandIndex2", "R Finger11"),
+            ("RightHandIndex3", "R Finger12"),
+        ],
+    );
+    let back = Mapping::new(&to, &from);
+    assert_plays(
+        &to,
+        &from,
+        &back,
+        &[("L Finger1", "LeftHandIndex1"), ("R Finger1", "RightHandIndex1")],
+    );
+    for b in ["L Finger0", "R Finger0"] {
+        let a = map.source_of(to.index_of(b).expect("bone")).expect("played");
+        assert!(
+            from.bones()[a].name.contains("Thumb"),
+            "{b} plays {}",
+            from.bones()[a].name
+        );
+    }
+}
+
+#[test]
+fn the_bone_the_legs_hang_from_plays_the_hips_though_a_pelvis_stands_under_it() {
+    // Two rigs named alike, each with a pelvis standing where the root does. One hangs its legs and spine from the
+    // pelvis; the other hangs its legs from the first spine bone, a step above. What the legs hang from is the hips,
+    // whatever it is called and wherever it stands.
+    let rig = |legs_from: &str| {
+        let mut j: Joints = vec![
+            joint("Bip001", None, [0.0, 1.0, 0.0]),
+            joint("Bip001 Pelvis", Some("Bip001"), [0.0, 1.0, 0.0]),
+            joint("Bip001 Prop1", Some("Bip001"), [0.3, 1.0, 0.1]),
+            joint("Bip001 Spine", Some("Bip001 Pelvis"), [0.0, 1.12, 0.0]),
+            joint("Bip001 Spine1", Some("Bip001 Spine"), [0.0, 1.25, 0.0]),
+            joint("Bip001 Spine2", Some("Bip001 Spine1"), [0.0, 1.38, 0.0]),
+            joint("Bip001 Neck", Some("Bip001 Spine2"), [0.0, 1.5, 0.0]),
+            joint("Bip001 Head", Some("Bip001 Neck"), [0.0, 1.6, 0.02]),
+        ];
+        for (side, x) in [("L", 1.0f32), ("R", -1.0)] {
+            let n = |s: &str| format!("Bip001 {side} {s}");
+            j.push(joint(n("Clavicle"), Some("Bip001 Spine2"), [0.06 * x, 1.45, 0.0]));
+            j.push(joint(n("UpperArm"), Some(&n("Clavicle")), [0.18 * x, 1.45, 0.0]));
+            j.push(joint(n("Forearm"), Some(&n("UpperArm")), [0.46 * x, 1.45, 0.0]));
+            j.push(joint(n("Hand"), Some(&n("Forearm")), [0.72 * x, 1.45, 0.0]));
+            j.push(joint(n("Thigh"), Some(legs_from), [0.09 * x, 1.0, 0.0]));
+            j.push(joint(n("Calf"), Some(&n("Thigh")), [0.09 * x, 0.52, 0.0]));
+            j.push(joint(n("Foot"), Some(&n("Calf")), [0.09 * x, 0.08, -0.02]));
+            j.push(joint(n("Toe0"), Some(&n("Foot")), [0.09 * x, 0.0, 0.08]));
+        }
+        placed(&j)
+    };
+    let (low, high) = (rig("Bip001 Pelvis"), rig("Bip001 Spine"));
+    let map = Mapping::new(&low, &high);
+    assert_plays(
+        &low,
+        &high,
+        &map,
+        &[
+            ("Bip001 Pelvis", "Bip001 Spine"),
+            ("Bip001 Spine", "Bip001 Spine1"),
+            ("Bip001 Spine2", "Bip001 Spine2"),
+            ("Bip001 L Thigh", "Bip001 L Thigh"),
+            ("Bip001 R Thigh", "Bip001 R Thigh"),
+        ],
+    );
+    let back = Mapping::new(&high, &low);
+    assert_plays(
+        &high,
+        &low,
+        &back,
+        &[
+            ("Bip001 Spine", "Bip001 Pelvis"),
+            ("Bip001 Spine1", "Bip001 Spine"),
+            ("Bip001 Spine2", "Bip001 Spine2"),
+        ],
+    );
+}
