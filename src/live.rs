@@ -124,7 +124,7 @@ impl Live {
         let (s, t) = (Shape::light(source), Shape::light(target));
         let rigs = [(source, &s), (target, &t)];
         let player = Player::of_shapes(map, source, target, &s, &t);
-        let both = fixes.touch || fixes.hands || fixes.head;
+        let both = fixes.touch || fixes.hands || fixes.head || fixes.place;
         let mut t_body = (fixes.push_out || both).then(|| contact::body(target, &t)).flatten();
         let mut s_body = both.then(|| contact::body(source, &s)).flatten();
         // With skins, each head is as big as its skin shows, not as its bones suggest.
@@ -136,9 +136,12 @@ impl Live {
         let (mut hands, mut charts, mut head, mut touch) = (None, None, None, None);
         if let (Some(sb), Some(tb)) = (&s_body, &t_body) {
             hands = fixes.hands.then(|| Hands::new(map, rigs, [sb, tb])).flatten();
-            head = fixes.head.then(|| OnHead::new(map, rigs, [sb, tb])).flatten();
             let skinned = [(source, &s, skins[0]), (target, &t, skins[1])];
             charts = fixes.place.then(|| Charts::new(map, skinned, [sb, tb])).flatten();
+            // Charts with heads put hands on the head themselves.
+            head = (fixes.head && !charts.as_ref().is_some_and(Charts::heads))
+                .then(|| OnHead::new(map, rigs, [sb, tb]))
+                .flatten();
             touch = fixes.touch.then(|| Touch::new(map, skinned, [sb, tb])).flatten();
         }
         let push_out = t_body.as_ref().filter(|_| fixes.push_out).map(|b| b.path(target));

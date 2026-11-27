@@ -27,6 +27,15 @@ const WIDE: f32 = 0.45;
 const SURE: f32 = 0.03;
 const UNSURE: f32 = 0.10;
 
+/// Within `HELD` of a head's surface (over the height) a hand is held there on purpose; past `LOOSE` it may be by it
+/// by chance.
+const HELD: f32 = 0.01;
+const LOOSE: f32 = 0.04;
+
+/// A hand moving against a head under `SLOW` heights a second may be held on it; over `FAST`, it is sweeping past.
+const SLOW: f32 = 0.8;
+const FAST: f32 = 1.6;
+
 /// How much of an arm's length, toward its full reach, is given up softly.
 const SOFT: f32 = 0.1;
 
@@ -116,6 +125,20 @@ impl Side {
             radius: [[0.0; ROUND]; ALONG],
             widest: 0.0,
         })
+    }
+
+    /// A ball on a joint, its middle at `center` in the joint's frame, as far round as `radius` every way.
+    fn ball<F: Frame>(joint: usize, center: Vec3, radius: f32, rest: &[F], axes: [Vec3; 3]) -> Self {
+        Self {
+            joints: vec![joint],
+            center,
+            offsets: vec![Vec3::ZERO],
+            rest: vec![rest[joint].turn().inverse()],
+            axes,
+            cuts: Vec::new(),
+            radius: [[radius; ROUND]; ALONG],
+            widest: radius,
+        }
     }
 
     /// The part's frame at joint `i`, the bones placed in `world`: across, along and the third, with `along` the way
@@ -248,11 +271,19 @@ impl Side {
     }
 }
 
+/// How much a part `gap` off (over the height) counts toward where a hand goes: the nearer the more. Parts count from
+/// farther off than they bring a hand there, so that a hand eased off its place still has one.
+fn share(gap: f32) -> f32 {
+    super::smooth(1.0 - (gap - NEAR) / (WIDE - NEAR)) / (gap.max(0.0) + 0.01).powi(2)
+}
+
 /// A part of the source's body and the same part of the target's, and the arm it is of, if any: a hand isn't placed by
 /// its own arm.
 struct Part {
     sides: [Side; 2],
     arm: Option<usize>,
+    /// A hand held on this part is there on purpose, and is brought to its place from however far: a head.
+    meant: bool,
 }
 
 /// An arm the two rigs share: the target's limb, the source's hand, each hand's middle in its own frame, and the
@@ -267,15 +298,25 @@ struct Reach {
 /// Keeps each target hand where the source's is by its body: against each part of the body it is near, the hand is as
 /// far along the part, the same way out from it and as far off its surface, scaled by height; near several, between
 /// where each says, by how near; near none, left where it is. Reached with two-bone IK, so the hand keeps its turn.
+///
+/// Only a hand nearly there already is brought there, but for one held on the head: a head is a ball, fitted to its
+/// skin if that is known, the two heads' sides tied as the trunks' are, so a hand over an ear lands over the ear of a
+/// head of any size. A hand is held on it while its middle is near the head's surface and it isn't sweeping past;
+/// then no other part keeps it off. With a head on both bodies this stands in for [`super::OnHead`].
 pub(crate) struct Charts {
     parts: Vec<Part>,
     arms: Vec<Reach>,
     s_path: Vec<usize>,
     t_path: Vec<usize>,
     heights: [f32; 2],
-    /// How much each hand is to be placed: as the pose shows, and as it was last pose.
+    /// How much each hand is to be placed, then how much each is held on a part it is by on purpose: as the pose
+    /// shows, and as it was last pose.
     on: Vec<f32>,
     eased: Vec<f32>,
+    /// Where each arm's source hand was last pose from the part it may be held on, in that part's frame, and how
+    /// much its speed against it lets it be held.
+    last: Vec<Option<Vec3>>,
+    slow: Vec<f32>,
     /// Where each arm's source hand is by each part, as last looked ([`Self::look`]).
     by: Vec<Option<By>>,
 }
@@ -284,6 +325,7 @@ pub(crate) struct Charts {
 /// foot, each arm's upper and lower by its hand.
 struct Found {
     trunk: Option<Side>,
+    head: Option<Side>,
     legs: Vec<(usize, [Side; 2])>,
     arms: Vec<(usize, [Side; 2])>,
 }
@@ -358,6 +400,8 @@ fn find(skeleton: &Skeleton, s: &Shape, body: &Body, skin: &Surface, axes: [Vec3
     };
     let mut found = Found {
         trunk,
+        // As big as the body takes it to be: as its skin shows, if the body was fitted to it.
+        head: body.head.map(|h| Side::ball(h.bone, h.center, h.radius, rest, axes)),
         legs: legs
             .iter()
             .filter_map(|l| Some((l.end, pair(l, [1.1 * hips, 0.9 * hips, 0.55 * hips])?)))
@@ -416,10 +460,18 @@ fn find(skeleton: &Skeleton, s: &Shape, body: &Body, skin: &Surface, axes: [Vec3
         }
     }
     let mut points: Vec<Vec<Vec3>> = vec![Vec::new(); sides.len()];
+    // The head's own skin shows how far out it is each way: a chin, a brow.
+    let mut on_head = Vec::new();
     for (p, _, b) in skin.points(rest) {
         if let Some(Some(k)) = owner[b] {
             points[k].push(p);
         }
+        if body.head.is_some_and(|h| h.bone == b) {
+            on_head.push(p);
+        }
+    }
+    if let Some(side) = &mut found.head {
+        side.fit(rest, &on_head);
     }
     for (side, points) in sides.into_iter().zip(&points) {
         side.fit(rest, points);
@@ -509,6 +561,7 @@ impl Charts {
             parts.push(Part {
                 sides: [a, b],
                 arm: None,
+                meant: false,
             });
         }
         let mut s_legs: Vec<_> = fs.legs.into_iter().map(Some).collect();
@@ -524,6 +577,7 @@ impl Charts {
             parts.extend([(su, upper), (sl, lower)].map(|(a, b)| Part {
                 sides: [a, b],
                 arm: None,
+                meant: false,
             }));
         }
         let mut s_arms: Vec<_> = fs.arms.into_iter().map(Some).collect();
@@ -541,10 +595,18 @@ impl Charts {
             parts.extend([(su, upper), (sl, lower)].map(|(a, b)| Part {
                 sides: [a, b],
                 arm: Some(i),
+                meant: false,
             }));
         }
         if parts.is_empty() {
             return None;
+        }
+        if let (Some(a), Some(b)) = (fs.head, ft.head) {
+            parts.push(Part {
+                sides: [a, b],
+                arm: None,
+                meant: true,
+            });
         }
         for side in parts.iter_mut().flat_map(|p| &mut p.sides) {
             side.widest = side.radius.as_flattened().iter().copied().fold(0.0, f32::max);
@@ -554,8 +616,10 @@ impl Charts {
             s_path: paths(source, joints(0).chain(arms.iter().map(|a| a.source))),
             t_path: paths(target, joints(1).chain(arms.iter().map(|a| a.limb.end))),
             by: vec![None; arms.len() * parts.len()],
-            on: vec![0.0; arms.len()],
-            eased: vec![0.0; arms.len()],
+            on: vec![0.0; 2 * arms.len()],
+            eased: vec![0.0; 2 * arms.len()],
+            last: vec![None; arms.len()],
+            slow: vec![1.0; arms.len()],
             parts,
             arms,
             heights: [s.height, t.height],
@@ -567,9 +631,15 @@ impl Charts {
         &self.s_path
     }
 
-    /// Forgets how far each hand was placed, as after a cut.
+    /// Whether a hand is put on the head here, in place of [`super::OnHead`].
+    pub(crate) fn heads(&self) -> bool {
+        self.parts.iter().any(|p| p.meant)
+    }
+
+    /// Forgets how far each hand was placed and where it was, as after a cut.
     pub(crate) fn reset(&mut self) {
         self.eased.fill(0.0);
+        self.last.fill(None);
     }
 
     /// Fixes `played`, the target playing a pose of the source placed in `scratch` ([`Self::s_path`]), `dt` seconds
@@ -577,7 +647,7 @@ impl Charts {
     /// comes to its place late when the source's darts there, and leaves it as slowly.
     pub(crate) fn placed(&mut self, target: &Skeleton, dt: f32, played: &mut [Transform], scratch: &mut Scratch) {
         let step = if dt > 0.0 { dt / super::ONTO } else { 1.0 };
-        self.weigh(target, played, scratch);
+        self.weigh(target, dt, played, scratch);
         for (was, on) in self.eased.iter_mut().zip(&mut self.on) {
             *was = on.max(*was - step).min(*was + step);
             *on = *was;
@@ -588,85 +658,109 @@ impl Charts {
     }
 
     /// Looks where arm `i`'s source hand is by each part within [`WIDE`] of it, the source placed in `sw`, and says
-    /// how much the nearest brings it to its place.
-    fn look(&mut self, i: usize, sw: &[At]) -> f32 {
+    /// how much the nearest brings it to its place. With `dt`, the seconds since the pose last looked at, it also
+    /// tells how fast the hand moves against a part it may be held on (`slow`).
+    fn look(&mut self, i: usize, sw: &[At], dt: Option<f32>) -> f32 {
         let hs = self.heights[0];
         let arm = &self.arms[i];
         let from = sw[arm.source].matrix.transform_point3(arm.middle[0]);
         let n = self.parts.len();
-        let mut most = 0.0f32;
+        let (mut most, mut at) = (0.0f32, None);
         for (k, p) in self.parts.iter().enumerate() {
             let by = (p.arm != Some(i))
                 .then(|| p.sides[0].within(sw, from, WIDE * hs))
                 .flatten();
             if let Some(by) = by {
                 most = most.max(super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR)));
+                if p.meant {
+                    at = Some(by.out * (p.sides[0].surface(by.along, by.out) + by.gap));
+                }
             }
             self.by[i * n + k] = by;
+        }
+        if let Some(dt) = dt {
+            let speed = match (self.last[i], at) {
+                (Some(was), Some(now)) if dt > 0.0 => now.distance(was) / dt / hs,
+                _ => 0.0,
+            };
+            self.slow[i] = super::smooth(1.0 - (speed - SLOW) / (FAST - SLOW));
+            self.last[i] = at;
         }
         most
     }
 
-    /// Where arm `i`'s hand's middle goes, as [`Self::look`] saw it and the target's bones are placed, and how much it
-    /// is to be brought there: nothing if no part is anywhere near.
-    fn aim(&self, i: usize, tw: &[At]) -> Option<(Vec3, f32)> {
+    /// Where arm `i`'s hand's middle goes, as [`Self::look`] saw it and the target's bones are placed, how much it is
+    /// to be brought there, and how much it is held on a part it is by on purpose: nothing if no part is anywhere
+    /// near.
+    fn aim(&self, i: usize, tw: &[At]) -> Option<(Vec3, f32, f32)> {
         let [hs, ht] = self.heights;
         let (arm, n) = (&self.arms[i], self.parts.len());
         // Between where each part says, the nearer the more; brought there as much as the nearest is near.
         let (mut goal, mut all, mut most) = (Vec3::ZERO, 0.0, 0.0f32);
+        let (mut top, mut held, mut over) = (0.0f32, 0.0f32, 0.0f32);
         for (p, by) in self.parts.iter().zip(&self.by[i * n..(i + 1) * n]) {
             let Some(by) = *by else { continue };
             let gap = by.gap / hs;
-            // Parts count toward where from farther off than they bring a hand there, so that a hand eased off its
-            // place still has one.
-            let wide = super::smooth(1.0 - (gap - NEAR) / (WIDE - NEAR));
-            if wide <= 0.0 {
+            let share = share(gap);
+            if share <= 0.0 {
                 continue;
             }
             let to = By {
                 gap: by.gap * ht / hs,
                 ..by
             };
-            let share = wide / (gap.max(0.0) + 0.01).powi(2);
             goal += p.sides[1].point(tw, to) * share;
             all += share;
+            top = top.max(share);
+            if p.meant {
+                held = held.max(share * super::smooth(1.0 - (gap - HELD) / (LOOSE - HELD)));
+                over = over.max(share);
+            }
             most = most.max(super::smooth(1.0 - (gap - NEAR) / (FAR - NEAR)));
         }
         if all <= 0.0 {
             return None;
         }
         let goal = goal / all;
+        // Held on a part as much as that part counts against the one counting most, and as the hand is slow.
+        let held = held / top * self.slow[i];
         // Only what is nearly there already is brought there: a broad body's hands hang far from its thighs, and
-        // aren't to be pulled in because a slight one's hang by its own.
+        // aren't to be pulled in because a slight one's hang by its own. A hand held on a head is there on purpose.
         let now = tw[arm.limb.end].matrix.transform_point3(arm.middle[1]);
         let sure = super::smooth(1.0 - (goal.distance(now) / ht - SURE) / (UNSURE - SURE));
-        Some((goal, most * sure))
+        // A hand sweeping past a head isn't by it at all, the less the more the head counts.
+        let past = over / top * (1.0 - self.slow[i]);
+        Some((goal, most * (sure + (1.0 - sure) * held) * (1.0 - past), held))
     }
 
-    /// Sets how much each hand is to be placed ([`Self::on`]), as this pose alone shows.
-    pub(crate) fn weigh(&mut self, target: &Skeleton, played: &[Transform], scratch: &mut Scratch) {
+    /// Sets how much each hand is to be placed and how much it is held ([`Self::on`]), as this pose shows, `dt`
+    /// seconds after the pose before.
+    pub(crate) fn weigh(&mut self, target: &Skeleton, dt: f32, played: &[Transform], scratch: &mut Scratch) {
         let Scratch { sw, tw, .. } = scratch;
+        let n = self.arms.len();
         let mut ready = false;
-        for i in 0..self.arms.len() {
-            self.on[i] = 0.0;
-            if self.look(i, sw) <= 0.0 {
+        for i in 0..n {
+            (self.on[i], self.on[n + i]) = (0.0, 0.0);
+            if self.look(i, sw, Some(dt)) <= 0.0 {
                 continue;
             }
             if !ready {
                 place(target, played, &self.t_path, tw);
                 ready = true;
             }
-            self.on[i] = self.aim(i, tw).map_or(0.0, |(_, w)| w);
+            if let Some((_, w, held)) = self.aim(i, tw) {
+                (self.on[i], self.on[n + i]) = (w, held);
+            }
         }
     }
 
-    /// How much each hand is to be placed, as [`Self::weigh`] set it.
+    /// How much each hand is to be placed, then how much each is held, as [`Self::weigh`] set them.
     pub(crate) fn on(&self) -> &[f32] {
         &self.on
     }
 
-    /// Places each hand `on` of the way to where it goes; `looked` if [`Self::weigh`] has just looked at this pose of
-    /// the source.
+    /// Places each hand `on` of the way to where it goes, `on` as [`Self::on`] has it; `looked` if [`Self::weigh`]
+    /// has just looked at this pose of the source.
     pub(crate) fn put(
         &mut self,
         target: &Skeleton,
@@ -684,24 +778,27 @@ impl Charts {
                 continue;
             }
             if !looked {
-                self.look(i, sw);
+                self.look(i, sw, None);
             }
             if !ready {
                 place(target, played, &self.t_path, tw);
                 ready = true;
             }
-            let Some((to, _)) = self.aim(i, tw) else {
+            let Some((to, ..)) = self.aim(i, tw) else {
                 continue;
             };
+            let held = on[self.arms.len() + i];
             let arm = &self.arms[i];
             let end: &At = &tw[arm.limb.end];
             let now = end.matrix.transform_point3(arm.middle[1]);
             let mut goal = now.lerp(to, on[i]);
             // Between two parts' answers it can come nearer one than the source's is to its own: then out to as far
-            // off that part as the source's, the nearer the source's is to it the more.
+            // off that part as the source's, the nearer the source's is to it the more. A hand held on a head is kept
+            // off nothing else: on a smaller head it is nearer the shoulders than the source's.
             for (p, by) in self.parts.iter().zip(&self.by[i * n..(i + 1) * n]) {
                 let Some(by) = *by else { continue };
-                let w = on[i] * super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR));
+                let free = if p.meant { 1.0 } else { 1.0 - held };
+                let w = on[i] * free * super::smooth(1.0 - (by.gap / hs - NEAR) / (FAR - NEAR));
                 if w <= 0.0 {
                     continue;
                 }

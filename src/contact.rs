@@ -38,8 +38,9 @@ pub struct Fixes {
     /// to the forehead): at the same place on the head, scaled to the head's size, turning with it.
     pub head: bool,
     /// Keep the target's hands where the source's are by its body: by a hip, a thigh, the chest, the other arm, when
-    /// playing the pose leaves them nearly there ([`crate::Mapping::apply_touching`] knows the skins; without, the
-    /// bodies are guessed from their bones). Off by default: being tried.
+    /// playing the pose leaves them nearly there, and on the head, from however far, where both bodies have one: this
+    /// then stands in for what `head` does ([`crate::Mapping::apply_touching`] knows the skins; without, the bodies
+    /// are guessed from their bones). Off by default: being tried.
     pub place: bool,
     /// Swing the target's bones that nothing drives after the body: hair, tails, ears, capes and skirts
     /// ([`crate::Sway`]), last, kept out of the body and over the floor. Off by default: being tried.
@@ -2310,7 +2311,9 @@ impl Scratch {
 /// placed once a pose for them all: elbows and hands pushed out of the body ([`push_pose`]), with both bodies then
 /// hands brought together ([`Hands`]) and put on the head ([`OnHead`]), and last, as it sees the skin, hands brought
 /// to the gap the source's have ([`Touch`]). On the head comes in two passes, as each hand is eased on ahead of the
-/// source's: first where it would go, then put there; what comes after it waits for the second.
+/// source's: first where it would go, then put there; what comes after it waits for the second. Hands placed by
+/// the body ([`Charts`]) come the same way, and are put on the head by that, not by [`OnHead`], if both bodies have
+/// one.
 pub(crate) fn fix_arms(
     map: &Mapping,
     rigs: [(&Skeleton, &Shape, &Surface); 2],
@@ -2330,7 +2333,7 @@ pub(crate) fn fix_arms(
         .filter(|_| fixes.place)
         .and_then(|(sb, tb)| Charts::new(map, rigs, [sb, tb]));
     let mut head = both
-        .filter(|_| fixes.head)
+        .filter(|_| fixes.head && !charts.as_ref().is_some_and(Charts::heads))
         .and_then(|(sb, tb)| OnHead::new(map, shapes, [sb, tb]));
     let mut touch = both
         .filter(|_| fixes.touch)
@@ -2360,7 +2363,7 @@ pub(crate) fn fix_arms(
             fix.placed(target, tb, played, &mut scratch);
         }
         if let Some(fix) = &mut charts {
-            fix.weigh(target, played, &mut scratch);
+            fix.weigh(target, dt(f), played, &mut scratch);
             placing.extend_from_slice(fix.on());
         }
         if let Some(fix) = &mut head {

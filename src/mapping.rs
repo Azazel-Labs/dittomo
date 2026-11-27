@@ -260,7 +260,7 @@ impl Mapping {
             clip
         };
         // Each body (its arms, spine and head), found once for every fix that needs it.
-        let both = fixes.touch || fixes.hands || fixes.head;
+        let both = fixes.touch || fixes.hands || fixes.head || fixes.place;
         let mut t_body = (fixes.push_out || both).then(|| contact::body(target, &t)).flatten();
         let mut s_body = both.then(|| contact::body(source, &s)).flatten();
         // With skins, each head is as big as its skin shows, not as its bones suggest.

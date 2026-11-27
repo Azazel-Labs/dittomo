@@ -1883,3 +1883,340 @@ fn live_holds_a_hand_down_on_the_floor_still() {
         assert!(off < 0.01 && off < 0.2 * under, "{under} -> {off}");
     }
 }
+
+/// The middle of a hand as dittomo guesses it without a skin: halfway to where its fingers start, in the hand's own
+/// frame.
+fn palm(sk: &Skeleton, hand: usize) -> Vec3 {
+    let kids: Vec<Vec3> = (0..sk.len())
+        .filter(|&b| sk.bones()[b].parent == Some(hand))
+        .map(|b| sk.bones()[b].rest.translation)
+        .collect();
+    kids.iter().sum::<Vec3>() / (2 * kids.len().max(1)) as f32
+}
+
+/// [`covers_ears`], with the middle of each hand, not its wrist, by the ear and then on top, a little off the head.
+fn palms_on_the_head(sk: &Skeleton) -> Clip {
+    let frames = 120;
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let (head, center, r) = head_ball(sk);
+    let smooth = |x: f32, a: f32, b: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let poses = (0..frames)
+        .map(|f| {
+            let t = f as f32 / 60.0;
+            let mut pose = rest.clone();
+            let turn = if t < 1.0 {
+                dittomo::Quat::from_rotation_y(0.5 * (std::f32::consts::TAU * t).sin() * smooth(t, 0.3, 0.4))
+            } else {
+                dittomo::Quat::from_rotation_x(0.35 * (std::f32::consts::TAU * t).sin() * smooth(t, 1.3, 1.4))
+            };
+            pose[head].rotation = turn * pose[head].rotation;
+            let placed = sk.world(&pose)[head].matrix;
+            for arm in contact::arms(sk) {
+                let x = world[arm.end].position().x.signum();
+                let ear = Vec3::new(x * 1.1, -0.3, -0.1) * r;
+                let top = Vec3::new(x * 0.6, 1.1, 0.0) * r;
+                let on = ear.lerp(top, smooth(t, 1.0, 1.25));
+                // The hand keeps its turn, so its middle stays as far from its wrist the same way.
+                let reach = world[arm.end].matrix.transform_vector3(palm(sk, arm.end));
+                let goal = placed.transform_point3(center + on) - reach;
+                let from = world[arm.end].position();
+                contact::reach(sk, &mut pose, &arm, from.lerp(goal, smooth(t, 0.0, 0.25)));
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 60.0).collect(),
+        poses,
+    }
+}
+
+/// Every fix with hands placed by the body too.
+fn placing() -> Fixes {
+    Fixes {
+        place: true,
+        ..Fixes::ALL
+    }
+}
+
+#[test]
+fn hands_placed_by_the_body_stay_on_the_same_side_of_heads_big_and_small() {
+    let source = common::mixamo();
+    let clip = palms_on_the_head(&source);
+    // Where the middle of a hand is by its head: which way from the head's middle, in the head's own frame, and how
+    // far off its surface, over the height.
+    let on_head = |sk: &Skeleton, pose: &[Transform], end: usize| {
+        let (head, center, r) = head_ball(sk);
+        let w = sk.world(pose);
+        let rest = sk.world(&sk.rest())[head].rotation;
+        let turn = w[head].rotation * rest.inverse();
+        let middle = w[end].matrix.transform_point3(palm(sk, end));
+        let d = turn.inverse() * (middle - w[head].matrix.transform_point3(center));
+        (d.normalize(), (d.length() - r) / height(sk))
+    };
+    let arms = contact::arms(&source);
+    // The poses with both hands on the head, and on it for a third of a second already: a hand is eased on.
+    let on: Vec<bool> = (0..clip.poses.len())
+        .map(|f| arms.iter().all(|a| on_head(&source, &clip.poses[f], a.end).1 < 0.01))
+        .collect();
+    let held: Vec<usize> = (20..on.len()).filter(|&f| on[f - 20..=f].iter().all(|&o| o)).collect();
+    assert!(held.len() > 30, "{} frames on the head", held.len());
+    for (name, head, by) in [
+        ("big head", 1.6, 1.0),
+        ("small head", 0.7, 1.0),
+        ("long arms", 1.0, 1.5),
+        ("same", 1.0, 1.0),
+    ] {
+        let target = big_head(&source, head, by);
+        let map = Mapping::new(&source, &target);
+        let t_arms = contact::arms(&target);
+        // How far round the head from its place a hand's middle gets, and how far off its height over the head.
+        let worst = |played: &Clip| {
+            let (mut off, mut lift) = (0.0f32, 0.0f32);
+            for &f in &held {
+                for (a, ta) in arms.iter().zip(&t_arms) {
+                    let want = on_head(&source, &clip.poses[f], a.end);
+                    let got = on_head(&target, &played.poses[f], ta.end);
+                    off = off.max(got.0.angle_between(want.0));
+                    lift = lift.max((got.1 - want.1).abs());
+                }
+            }
+            (off, lift)
+        };
+        let (was, was_lift) = worst(&map.apply(&source, &target, &clip).unwrap());
+        for (run, played) in [
+            (
+                "whole clip",
+                map.apply_with(&source, &target, &clip, placing()).unwrap(),
+            ),
+            ("live", live(&map, &source, &target, &clip, placing())),
+        ] {
+            let (off, lift) = worst(&played);
+            eprintln!(
+                "{name}, {run}: a hand's middle off its place on the head by at most {was:.2} -> {off:.2} rad, off its height over it {was_lift:.3} -> {lift:.3} of the height"
+            );
+            assert!(
+                off < 0.3,
+                "{name}, {run}: a hand {off} rad round the head from its place"
+            );
+            assert!(
+                lift < 0.02,
+                "{name}, {run}: a hand {lift} of the height off its height over the head"
+            );
+        }
+    }
+}
+
+/// The middle of each hand darting from the side to the ear in a fifth of a second and held there a second; then,
+/// from the side again, swept up past the ear and half as far again and straight back down, never slowing by the
+/// head. At 30 poses a second.
+fn darts_and_sweeps(sk: &Skeleton) -> Clip {
+    let frames = 120;
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let (head, center, r) = head_ball(sk);
+    let smooth = |x: f32| {
+        let t = x.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let poses = (0..frames)
+        .map(|f| {
+            let t = f as f32 / 30.0;
+            let mut pose = rest.clone();
+            for arm in contact::arms(sk) {
+                let from = world[arm.end].position();
+                let reach = world[arm.end].matrix.transform_vector3(palm(sk, arm.end));
+                let ear = world[head]
+                    .matrix
+                    .transform_point3(center + Vec3::new(from.x.signum() * 1.1, -0.3, -0.1) * r)
+                    - reach;
+                let u = if t < 2.5 {
+                    smooth((t - 0.5) / 0.2) - smooth((t - 1.7) / 0.2)
+                } else {
+                    1.5 * (1.0 - ((t - 3.3) / 0.3).abs()).max(0.0)
+                };
+                contact::reach(sk, &mut pose, &arm, from.lerp(ear, u));
+            }
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn a_hand_placed_by_the_body_is_eased_onto_the_head_and_one_sweeping_past_is_left_alone() {
+    let source = common::mixamo();
+    let clip = darts_and_sweeps(&source);
+    let fixes = Fixes {
+        head: true,
+        place: true,
+        ..Fixes::NONE
+    };
+    for by in [1.6, 0.7] {
+        let target = big_head(&source, by, 1.0);
+        let map = Mapping::new(&source, &target);
+        let h = height(&target);
+        let arms = contact::arms(&target);
+        let wrists = |c: &Clip| -> Vec<Vec<Vec3>> {
+            c.poses
+                .iter()
+                .map(|p| {
+                    let w = target.world(p);
+                    arms.iter().map(|a| w[a.end].position() / h).collect()
+                })
+                .collect()
+        };
+        let kink = |w: &[Vec<Vec3>]| {
+            (1..w.len() - 1)
+                .flat_map(|f| (0..arms.len()).map(move |a| w[f][a].distance((w[f - 1][a] + w[f + 1][a]) / 2.0)))
+                .fold(0.0f32, f32::max)
+        };
+        let plain = wrists(&map.apply(&source, &target, &clip).unwrap());
+        for (name, played) in [
+            ("whole clip", map.apply_with(&source, &target, &clip, fixes).unwrap()),
+            ("live", live(&map, &source, &target, &clip, fixes)),
+        ] {
+            let got = wrists(&played);
+            let apart = |frames: std::ops::Range<usize>| {
+                frames
+                    .flat_map(|f| (0..arms.len()).map(move |a| (f, a)))
+                    .map(|(f, a)| got[f][a].distance(plain[f][a]))
+                    .fold(0.0f32, f32::max)
+            };
+            let (moved, swept) = (apart(0..75), apart(75..got.len()));
+            let (was, now) = (kink(&plain[..75]), kink(&got[..75]));
+            eprintln!(
+                "head {by}, {name}: wrists moved up to {moved:.3} of the height, {swept:.5} sweeping past; kinks {was:.4} -> {now:.4}"
+            );
+            assert!(moved > 0.015, "head {by}, {name}: the hands were not put on the head");
+            assert!(swept < 0.004, "head {by}, {name}: a hand sweeping past moved {swept}");
+            assert!(
+                now < was + 0.004,
+                "head {by}, {name}: a wrist kinks {now} of the height, {was} unfixed"
+            );
+        }
+    }
+}
+
+/// One hand brought before the chest and held there, then the middle of the other laid over the middle of it, 3 cm
+/// above, and held: 30 poses a second, two seconds.
+fn lays_a_hand_on_the_other(sk: &Skeleton) -> Clip {
+    let frames = 60;
+    let rest = sk.rest();
+    let world = sk.world(&rest);
+    let arms = contact::arms(sk);
+    let smooth = |x: f32, a: f32, b: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let reach = |arm: &Limb| world[arm.end].matrix.transform_vector3(palm(sk, arm.end));
+    let poses = (0..frames)
+        .map(|f| {
+            let t = f as f32 / 30.0;
+            let mut pose = rest.clone();
+            let (held, laid) = (&arms[0], &arms[1]);
+            let before = Vec3::new(0.0, 125.0, 28.0) - reach(held);
+            let from = world[held.end].position();
+            contact::reach(sk, &mut pose, held, from.lerp(before, smooth(t, 0.0, 0.5)));
+            let on = Vec3::new(0.0, 128.0, 28.0) - reach(laid);
+            let from = world[laid.end].position();
+            contact::reach(sk, &mut pose, laid, from.lerp(on, smooth(t, 0.3, 1.0)));
+            pose
+        })
+        .collect();
+    Clip {
+        times: (0..frames).map(|f| f as f32 / 30.0).collect(),
+        poses,
+    }
+}
+
+#[test]
+fn a_hand_laid_on_the_other_stays_on_it_on_longer_arms() {
+    let source = common::mixamo();
+    let clip = lays_a_hand_on_the_other(&source);
+    // The way from the middle of the held hand to the middle of the one laid on it, over the height.
+    let way = |sk: &Skeleton, pose: &[Transform]| {
+        let w = sk.world(pose);
+        let a = contact::arms(sk);
+        let at = |arm: &Limb| w[arm.end].matrix.transform_point3(palm(sk, arm.end));
+        (at(&a[1]) - at(&a[0])) / height(sk)
+    };
+    let held: Vec<usize> = (0..clip.poses.len())
+        .filter(|&f| way(&source, &clip.poses[f]).length() < 0.03)
+        .collect();
+    assert!(held.len() > 20, "{} frames with a hand on the other", held.len());
+    for (name, by) in [("long", 1.4), ("same", 1.0)] {
+        let target = long_arms(&source, by);
+        let map = Mapping::new(&source, &target);
+        let worst = |c: &Clip| {
+            held.iter()
+                .map(|&f| way(&target, &c.poses[f]).distance(way(&source, &clip.poses[f])))
+                .fold(0.0f32, f32::max)
+        };
+        let was = worst(&map.apply_with(&source, &target, &clip, Fixes::ALL).unwrap());
+        for (run, played) in [
+            (
+                "whole clip",
+                map.apply_with(&source, &target, &clip, placing()).unwrap(),
+            ),
+            ("live", live(&map, &source, &target, &clip, placing())),
+        ] {
+            let now = worst(&played);
+            eprintln!(
+                "{name} arms, {run}: the way from one hand to the other off by at most {was:.4} -> {now:.4} of the height"
+            );
+            assert!(
+                now < 0.006,
+                "{name} arms, {run}: a hand {now} of the height off its place on the other"
+            );
+            assert!(
+                now <= was + 1e-4,
+                "{name} arms, {run}: {now} off, {was} without placing"
+            );
+        }
+    }
+}
+
+#[test]
+fn placing_hands_by_the_body_leaves_a_rig_played_onto_itself_as_it_was() {
+    let rig = common::mixamo();
+    let map = Mapping::new(&rig, &rig);
+    let only = Fixes {
+        place: true,
+        ..Fixes::NONE
+    };
+    let arms = contact::arms(&rig);
+    for (name, clip) in [
+        ("palms on the head", palms_on_the_head(&rig)),
+        ("a hand on the other", lays_a_hand_on_the_other(&rig)),
+        ("claps", claps(&rig)),
+    ] {
+        let plain = map.apply(&rig, &rig, &clip).unwrap();
+        for (run, played) in [
+            ("whole clip", map.apply_with(&rig, &rig, &clip, only).unwrap()),
+            ("live", live(&map, &rig, &rig, &clip, only)),
+        ] {
+            let mut off = 0.0f32;
+            for (p, q) in plain.poses.iter().zip(&played.poses) {
+                let (p, q) = (rig.world(p), rig.world(q));
+                for arm in &arms {
+                    for b in [arm.lower, arm.end] {
+                        off = off.max(p[b].position().distance(q[b].position()));
+                    }
+                }
+            }
+            eprintln!(
+                "{name}, {run}: arms moved by at most {:.5} of the height",
+                off / height(&rig)
+            );
+            assert!(off < 2e-3 * height(&rig), "{name}, {run}: an arm moved {off} cm");
+        }
+    }
+}

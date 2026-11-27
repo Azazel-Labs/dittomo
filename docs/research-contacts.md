@@ -159,3 +159,104 @@ them that much bigger did harm: hands in the head on the atlas 37.2% from 33.8%,
 by the ratio of the two heads, which a bigger guess for both leaves as it was, while a bigger head is "near" from
 farther off and takes hold of more hands. Not kept. What a hand in the head without a skin needs is the hand's own
 size (its fingers reach into the head from a wrist put right), not a bigger head.
+
+## The head as a part, and hands meeting (2026-11-26, last)
+
+### The head (kept)
+
+With placing on, the head is one more part: a ball where the body takes its head to be, as far out each way (6 up
+by 8 round) as the skin on the head's bone shows, its sides tied between the rigs as the trunks' are. It is blended
+with the other parts by nearness, as any part is, with three rules of its own:
+
+- **A hand held on a head is there on purpose**, and is brought to its place from however far, not only from nearly
+  there. Held: the hand's middle within 1% of the height of the head's surface (not at all past 4%), as much as the
+  head counts against the part counting most.
+- **A hand held on a head is kept off nothing else.** On a smaller head a hand is nearer the shoulders than the
+  source's, and the trunk's top would push it off again.
+- **A hand sweeping past a head isn't by it**: under 0.8 heights a second against the head it may be, over 1.6 not at
+  all (what the old fix asks, in heights).
+
+Where both bodies have a head, the fix made for the head isn't run: charts stand in for it.
+
+The atlas (now 182 pairs), head and neck; real clips; the picked clips' wrist by the head (comb-hair, jumping-jacks,
+thinker, wash-self):
+
+| Fixes | head and neck | real clips: limbs, pops | wrist by the head |
+| --- | ---: | ---: | ---: |
+| none | 92%, 1.16, 0.0435, 25.2% | 1.9°, 0.20% | 0.0525, 0.0456, 0.0502, 0.0491 |
+| all, bones only | 93%, 1.13, 0.0426, 33.8% | 2.9°, 0.30% | 0.0520, 0.0447, 0.0473, 0.0465 |
+| all, with skins | 94%, 1.18, 0.0177, 10.6% | | |
+| all and place, bones only, before | 93%, 1.10, 0.0416, 33.9% | 3.2°, 0.31% (live 3.7°, 0.33%) | 0.0482, 0.0445, 0.0414, 0.0422 |
+| all and place, with skins, before | 93%, 1.20, 0.0184, 11.0% | | |
+| all and place, bones only, now | 92%, 1.07, 0.0402, 27.7% | 3.2°, 0.30% (live 3.7°, 0.32%) | 0.0486, 0.0441, 0.0397, 0.0420 |
+| all and place, with skins, now | 92%, 1.14, 0.0164, 6.4% | | |
+
+Trunk and thighs are as they were (with skins: in the body 2.8% from 3.0% and 2.4% from 2.3%); every row without
+placing is the same to the last digit. On rigs made to differ (`tests/contact.rs`: a head 1.6 and 0.7 times as tall,
+arms half as long again), a hand's middle laid by the ear and on top lands within 0.26 rad round the head and 1.5%
+of the height off its height over it, from 0.35 to 1.19 rad and 3.6% to 9.1% unfixed; a hand swept past moves
+0.0003 of the height.
+
+What was tried on the way, each on the atlas's head and neck (bones only, then with skins):
+
+- **The old fix aimed by the chart** (the hand's middle, the fitted ball; the old fix still saying how much): in the
+  head 32.8% and 10.9%, gap 0.0411 and 0.0177. Level: where a hand is aimed wasn't what put it in the head.
+- **The old fix off, nothing in its place**: 22.9% and 6.5%. The old fix is what puts hands in heads here: it takes
+  hold of every hand within one and a half head radii of the head's middle, those nearer the neck or a shoulder
+  too, and sends them by the head alone. Blending by nearness is what the head needed.
+- **The head as a part with no rule of its own**: 23.2% and 6.1%, pops 0.29%, the best the atlas gets. But the
+  atlas's heads are much alike; on a head 1.6 times as tall the hand stays 1.8 rad round the head from its place
+  (0.26 with the rules), as nothing is brought from past 10% of the height. Not kept as it was: the three rules
+  above cost 4.5 points without skins and 0.3 with.
+- **Held from farther off** (2% to 6% of the height): 30.1% and 6.9%. **From nearer** (0.5% to 2.5%): 26.1% and
+  6.3%, the gap 0.0406. 1% to 4% kept.
+- **The trunk stopping flat at the head's joint** (its top no ball about it): 29.0% and 6.8% from 28.6% and 6.5%
+  then. Not kept.
+- **Each part keeping a hand off by its share of the say** (and by four times its share): hands on thighs in the
+  body 24.4% (24.1%) from 22.7%, with skins 2.8% (2.4%) from 2.4%. Not kept, though it is what lets a hand laid on the
+  other hand stay there on arms three quarters as long (the trunk pushes both off it: 0.018 of the height off,
+  0.003 with it, 0.009 with placing off).
+- **Gaps scaled by the hands' sizes**, not the heights: trunk 0.0297 from 0.0277 and thighs 24.5% from 22.7%. Hand
+  sizes read from skins and from bones don't agree well enough. Not kept.
+
+Gone with the old fix when placing is on: the elbow swung round to keep the forearm out of the head, and a hand
+that can't reach sliding over the head, not stopping short. Neither is measured by the atlas.
+
+### Hands meeting (nothing kept but the measure)
+
+The picked clips can't measure it: in none do the wrists come within 10% of the height (least apart: wash-self
+14.8%, thinker 17.5%, jumping-jacks 18.5%), so that column is over no frames. A second atlas does
+(`-- --atlas` prints it after the first, `-- --meeting` alone): one hand held before the chest, the other put by IK
+all over the skin of that forearm and hand; 210 pairs, 15036 poses. Each cell: along the held forearm off, the
+hand's gap to skin not its own arm's off (mean), in that skin, the wrists' distance off:
+
+| Fixes | hand on the other arm |
+| --- | ---: |
+| none | 0.25, 0.0231, 25.1%, 0.0306 |
+| all, bones only | 0.16, 0.0220, 27.6%, 0.0163 |
+| all, with skins | 0.17, 0.0194, 22.8%, 0.0219 |
+| all and place, bones only | 0.15, 0.0213, 26.5%, 0.0185 |
+| all and place, with skins | 0.18, 0.0181, 21.6%, 0.0257 |
+
+A hand ends in the other arm in over a fifth of the poses whatever is on; nothing tried moved that without harm
+elsewhere:
+
+- **A pair term** (the way from one hand's middle to the other's kept as the source's in the chests' frames, each
+  hand going half the way, what one arm can't reach made up by the other, eased): scaled by the hands' sizes, in
+  the arm 29.9% and 23.6%, wrists 0.0226 and 0.0359; scaled by height, 28.6% and 27.1%, wrists 0.0141 and 0.0219;
+  only for hands within one and a half hand lengths, 26.7% and 22.8%. It keeps the wrists' distance and loses the
+  touch: an offset copied says nothing of how thick the other arm is, which the forearm's chart already knows. On
+  rigs made to differ it is exact (0.000 of the height off), which is what the test measured, not what the eye
+  does. Not kept.
+- **The other hand as a part** (a line from the wrist to twice the hand's middle, fitted to the skin of the hand and
+  fingers): 27.3% and 21.3%. The forearm's end already stands for it. Not kept.
+- **A hand by the other forearm there on purpose**, as on a head: along the forearm 0.13 and 0.16, from 0.15 and
+  0.18, but in the arm 27.1% and 22.4%. Not kept.
+- **The touch fix seeing the other arms' skin**: in the arm 8.2% from 21.6%, gap 0.0110 from 0.0181. But in the
+  first atlas the other arm hangs by the hip, and a hand put on that hip is "touching" it: trunk in the body 3.7%
+  from 2.8%, thighs on the same bone 84% from 88%; with the body's skin having the last word, 11.0% in the arm,
+  trunk still 4.7%. Not kept, but the one thing that moved the number: fingers reach into the other arm from a
+  middle put right, and only the skin knows.
+
+Next for hands meeting: the touch fix against the other arm, told apart from an arm hanging by the body (the two
+contacts solved together, or an arm by the body counted as the body); palm facing. Crossing order wasn't tried.
