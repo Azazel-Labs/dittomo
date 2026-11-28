@@ -3,7 +3,8 @@ name: CI
 # Formatting, clippy with and without model loading, the tests, the baked-clip shader run against
 # the CPU reader on a software Vulkan adapter, the browser demo (deployed to Pages from main),
 # mapping accuracy on real rigs, and on pull requests a benchmark of the base and the change on the
-# same runner that fails if the change got slower.
+# same runner that fails if the change got slower. On main, once those pass, a version in Cargo.toml that hasn't been
+# released yet is published to crates.io and tagged with a GitHub release (the release job).
 #
 # dittomo reads models through polysmelt from crates.io. The bench job still checks polysmelt out
 # beside the base, as bases from before then read it as a path dependency.
@@ -245,3 +246,85 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           node retarget.mjs ../../target/rigs.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Releases: Cargo.toml's version is the one source of truth. On a push to main whose checks pass, a version no
+  # vX.Y.Z tag has yet is published to crates.io and tagged with a GitHub release; a version already tagged releases
+  # nothing, so changes collect until the next one. Raise it with scripts/bump.sh patch|minor|major|X.Y.Z. Each step
+  # skips what's done, so a rerun after a partial failure picks up where it stopped. Needs the secret
+  # CARGO_REGISTRY_TOKEN.
+  release:
+    needs: [fmt, clippy, test, gpu-check, demo, rigs]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    env:
+      # The version dittomo started at, which was never released: the first release is the first version after it.
+      UNRELEASED: 0.1.0
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Plan
+        id: plan
+        run: |
+          version="$(sed -n '/^\[package\]/,/^\[/ s/^version = "\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Cargo.toml's version, '$version', isn't X.Y.Z"; exit 1
+          fi
+          if [ "$version" = "$UNRELEASED" ]; then
+            echo "$version is the version dittomo started at; raise it to release"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A version behind the newest release is a mistake (pre-releases of the newest X.Y.Z are fine).
+          newest="$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)"
+          newest="${newest#v}"; newest="${newest%%-*}"
+          if [ -n "$newest" ] && [ "$newest" != "${version%%-*}" ] &&
+             [ "$(printf '%s\n%s\n' "$newest" "${version%%-*}" | sort -V | tail -1)" = "$newest" ]; then
+            echo "::error::Cargo.toml says $version, behind the newest release, v$newest. Raise it with scripts/bump.sh."
+            exit 1
+          fi
+          if [[ "$version" == *-* ]] && git rev-parse -q --verify "refs/tags/v${version%%-*}" >/dev/null; then
+            echo "::error::Cargo.toml says $version, a pre-release of v${version%%-*}, which is already out."
+            exit 1
+          fi
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version is already released; nothing to do"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Releasing v$version"
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.release == 'true'
+        run: rustup toolchain install
+      - name: Publish to crates.io
+        if: steps.plan.outputs.release == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          status="$(curl -s -o /dev/null -w '%{http_code}' -A "dittomo-release (https://github.com/$GH_REPO)" \
+            "https://crates.io/api/v1/crates/dittomo/$VERSION")"
+          if [ "$status" = "200" ]; then
+            echo "dittomo $VERSION is already on crates.io; skipping"
+          elif [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::Add the CARGO_REGISTRY_TOKEN repository secret, allowed to publish dittomo (and to create it, for the first release)."
+            exit 1
+          else
+            cargo publish --locked
+          fi
+      - name: Tag and create GitHub release
+        if: steps.plan.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          prerelease=""; [[ "$VERSION" == *-* ]] && prerelease="--prerelease"
+          notes="On crates.io: [dittomo $VERSION](https://crates.io/crates/dittomo/$VERSION) (\`cargo add dittomo\`, or \`cargo install dittomo --features fs\` for the command)."
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "dittomo $VERSION" --notes "$notes" --generate-notes $prerelease
